@@ -1,0 +1,28 @@
+# Verilator build artifacts
+obj_*/
+obj_dir/
+*.vcd
+*.fst
+*.o
+*.a
+
+# Quartus / Intel FPGA project artifacts
+db/
+incremental_db/
+output_files/
+qdb/
+*.qpf
+*.qsf.bak
+*.rpt
+*.sof
+*.pof
+*.smsg
+*.sopcinfo
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
