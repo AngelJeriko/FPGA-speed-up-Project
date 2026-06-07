@@ -8,18 +8,25 @@ BWA-MEM2's seed-extension / semi-global semantics — not pure local SW.
 
 ## Status
 
-**29 / 29 self-checking testbench passes.**
+**41 / 41 self-checking testbench passes.**
 
 | Testbench       | Checks | Status |
 |-----------------|:------:|:------:|
 | `tb_bsw_pe`     | 18     | PASS   |
-| `tb_bsw_top`    | 11     | PASS   |
+| `tb_bsw_top`    | 23     | PASS   |
 
 Coverage includes match/mismatch recurrence, semi-global `H_diag=0` gate,
 local-clamp on negative scores, ambiguous-`N` scoring, pipeline forwarding,
 target forwarding, first-row `eh[]` initialisation, first-column `h0`-decay
-boundary, dead-row early exit, and the full result tuple (`score`, `qle`,
-`tle`, `gscore`, `gtle`, `max_off`).
+boundary, dead-row early exit, dedicated **z-drop early-exit** (positive +
+negative control), **oversize-query rejection** (`qlen > N_PE → error=1`),
+post-reject recovery, and the full result tuple (`score`, `qle`, `tle`,
+`gscore`, `gtle`, `max_off`, `error`).
+
+A static 16-bit overflow / underflow proof for every internal arithmetic
+node lives in [`docs/bit_width_proof.md`](docs/bit_width_proof.md), with
+simulation-only `assert` statements wired into `bsw_pe.sv` to catch any
+drift at runtime.
 
 ## Architecture
 
@@ -128,13 +135,13 @@ These are documented but not blocking the current correctness milestone:
 - **Full BWA-MEM2 banding.** The current array processes the full
   `BAND_WIDTH` of PEs per row. The C++ reference also dynamically shrinks
   the active range (`beg` / `end`) within the band as scores die off.
+  Deferred: HW saves no work from narrowing (PEs clock regardless), and
+  the early-exit benefit is already covered by `dead_row` / `zdrop`.
 - **Swath processing.** Queries longer than `BAND_WIDTH` need to be
-  processed in vertical swaths. The control FSM currently assumes
-  `qlen ≤ N_PE`.
-- **Bit-width audit.** `SCORE_WIDTH = 16` matches the C++ SIMD path but
-  has not been formally proven sufficient for `MAX_QLEN = 128`.
-- **Dedicated z-drop test.** Z-drop early-exit is wired but only covered
-  incidentally; an explicit failing-tail test vector would tighten coverage.
+  processed in vertical swaths. The control FSM currently rejects them
+  via the `error` bit on `bsw_result_t`. Implementing real swath support
+  is the next robustness step if the host wants to align reads longer
+  than the synthesized `N_PE`.
 
 ## License
 

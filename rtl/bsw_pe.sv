@@ -175,4 +175,29 @@ module bsw_pe
     assign h_cell_o     = H_curr_reg;
     assign e_cell_o     = E_reg;
 
+    // ---- Overflow / underflow guard assertions (simulation-only) ----
+    // Static proof is in docs/bit_width_proof.md. These asserts catch any
+    // drift if the host violates the h0 contract (h0 <= 1024) or a future
+    // change to W_MATCH / MAX_QLEN invalidates the proof.
+    // synthesis translate_off
+    localparam score_t SAFE_BOUND = score_t'(16384);  // ~14x H_MAX, ~2x int16
+    always @(posedge clk) begin
+        if (rst_n && !clear_i) begin
+            assert (H_curr_reg >= SZERO)
+              else $error("bsw_pe: H_curr_reg went negative (%0d)", $signed(H_curr_reg));
+            assert (E_reg >= SZERO)
+              else $error("bsw_pe: E_reg went negative (%0d)", $signed(E_reg));
+            assert (F_out_reg >= SZERO)
+              else $error("bsw_pe: F_out_reg went negative (%0d)", $signed(F_out_reg));
+            assert (H_curr_reg < SAFE_BOUND)
+              else $error("bsw_pe: H_curr_reg approaches int16 overflow (%0d, bound %0d)",
+                          $signed(H_curr_reg), $signed(SAFE_BOUND));
+            assert (E_reg < SAFE_BOUND)
+              else $error("bsw_pe: E_reg approaches int16 overflow (%0d)", $signed(E_reg));
+            assert (F_out_reg < SAFE_BOUND)
+              else $error("bsw_pe: F_out_reg approaches int16 overflow (%0d)", $signed(F_out_reg));
+        end
+    end
+    // synthesis translate_on
+
 endmodule

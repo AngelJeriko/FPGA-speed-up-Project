@@ -79,10 +79,15 @@ module bsw_ctrl_fsm
         S_LOAD   = 3'd1,
         S_RUN    = 3'd2,
         S_DRAIN  = 3'd3,
-        S_DONE   = 3'd4
+        S_DONE   = 3'd4,
+        S_REJECT = 3'd5   // qlen > N_PE: skip to S_DONE with error=1
     } state_e;
 
     state_e state, state_n;
+
+    // Latched oversize flag: set at request capture when qlen > N_PE so the
+    // result-emit path returns an error rather than stale tracker data.
+    logic oversize_q;
 
     // ---- Latched config + sequences ----
     bsw_config_t                cfg_q;
@@ -91,13 +96,15 @@ module bsw_ctrl_fsm
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            cfg_q    <= '0;
-            query_q  <= '0;
-            target_q <= '0;
+            cfg_q      <= '0;
+            query_q    <= '0;
+            target_q   <= '0;
+            oversize_q <= 1'b0;
         end else if (state == S_IDLE && req_valid_i) begin
-            cfg_q    <= cfg_i;
-            query_q  <= query_i;
-            target_q <= target_i;
+            cfg_q      <= cfg_i;
+            query_q    <= query_i;
+            target_q   <= target_i;
+            oversize_q <= (cfg_i.qlen > len_t'(N_PE));
         end
     end
 
@@ -136,12 +143,20 @@ module bsw_ctrl_fsm
     always_comb begin
         state_n = state;
         unique case (state)
-            S_IDLE  : if (req_valid_i)                        state_n = S_LOAD;
+            S_IDLE  : if (req_valid_i)
+                          state_n = (cfg_i.qlen > len_t'(N_PE)) ? S_REJECT : S_LOAD;
             S_LOAD  :                                         state_n = S_RUN;
+            S_REJECT:                                         state_n = S_DONE;
             S_RUN   : if ((t_idx == cfg_q.tlen - len_t'(1))
                           || zdrop_break_i || dead_row_i)     state_n = S_DRAIN;
-            S_DRAIN : if (drain_cnt == len_t'(1)
-                          || zdrop_break_i || dead_row_i)     state_n = S_DONE;
+            // S_DRAIN intentionally ignores zdrop_break_i / dead_row_i: those
+            // signals are sticky in the tracker (cleared only by the next
+            // alignment's clear pulse), so re-checking them here would skip
+            // the drain entirely the moment we entered DRAIN via z-drop. The
+            // drain MUST run for drain_total cycles so that cells already in
+            // flight in the systolic array can graduate into glob_max — that's
+            // what preserves accuracy in the presence of an early z-drop exit.
+            S_DRAIN : if (drain_cnt == len_t'(1))             state_n = S_DONE;
             S_DONE  : if (result_ready_i)                     state_n = S_IDLE;
         endcase
     end
@@ -265,8 +280,19 @@ module bsw_ctrl_fsm
     assign tr_e_del_o     = cfg_q.e_del;
     assign tr_e_ins_o     = cfg_q.e_ins;
 
-    // Result presentation
+    // Result presentation. When oversize_q is set the request bypassed the
+    // tracker, so result_i is stale (whatever was latched on the last good
+    // alignment). Override with all-zeros + error=1 so the host can detect the
+    // rejection unambiguously.
     assign result_valid_o = (state == S_DONE);
-    assign result_o       = result_i;
+    always_comb begin
+        if (oversize_q) begin
+            result_o       = '0;
+            result_o.error = 1'b1;
+        end else begin
+            result_o       = result_i;
+            result_o.error = 1'b0;
+        end
+    end
 
 endmodule

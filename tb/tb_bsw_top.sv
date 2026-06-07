@@ -43,6 +43,21 @@ module tb_bsw_top
     int errors = 0;
     int checks = 0;
 
+    // ---- z-drop pulse sampler ----
+    // Latches if u_tracker.zdrop_break_o ever asserts during S_RUN. We gate on
+    // state==S_RUN (=3'd2) because zdrop_break_o is sticky inside the tracker
+    // — it stays high after firing until the NEXT alignment clears it. Without
+    // the state gate we'd see leftover assertions in the IDLE/LOAD window
+    // between tests and contaminate the negative-control assertion.
+    logic zdrop_seen;
+    logic zdrop_clear = 1'b0;
+    always_ff @(posedge clk) begin
+        if (!rst_n || zdrop_clear)
+            zdrop_seen <= 1'b0;
+        else if (dut.u_tracker.zdrop_break_o && (dut.u_fsm.state == 3'd2))
+            zdrop_seen <= 1'b1;
+    end
+
     task automatic check(input string name,
                          input int got,
                          input int expected);
@@ -68,7 +83,7 @@ module tb_bsw_top
         @(posedge clk);
     endtask
 
-    task automatic load_config(input int qlen, input int tlen);
+    task automatic load_config(input int qlen, input int tlen, input int zdrop = 0);
         // BWA-MEM2 is a seed-extension algorithm: h0 is the carry-in seed score.
         // With h0=0 the gate kills every cell. Use h0=1 here so the DP can start.
         cfg.h0        = score_t'(1);
@@ -76,11 +91,16 @@ module tb_bsw_top
         cfg.e_del     = score_t'(W_E_DEL);
         cfg.o_ins     = score_t'(W_O_INS);
         cfg.e_ins     = score_t'(W_E_INS);
-        cfg.zdrop     = score_t'(0);      // disable zdrop for these basic cases
+        cfg.zdrop     = score_t'(zdrop);  // 0 = disabled (default)
         cfg.end_bonus = score_t'(0);
         cfg.w         = len_t'(BAND_WIDTH);
         cfg.qlen      = len_t'(qlen);
         cfg.tlen      = len_t'(tlen);
+        // Reset the z-drop pulse sampler so the next alignment starts fresh.
+        @(negedge clk);
+        zdrop_clear = 1'b1;
+        @(negedge clk);
+        zdrop_clear = 1'b0;
     endtask
 
     task automatic submit_and_wait();
@@ -184,6 +204,86 @@ module tb_bsw_top
             load_config(4, 5);
             submit_and_wait();
             check("T4 single insertion score (>=2)", (result.score >= 2) ? 1 : 0, 1);
+        end
+
+        // ----------------------------------------------------------------
+        // Test 5: Dedicated z-drop early-exit (positive case).
+        // query = AAAAAAAA (8x A), target = AAAAAAAATTTTTTTT.
+        // Diagonal cells (k,k) = h0 + k + 1 climb to H(7,7) = 9.
+        // When row 0's tail graduates (stage qlen-1 = 7), glob_max has already
+        // climbed past row 0's m via the wavefront, so the row-0 tail check
+        // triggers z-drop with this aggressive threshold (zdrop=1).
+        // After the FSM exits S_RUN, the drain phase still runs long enough
+        // for the wavefront cells already in flight (including the diagonal
+        // peak (7,7)) to graduate into glob_max — so the SCORE stays correct.
+        // What z-drop saves is the extra S_RUN cycles that would have fed the
+        // tail target bases into PE_0.
+        // ----------------------------------------------------------------
+        begin
+            bit [2:0] q[$] = '{A,A,A,A,A,A,A,A};
+            bit [2:0] t[$] = '{A,A,A,A,A,A,A,A,T,T,T,T,T,T,T,T};
+            set_query(8, q);
+            set_target(16, t);
+            load_config(8, 16, 1);   // zdrop = 1 (aggressive)
+            submit_and_wait();
+            check("T5 zdrop score (peak preserved)", result.score,  9);
+            check("T5 zdrop qle  (peak col+1)",      result.qle,    8);
+            check("T5 zdrop tle  (peak row+1)",      result.tle,    8);
+            check("T5 zdrop fired",                  zdrop_seen,    1);
+        end
+
+        // ----------------------------------------------------------------
+        // Test 6: z-drop disabled (negative control).
+        // Same sequence as T5 but zdrop=0. The early-exit gate is
+        // unconditionally false, so zdrop_seen must stay 0. The alignment
+        // still produces the same final score (z-drop only changes WHEN we
+        // stop, not WHAT the running max is).
+        // ----------------------------------------------------------------
+        begin
+            bit [2:0] q[$] = '{A,A,A,A,A,A,A,A};
+            bit [2:0] t[$] = '{A,A,A,A,A,A,A,A,T,T,T,T,T,T,T,T};
+            set_query(8, q);
+            set_target(16, t);
+            load_config(8, 16, 0);   // zdrop = 0 (disabled)
+            submit_and_wait();
+            check("T6 no-zdrop score (same as T5)",  result.score,  9);
+            check("T6 no-zdrop did NOT fire",        zdrop_seen,    0);
+        end
+
+        // ----------------------------------------------------------------
+        // Test 7: Oversize-request rejection (qlen > N_PE).
+        // N_PE = BAND_WIDTH = 64. Submit qlen = 65 and verify the FSM
+        // rejects: result.error == 1, score == 0, no hang.
+        // The query/target contents are immaterial — the FSM bypasses
+        // S_LOAD/S_RUN/S_DRAIN entirely via S_REJECT.
+        // ----------------------------------------------------------------
+        begin
+            bit [2:0] q[$] = '{A};   // contents don't matter
+            bit [2:0] t[$] = '{A};
+            set_query(1, q);
+            set_target(1, t);
+            load_config(BAND_WIDTH + 1, 1, 0);   // qlen = N_PE + 1 = oversize
+            submit_and_wait();
+            check("T7 oversize error bit set",   result.error,  1);
+            check("T7 oversize score zeroed",    result.score,  0);
+            check("T7 oversize qle zeroed",      result.qle,    0);
+            check("T7 oversize tle zeroed",      result.tle,    0);
+        end
+
+        // ----------------------------------------------------------------
+        // Test 8: Boundary acceptance: confirm a previously-valid request
+        // following T7 still works (rejection state is not sticky).
+        // Reuse T1's perfect-match setup; expect identical results.
+        // ----------------------------------------------------------------
+        begin
+            bit [2:0] q[$] = '{A,C,G,T};
+            bit [2:0] t[$] = '{A,C,G,T};
+            set_query(4, q);
+            set_target(4, t);
+            load_config(4, 4);
+            submit_and_wait();
+            check("T8 post-reject error clear",  result.error,  0);
+            check("T8 post-reject score",        result.score,  5);
         end
 
         // ----------------------------------------------------------------

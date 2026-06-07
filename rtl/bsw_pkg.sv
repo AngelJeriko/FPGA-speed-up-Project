@@ -60,7 +60,12 @@ package bsw_pkg;
     } bsw_config_t;
 
     // Output result, matches scalarBandedSWA return + reference pointer outputs.
+    // `error` is set when the request was rejected — currently the only cause
+    // is qlen > BAND_WIDTH (the synthesized PE array width). When error=1, all
+    // other result fields are forced to 0 to prevent the host from acting on
+    // stale tracker state. The host must check error before using score.
     typedef struct packed {
+        logic    error;        // 1 = request rejected (e.g., qlen > N_PE)
         score_t  score;        // max alignment score
         score_t  gscore;       // best score reaching end of query
         len_t    qle;          // query length consumed at max
