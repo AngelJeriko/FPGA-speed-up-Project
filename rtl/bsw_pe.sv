@@ -65,13 +65,28 @@ module bsw_pe
 );
 
     // ---- Stored config ----
+    // Penalty registers latched at load_q_i. Storing them locally per PE
+    // (rather than reading the broadcast wires every cycle) lets the
+    // synthesis tool place the per-cell subtractions on a much shorter
+    // routing net, and the precomputed oe_del / oe_ins removes one adder
+    // from the per-cycle critical path. See docs/speedup_plan.md (F).
     base_t  query_base_reg;
+    score_t e_del_reg, e_ins_reg;
+    score_t oe_del_reg, oe_ins_reg;
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             query_base_reg <= '0;
+            e_del_reg      <= '0;
+            e_ins_reg      <= '0;
+            oe_del_reg     <= '0;
+            oe_ins_reg     <= '0;
         end else if (load_q_i) begin
             query_base_reg <= query_base_i;
+            e_del_reg      <= e_del_i;
+            e_ins_reg      <= e_ins_i;
+            oe_del_reg     <= o_del_i + e_del_i;
+            oe_ins_reg     <= o_ins_i + e_ins_i;
         end
     end
 
@@ -87,15 +102,22 @@ module bsw_pe
     score_t E_reg, F_out_reg;
     score_t H_curr_reg, H_prev_reg;
 
-    score_t M_term, H_max_ME, H_max_MEF, H_new;
-    score_t oe_del, E_open, E_ext, E_pick, E_new;
-    score_t oe_ins, F_open, F_ext, F_pick, F_new;
+    score_t M_term, H_max_ME, H_new;
+    score_t E_open, E_ext, E_pick, E_new;
+    score_t F_open, F_ext, F_pick, F_new;
     logic   diag_nz;
 
     // Signed zero used for clamps. Unsized '0 is treated as unsigned in
     // comparison context and silently breaks the negative-value clamps.
     localparam score_t SZERO = score_t'(0);
 
+    // Critical-path optimisations (speedup_plan.md item F):
+    //   1. The H_new = max(M, E, F, 0) clamp is provably unnecessary: E_reg
+    //      and f_i are reset to 0 and clamped >= 0 on every update, so
+    //      max(M, E) >= 0 (because E >= 0), and max-with f_i preserves >= 0.
+    //      Dropping the clamp removes one comparator from the critical path.
+    //   2. oe_del / oe_ins use the load-time registered values
+    //      (oe_del_reg / oe_ins_reg) — no per-cycle adder needed.
     always_comb begin
         // M = (H_diag != 0) ? H_diag + S : 0
         // The "!= 0" check disallows starting an alignment from a zero cell mid-way,
@@ -103,22 +125,20 @@ module bsw_pe
         diag_nz   = (h_diag_i != SZERO);
         M_term    = diag_nz ? (h_diag_i + s_match) : SZERO;
 
-        // H_new = max(M, E, F, 0)
-        H_max_ME  = (M_term   > E_reg) ? M_term   : E_reg;
-        H_max_MEF = (H_max_ME > f_i)   ? H_max_ME : f_i;
-        H_new     = (H_max_MEF > SZERO) ? H_max_MEF : SZERO;
+        // H_new = max(M, E, f_i)  -- clamp >= 0 implicit via E and f_i being >= 0
+        H_max_ME  = (M_term  > E_reg) ? M_term : E_reg;     // >= 0 since E_reg >= 0
+        H_new     = (H_max_ME > f_i)  ? H_max_ME : f_i;     // >= 0 since f_i >= 0
 
-        // E_new = max(H_new - (o_del+e_del), E - e_del, 0)
-        oe_del = o_del_i + e_del_i;
-        E_open = H_new - oe_del;
-        E_ext  = E_reg - e_del_i;
+        // E_new = max(H_new - oe_del, E_reg - e_del, 0)
+        // Uses pre-registered oe_del_reg / e_del_reg (no adder in path).
+        E_open = H_new - oe_del_reg;
+        E_ext  = E_reg - e_del_reg;
         E_pick = (E_open > E_ext)  ? E_open : E_ext;
         E_new  = (E_pick > SZERO)  ? E_pick : SZERO;
 
-        // F_new = max(H_new - (o_ins+e_ins), F_in - e_ins, 0)
-        oe_ins = o_ins_i + e_ins_i;
-        F_open = H_new - oe_ins;
-        F_ext  = f_i   - e_ins_i;
+        // F_new = max(H_new - oe_ins, f_i - e_ins, 0)
+        F_open = H_new - oe_ins_reg;
+        F_ext  = f_i   - e_ins_reg;
         F_pick = (F_open > F_ext)  ? F_open : F_ext;
         F_new  = (F_pick > SZERO)  ? F_pick : SZERO;
     end

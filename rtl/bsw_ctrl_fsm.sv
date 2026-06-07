@@ -94,13 +94,22 @@ module bsw_ctrl_fsm
     base_t [MAX_QLEN-1:0]       query_q;
     base_t [MAX_TLEN-1:0]       target_q;
 
+    // Direct DONE -> LOAD handoff: the host can submit the next request while
+    // the previous result is being collected. accept_req is the cycle in which
+    // the FSM consumes (cfg_i, query_i, target_i) -- either we're idle, or we're
+    // in DONE and the host is taking the result this cycle. See
+    // docs/speedup_plan.md (B).
+    wire accept_req = req_valid_i &&
+                      ((state == S_IDLE) ||
+                       (state == S_DONE && result_ready_i));
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             cfg_q      <= '0;
             query_q    <= '0;
             target_q   <= '0;
             oversize_q <= 1'b0;
-        end else if (state == S_IDLE && req_valid_i) begin
+        end else if (accept_req) begin
             cfg_q      <= cfg_i;
             query_q    <= query_i;
             target_q   <= target_i;
@@ -147,6 +156,15 @@ module bsw_ctrl_fsm
                           state_n = (cfg_i.qlen > len_t'(N_PE)) ? S_REJECT : S_LOAD;
             S_LOAD  :                                         state_n = S_RUN;
             S_REJECT:                                         state_n = S_DONE;
+            // S_DONE -> S_LOAD/S_REJECT directly when the host has the next
+            // request queued (req_valid_i high), saving the IDLE cycle. If the
+            // host is just consuming the result, fall back to S_IDLE.
+            S_DONE  : if (result_ready_i) begin
+                          if (req_valid_i)
+                              state_n = (cfg_i.qlen > len_t'(N_PE)) ? S_REJECT : S_LOAD;
+                          else
+                              state_n = S_IDLE;
+                      end
             S_RUN   : if ((t_idx == cfg_q.tlen - len_t'(1))
                           || zdrop_break_i || dead_row_i)     state_n = S_DRAIN;
             // S_DRAIN intentionally ignores zdrop_break_i / dead_row_i: those
@@ -157,7 +175,6 @@ module bsw_ctrl_fsm
             // flight in the systolic array can graduate into glob_max — that's
             // what preserves accuracy in the presence of an early z-drop exit.
             S_DRAIN : if (drain_cnt == len_t'(1))             state_n = S_DONE;
-            S_DONE  : if (result_ready_i)                     state_n = S_IDLE;
         endcase
     end
 
@@ -247,7 +264,12 @@ module bsw_ctrl_fsm
     end
 
     // ---- Outputs ----
-    assign req_ready_o = (state == S_IDLE);
+    // Accept new requests either in IDLE or in DONE while the host is taking
+    // the current result. This is the visible half of the direct DONE -> LOAD
+    // handoff (B); together with accept_req it forms a valid/ready pair the
+    // host can drive every cycle.
+    assign req_ready_o = (state == S_IDLE) ||
+                         (state == S_DONE && result_ready_i);
 
     // Pulses
     assign sa_clear_o     = (state == S_LOAD);

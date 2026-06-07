@@ -8,12 +8,17 @@ BWA-MEM2's seed-extension / semi-global semantics — not pure local SW.
 
 ## Status
 
-**41 / 41 self-checking testbench passes.**
+**44 / 44 self-checking testbench passes.**
 
 | Testbench       | Checks | Status |
 |-----------------|:------:|:------:|
 | `tb_bsw_pe`     | 18     | PASS   |
-| `tb_bsw_top`    | 23     | PASS   |
+| `tb_bsw_top`    | 26     | PASS   |
+
+For the speed-up roadmap (replication, batch DMA, PE Fmax, board choice,
+etc.) see [`docs/speedup_plan.md`](docs/speedup_plan.md). Items **F** (PE
+critical-path improvements) and **B** (direct DONE→LOAD handoff) are
+already implemented; the rest depend on board / interface choice.
 
 Coverage includes match/mismatch recurrence, semi-global `H_diag=0` gate,
 local-clamp on negative scores, ambiguous-`N` scoring, pipeline forwarding,

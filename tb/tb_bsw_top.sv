@@ -43,6 +43,21 @@ module tb_bsw_top
     int errors = 0;
     int checks = 0;
 
+    // ---- DONE -> IDLE transition sampler (B speedup verification) ----
+    // Latches if the FSM ever passes through S_IDLE between two alignments.
+    // For the back-to-back test (T9) we hold req_valid high so the FSM
+    // should take the direct S_DONE -> S_LOAD path; visiting S_IDLE means
+    // the handoff did not happen. Cleared by t9_sampler_clear.
+    logic t9_done_to_idle;
+    logic t9_sampler_clear = 1'b0;
+    always_ff @(posedge clk) begin
+        if (!rst_n || t9_sampler_clear)
+            t9_done_to_idle <= 1'b0;
+        else if (dut.u_fsm.state_q == 3'd4 /* S_DONE */ &&
+                 dut.u_fsm.state   == 3'd0 /* S_IDLE */)
+            t9_done_to_idle <= 1'b1;
+    end
+
     // ---- z-drop pulse sampler ----
     // Latches if u_tracker.zdrop_break_o ever asserts during S_RUN. We gate on
     // state==S_RUN (=3'd2) because zdrop_break_o is sticky inside the tracker
@@ -284,6 +299,61 @@ module tb_bsw_top
             submit_and_wait();
             check("T8 post-reject error clear",  result.error,  0);
             check("T8 post-reject score",        result.score,  5);
+        end
+
+        // ----------------------------------------------------------------
+        // Test 9: Back-to-back direct DONE -> LOAD handoff (B speedup).
+        // Submit alignment A; while A is processing, swap inputs to B and
+        // hold req_valid high. The FSM should latch B in the same cycle it
+        // emits A's result, skipping the IDLE wait.
+        // A = ACGT/ACGT  (expect score=5)
+        // B = AAAA/CCCC  (expect score=1, all-mismatch dead-row)
+        // Sampler t9_done_to_idle must remain 0 — the FSM should never
+        // enter IDLE between A and B.
+        // ----------------------------------------------------------------
+        begin
+            bit [2:0] qA[$] = '{A,C,G,T};
+            bit [2:0] tA[$] = '{A,C,G,T};
+            bit [2:0] qB[$] = '{A,A,A,A};
+            bit [2:0] tB[$] = '{C,C,C,C};
+
+            // Clear the transition sampler
+            @(negedge clk);
+            t9_sampler_clear = 1'b1;
+            @(negedge clk);
+            t9_sampler_clear = 1'b0;
+
+            // Submit A
+            set_query(4, qA);
+            set_target(4, tA);
+            load_config(4, 4);
+            @(posedge clk);
+            wait (req_ready);
+            @(posedge clk);
+            req_valid = 1'b1;
+            @(posedge clk);   // A's request latched here; FSM is now in S_LOAD
+
+            // Swap inputs to B while A processes. req_valid stays high so the
+            // FSM picks up B during A's DONE cycle.
+            set_query(4, qB);
+            set_target(4, tB);
+            load_config(4, 4);
+
+            // Wait for A's result
+            wait (result_valid);
+            check("T9 A score (ACGT/ACGT)",      result.score,    5);
+            @(posedge clk);   // host consumes A; direct path: state -> S_LOAD for B
+
+            // Wait for B's result (result_valid drops as state leaves DONE, then
+            // rises again when B reaches DONE)
+            wait (!result_valid);
+            wait (result_valid);
+            check("T9 B score (AAAA/CCCC)",      result.score,    1);
+            @(posedge clk);
+            req_valid = 1'b0;
+
+            // Verify the direct handoff: no DONE -> IDLE transition in T9
+            check("T9 no IDLE between A and B",  t9_done_to_idle, 0);
         end
 
         // ----------------------------------------------------------------
