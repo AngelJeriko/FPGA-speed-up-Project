@@ -10,3 +10,4 @@
 ../rtl/bsw_max_tracker.sv
 ../rtl/bsw_ctrl_fsm.sv
 ../rtl/bsw_top.sv
+../rtl/bsw_axis_adapter.sv

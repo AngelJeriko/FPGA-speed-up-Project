@@ -21,6 +21,7 @@ RTL_FILES=(
     "$RTL/bsw_max_tracker.sv"
     "$RTL/bsw_ctrl_fsm.sv"
     "$RTL/bsw_top.sv"
+    "$RTL/bsw_axis_adapter.sv"
 )
 TB_FILE="$TBDIR/${TB}.sv"
 
