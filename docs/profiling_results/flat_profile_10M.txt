@@ -1,0 +1,76 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 536K of event 'cpu-clock'
+# Event count (approx.): 5419363582170
+#
+# Children      Self  Command          Shared Object         Symbol                                                                                                                                                                                                                                                                                   
+# ........  ........  ...............  ....................  .........................................................................................................................................................................................................................................................................................
+#
+    40.77%     0.01%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] worker_sam(void*, int, int, int)
+    28.46%     0.15%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_sam_pe_batch_post(mem_opt_t const*, bntseq_t const*, unsigned char const*, mem_pestat_t const*, unsigned long, bseq1_t*, mem_alnreg_v*, kswr_t**, mem_cache*, int&, int)
+    24.72%     1.77%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_sort_dedup_patch(mem_opt_t const*, bntseq_t const*, unsigned char const*, unsigned char*, int, mem_alnreg_t*) [clone .part.0]
+    24.67%     0.73%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_matesw_batch_post(mem_opt_t const*, bntseq_t const*, unsigned char const*, mem_pestat_t const*, mem_alnreg_t const*, int, unsigned char const*, mem_alnreg_v*, kswr_t**, int, int*, mem_cache*)
+    22.32%     0.00%  bwa-mem2.avx512  [unknown]             [.] 0x0000000100000006
+    22.31%     0.02%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_kernel1_core(FMI_search*, mem_opt_t const*, bseq1_t*, int, mem_chain_v*, abc*, long, mem_cache*, int)
+    20.63%     8.82%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::getSMEMsOnePosOneThread(unsigned char*, short*, int*, int*, int, int, bseq1_t const*, int*, int, int, smem_struct*, long*)
+    16.32%    16.27%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::backwardExt(smem_struct, unsigned char)
+    14.96%     0.01%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::getSMEMsAllPosOneThread(unsigned char*, int*, int*, int, int, bseq1_t const*, int*, int, int, smem_struct*, long*)
+    14.96%     0.00%  bwa-mem2.avx512  [unknown]             [k] 0x0000000100000001
+    14.61%     0.00%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] worker_aln(void*, int, int, int)
+    14.60%     0.08%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_kernel2_core(FMI_search*, mem_opt_t const*, bseq1_t*, mem_alnreg_v*, int, mem_chain_v*, mem_cache*, unsigned char*, int)
+    13.88%     0.00%  bwa-mem2.avx512  [unknown]             [.] 0x0000000000182c20
+    13.00%     6.10%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain2aln_across_reads_V2(mem_opt_t const*, bntseq_t const*, unsigned char const*, bseq1_t*, int, mem_chain_v*, mem_alnreg_v*, mem_cache*, unsigned char*, int)
+    12.54%    11.41%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_mem_ars(unsigned long, mem_alnreg_t*)
+    12.40%     0.03%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_collect_smem(FMI_search*, mem_opt_t const*, bseq1_t const*, int, smem_struct*, int*, short*, unsigned char*, int*, mem_cache*, long&, int)
+    10.96%     0.08%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_sam_pe_batch(mem_opt_t const*, mem_cache*, long&, long&, kswr_t*, int, int, int)
+    10.85%     1.43%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] kswv::kswvBatchWrapper8(dnaSeqPair*, unsigned char*, unsigned char*, kswr_t*, int, unsigned short, int)
+    10.40%     9.53%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_mem_ars2(unsigned long, mem_alnreg_t*)
+     9.40%     9.40%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] kswv::kswv512_u8(unsigned char*, unsigned char*, short, short, dnaSeqPair*, kswr_t*, int, unsigned short, int, int)
+     6.57%     2.07%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::bwtSeedStrategyAllPosOneThread(unsigned char*, int*, int, bseq1_t const*, int*, int, smem_struct*)
+     5.84%     1.67%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain_seeds(FMI_search*, mem_opt_t const*, bntseq_t const*, bseq1_t const*, int, int, mem_chain_v*, abc*, long, smem_struct*, long)
+     4.68%     4.63%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] bns_get_seq
+     3.89%     3.64%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain_flt(mem_opt_t const*, int, mem_chain_t*, int)
+     3.66%     0.95%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWatermanBatchWrapper8(dnaSeqPair*, unsigned char*, unsigned char*, int, unsigned short, int)
+     3.62%     3.49%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::get_sa_entries_prefetch(smem_struct*, long*, long*, long, int, int, long&)
+     2.88%     0.44%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWatermanBatchWrapper16(dnaSeqPair*, unsigned char*, unsigned char*, int, unsigned short, int)
+     2.69%     2.69%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWaterman512_8(unsigned char*, unsigned char*, unsigned char, unsigned char, dnaSeqPair*, unsigned char*, unsigned short, int, int, int, unsigned char*, unsigned char*)
+     2.41%     2.40%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWaterman512_16(unsigned short*, unsigned short*, unsigned short, unsigned short, dnaSeqPair*, unsigned short*, unsigned short, int, int, int, unsigned short*, unsigned short*)
+     1.72%     0.07%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_reg2aln(mem_opt_t const*, bntseq_t const*, unsigned char const*, int, char const*, mem_alnreg_t const*)
+     1.64%     0.10%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] bwa_gen_cigar2
+     1.48%     1.36%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ksw_global2
+     1.40%     0.00%  bwa-mem2.avx512  [kernel.kallsyms]     [k] entry_SYSCALL_64_after_hwframe
+     1.40%     0.03%  bwa-mem2.avx512  [kernel.kallsyms]     [k] do_syscall_64
+     1.36%     0.00%  bwa-mem2.avx512  [kernel.kallsyms]     [k] x64_sys_call
+     1.16%     0.19%  bwa-mem2.avx512  libc.so.6             [.] realloc
+     1.13%     0.16%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_sam_pe_batch_pre(mem_opt_t const*, bntseq_t const*, unsigned char const*, mem_pestat_t const*, unsigned long, bseq1_t*, mem_alnreg_v*, mem_cache*, long&, int&, int&, int&, int)
+     1.06%     0.22%  bwa-mem2.avx512  libc.so.6             [.] cfree
+     1.00%     0.27%  bwa-mem2.avx512  libc.so.6             [.] malloc
+     1.00%     0.08%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_gen_alt(mem_opt_t const*, bntseq_t const*, unsigned char const*, mem_alnreg_v const*, int, char const*)
+     0.95%     0.01%  bwa-mem2.avx512  [kernel.kallsyms]     [k] __x64_sys_futex
+     0.94%     0.00%  bwa-mem2.avx512  [kernel.kallsyms]     [k] do_futex
+     0.76%     0.00%  bwa-mem2.avx512  libc.so.6             [.] 0x00007c9b482ad045
+     0.72%     0.00%  bwa-mem2.avx512  [unknown]             [.] 0x00000000000f1b80
+     0.67%     0.01%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_reg2sam(mem_opt_t const*, bntseq_t const*, unsigned char const*, bseq1_t*, mem_alnreg_v*, int, mem_aln_t const*)
+     0.65%     0.65%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_combsort_mem_ars(unsigned long, mem_alnreg_t*)
+     0.60%     0.54%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_matesw_batch_pre(mem_opt_t const*, bntseq_t const*, unsigned char const*, mem_pestat_t const*, mem_alnreg_t const*, int, unsigned char const*, mem_alnreg_v*, mem_cache*, int, int, int&, int&, int)
+     0.59%     0.16%  bwa-mem2.avx512  libc.so.6             [.] __libc_calloc
+     0.57%     0.00%  bwa-mem2.avx512  libc.so.6             [.] 0x00007c9b482ac098
+     0.57%     0.57%  bwa-mem2.avx512  libc.so.6             [.] 0x00000000000ac098
+     0.56%     0.02%  bwa-mem2.avx512  libc.so.6             [.] __lll_lock_wake_private
+     0.56%     0.04%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_mark_primary_se(mem_opt_t const*, int, mem_alnreg_t*, long)
+     0.52%     0.23%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_mem_ars_hash(unsigned long, mem_alnreg_t*) [clone .part.0]
+     0.50%     0.08%  bwa-mem2.avx512  [kernel.kallsyms]     [k] futex_wake
+     0.47%     0.44%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_128
+     0.46%     0.02%  bwa-mem2.avx512  libc.so.6             [.] __lll_lock_wait_private
+     0.44%     0.44%  bwa-mem2.avx512  [kernel.kallsyms]     [k] _raw_spin_unlock_irqrestore
+     0.43%     0.00%  bwa-mem2.avx512  [kernel.kallsyms]     [k] futex_wait
+     0.42%     0.00%  bwa-mem2.avx512  [kernel.kallsyms]     [k] __futex_wait
+     0.41%     0.00%  bwa-mem2.avx512  [unknown]             [k] 0x0000000000000020
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

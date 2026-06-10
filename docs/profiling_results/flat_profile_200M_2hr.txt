@@ -1,0 +1,39 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 11M of event 'cpu-clock'
+# Event count (approx.): 112477473622700
+#
+# Overhead  Command          Shared Object         Symbol                                                                                                                                                                                                                                                                                   
+# ........  ...............  ....................  .........................................................................................................................................................................................................................................................................................
+#
+    15.67%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::backwardExt(smem_struct, unsigned char)
+    10.97%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_mem_ars(unsigned long, mem_alnreg_t*)
+    10.75%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::getSMEMsOnePosOneThread(unsigned char*, short*, int*, int*, int, int, bseq1_t const*, int*, int, int, smem_struct*, long*)
+     9.25%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] kswv::kswv512_u8(unsigned char*, unsigned char*, short, short, dnaSeqPair*, kswr_t*, int, unsigned short, int, int)
+     9.22%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_mem_ars2(unsigned long, mem_alnreg_t*)
+     6.05%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain2aln_across_reads_V2(mem_opt_t const*, bntseq_t const*, unsigned char const*, bseq1_t*, int, mem_chain_v*, mem_alnreg_v*, mem_cache*, unsigned char*, int)
+     4.70%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] bns_get_seq
+     3.69%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::get_sa_entries_prefetch(smem_struct*, long*, long*, long, int, int, long&)
+     3.52%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain_flt(mem_opt_t const*, int, mem_chain_t*, int)
+     2.71%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::bwtSeedStrategyAllPosOneThread(unsigned char*, int*, int, bseq1_t const*, int*, int, smem_struct*)
+     2.64%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWaterman512_8(unsigned char*, unsigned char*, unsigned char, unsigned char, dnaSeqPair*, unsigned char*, unsigned short, int, int, int, unsigned char*, unsigned char*)
+     2.38%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWaterman512_16(unsigned short*, unsigned short*, unsigned short, unsigned short, dnaSeqPair*, unsigned short*, unsigned short, int, int, int, unsigned short*, unsigned short*)
+     1.77%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_sort_dedup_patch(mem_opt_t const*, bntseq_t const*, unsigned char const*, unsigned char*, int, mem_alnreg_t*) [clone .part.0]
+     1.61%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain_seeds(FMI_search*, mem_opt_t const*, bntseq_t const*, bseq1_t const*, int, int, mem_chain_v*, abc*, long, smem_struct*, long)
+     1.32%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] kswv::kswvBatchWrapper8(dnaSeqPair*, unsigned char*, unsigned char*, kswr_t*, int, unsigned short, int)
+     1.32%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ksw_global2
+     0.90%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWatermanBatchWrapper8(dnaSeqPair*, unsigned char*, unsigned char*, int, unsigned short, int)
+     0.73%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_matesw_batch_post(mem_opt_t const*, bntseq_t const*, unsigned char const*, mem_pestat_t const*, mem_alnreg_t const*, int, unsigned char const*, mem_alnreg_v*, kswr_t**, int, int*, mem_cache*)
+     0.62%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_combsort_mem_ars(unsigned long, mem_alnreg_t*)
+     0.58%  bwa-mem2.avx512  libc.so.6             [.] 0x00000000000ac098
+     0.53%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_matesw_batch_pre(mem_opt_t const*, bntseq_t const*, unsigned char const*, mem_pestat_t const*, mem_alnreg_t const*, int, unsigned char const*, mem_alnreg_v*, mem_cache*, int, int, int&, int&, int)
+     0.44%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_128
+     0.41%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWatermanBatchWrapper16(dnaSeqPair*, unsigned char*, unsigned char*, int, unsigned short, int)
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

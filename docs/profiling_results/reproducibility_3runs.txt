@@ -1,0 +1,48 @@
+--- iter 1: top 15 symbols by SELF time (>=0.5%) ---
+    15.86%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::backwardExt(smem_struct, unsigned char)
+    11.19%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] ks_introsort_mem_ars(unsigned long, mem_alnreg_t*)
+    10.09%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::getSMEMsOnePosOneThread(unsigned char*, short*, int*, int*, int, int, bseq1_t const*, int*, int, int, smem_struct*, long*)
+     9.50%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] kswv::kswv512_u8(unsigned char*, unsigned char*, short, short, dnaSeqPair*, kswr_t*, int, unsigned short, int, int)
+     9.32%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] ks_introsort_mem_ars2(unsigned long, mem_alnreg_t*)
+     6.03%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_chain2aln_across_reads_V2(mem_opt_t const*, bntseq_t const*, unsigned char const*, bseq1_t*, int, mem_chain_v*, mem_alnreg_v*, mem_cache*, unsigned char*, int)
+     4.62%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] bns_get_seq
+     3.59%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::get_sa_entries_prefetch(smem_struct*, long*, long*, long, int, int, long&)
+     3.58%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_chain_flt(mem_opt_t const*, int, mem_chain_t*, int)
+     2.65%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] BandedPairWiseSW::smithWaterman512_8(unsigned char*, unsigned char*, unsigned char, unsigned char, dnaSeqPair*, unsigned char*, unsigned short, int, int, int, unsigned char*, unsigned char*)
+     2.47%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::bwtSeedStrategyAllPosOneThread(unsigned char*, int*, int, bseq1_t const*, int*, int, smem_struct*)
+     2.39%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] BandedPairWiseSW::smithWaterman512_16(unsigned short*, unsigned short*, unsigned short, unsigned short, dnaSeqPair*, unsigned short*, unsigned short, int, int, int, unsigned short*, unsigned short*)
+     1.73%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_sort_dedup_patch(mem_opt_t const*, bntseq_t const*, unsigned char const*, unsigned char*, int, mem_alnreg_t*) [clone .part.0]
+     1.64%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_chain_seeds(FMI_search*, mem_opt_t const*, bntseq_t const*, bseq1_t const*, int, int, mem_chain_v*, abc*, long, smem_struct*, long)
+     1.34%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] kswv::kswvBatchWrapper8(dnaSeqPair*, unsigned char*, unsigned char*, kswr_t*, int, unsigned short, int)
+--- iter 2: top 15 symbols by SELF time (>=0.5%) ---
+    15.92%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::backwardExt(smem_struct, unsigned char)
+    11.24%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_mem_ars(unsigned long, mem_alnreg_t*)
+     9.69%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::getSMEMsOnePosOneThread(unsigned char*, short*, int*, int*, int, int, bseq1_t const*, int*, int, int, smem_struct*, long*)
+     9.39%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] ks_introsort_mem_ars2(unsigned long, mem_alnreg_t*)
+     9.38%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] kswv::kswv512_u8(unsigned char*, unsigned char*, short, short, dnaSeqPair*, kswr_t*, int, unsigned short, int, int)
+     6.08%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain2aln_across_reads_V2(mem_opt_t const*, bntseq_t const*, unsigned char const*, bseq1_t*, int, mem_chain_v*, mem_alnreg_v*, mem_cache*, unsigned char*, int)
+     4.71%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] bns_get_seq
+     3.62%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain_flt(mem_opt_t const*, int, mem_chain_t*, int)
+     3.50%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::get_sa_entries_prefetch(smem_struct*, long*, long*, long, int, int, long&)
+     2.66%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWaterman512_8(unsigned char*, unsigned char*, unsigned char, unsigned char, dnaSeqPair*, unsigned char*, unsigned short, int, int, int, unsigned char*, unsigned char*)
+     2.41%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] BandedPairWiseSW::smithWaterman512_16(unsigned short*, unsigned short*, unsigned short, unsigned short, dnaSeqPair*, unsigned short*, unsigned short, int, int, int, unsigned short*, unsigned short*)
+     2.25%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] FMI_search::bwtSeedStrategyAllPosOneThread(unsigned char*, int*, int, bseq1_t const*, int*, int, smem_struct*)
+     1.83%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_sort_dedup_patch(mem_opt_t const*, bntseq_t const*, unsigned char const*, unsigned char*, int, mem_alnreg_t*) [clone .part.0]
+     1.69%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] mem_chain_seeds(FMI_search*, mem_opt_t const*, bntseq_t const*, bseq1_t const*, int, int, mem_chain_v*, abc*, long, smem_struct*, long)
+     1.36%  bwa-mem2.avx512  bwa-mem2.avx512bw     [.] kswv::kswvBatchWrapper8(dnaSeqPair*, unsigned char*, unsigned char*, kswr_t*, int, unsigned short, int)
+--- iter 3: top 15 symbols by SELF time (>=0.5%) ---
+    15.85%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::backwardExt(smem_struct, unsigned char)
+    11.16%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] ks_introsort_mem_ars(unsigned long, mem_alnreg_t*)
+     9.72%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::getSMEMsOnePosOneThread(unsigned char*, short*, int*, int*, int, int, bseq1_t const*, int*, int, int, smem_struct*, long*)
+     9.47%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] ks_introsort_mem_ars2(unsigned long, mem_alnreg_t*)
+     9.47%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] kswv::kswv512_u8(unsigned char*, unsigned char*, short, short, dnaSeqPair*, kswr_t*, int, unsigned short, int, int)
+     6.09%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_chain2aln_across_reads_V2(mem_opt_t const*, bntseq_t const*, unsigned char const*, bseq1_t*, int, mem_chain_v*, mem_alnreg_v*, mem_cache*, unsigned char*, int)
+     4.65%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] bns_get_seq
+     3.61%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_chain_flt(mem_opt_t const*, int, mem_chain_t*, int)
+     3.57%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::get_sa_entries_prefetch(smem_struct*, long*, long*, long, int, int, long&)
+     2.68%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] BandedPairWiseSW::smithWaterman512_8(unsigned char*, unsigned char*, unsigned char, unsigned char, dnaSeqPair*, unsigned char*, unsigned short, int, int, int, unsigned char*, unsigned char*)
+     2.41%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] BandedPairWiseSW::smithWaterman512_16(unsigned short*, unsigned short*, unsigned short, unsigned short, dnaSeqPair*, unsigned short*, unsigned short, int, int, int, unsigned short*, unsigned short*)
+     2.30%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] FMI_search::bwtSeedStrategyAllPosOneThread(unsigned char*, int*, int, bseq1_t const*, int*, int, smem_struct*)
+     1.81%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_sort_dedup_patch(mem_opt_t const*, bntseq_t const*, unsigned char const*, unsigned char*, int, mem_alnreg_t*) [clone .part.0]
+     1.64%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] mem_chain_seeds(FMI_search*, mem_opt_t const*, bntseq_t const*, bseq1_t const*, int, int, mem_chain_v*, abc*, long, smem_struct*, long)
+     1.39%  bwa-mem2.avx512  bwa-mem2.avx512bw    [.] kswv::kswvBatchWrapper8(dnaSeqPair*, unsigned char*, unsigned char*, kswr_t*, int, unsigned short, int)
