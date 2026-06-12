@@ -23,6 +23,8 @@ read pairs. See the parent doc §9–10 for the full analysis and implications.
 | `scripts/remote_perf.sh` | 10M-pair `perf` profiling run |
 | `scripts/remote_repro.sh` | 3× reproducibility profiling |
 | `scripts/remote_2hr_test.sh` | 200M-pair / ~2-hour production-scale profiling run |
+| `scripts/remote_fetch_diverse.sh` | Fetch 5 diverse human WGS samples (ancestry/read-length/platform), 50M pairs each, streamed from ENA |
+| `scripts/remote_align_firerate.sh` | Align each diverse subset vs chr1–5 and compute the EMF exact-match fire-rate per sample (see `../diverse_test_fastqs.md`) |
 
 ## Reproduce
 On a comparable Linux box with `build-essential`, `zlib1g-dev`, `perf`, and the
