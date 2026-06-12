@@ -20,7 +20,10 @@ reference exactly + uniquely, bypassing seeding/chaining/extension entirely.
 Fetched 2026-06-12 to `ccloud@216.227.218.169:/home/ccloud/reads_diverse/` via
 `scripts/remote_fetch_diverse.sh` — first **50M read pairs per sample** (streamed
 from ENA; `head` closes the pipe so full multi-GB files are never downloaded).
-Run URLs are resolved at runtime via the ENA filereport API. The European baseline
+Run URLs are resolved at runtime via the ENA filereport API. Downloads run **in
+parallel across all samples** and are **resumable** (each mate is written to a
+`.part` file then atomically renamed; an already-complete mate is skipped on
+restart), since ENA per-connection throughput is low (~0.6–1 MB/s). The European baseline
 (NA12878/ERR174310) is subsampled on-box by `remote_align_firerate.sh` from the
 already-present full file, so all points are at comparable depth.
 
