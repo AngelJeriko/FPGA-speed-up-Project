@@ -147,8 +147,11 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   (`docs/merge_sorter_v2_tie_analysis.md`): the re-sort is order-sensitive — a stable
   merge sort diverges from `ks_introsort` on 0.063% of arrays → v2 keeps the HW sorter
   stable and **software-falls-back any array with an equal-`re` tie** (1.25% by count) for
-  bit-exactness. Next v2 step: cost-weight the tie arrays, then design the overlap/merge
-  datapath (reuses the banded-SW core already in `rtl/bsw_*`).
+  bit-exactness. **ARCHITECTURE FIXED** (`docs/merge_sorter_v2_design.md`): the SW-merge
+  branch (`mem_patch_reg`) fires **0× in 20.09M arrays** (branch-A redundancy fired
+  867,341×) → **v2 needs NO banded-SW core for short reads**; it is the v1 stable sorter +
+  an integer redundancy-dedup datapath, with merge arrays (~0%) falling back. Next: capture
+  v2 golden vectors → C++ model → RTL the windowed-dedup FSM.
 - **Deferred:** the hash orderings (`alnreg_hlt/_hlt2`) for XA/output; paired-end
   `sort_alnreg_re/score` paths (same engine, different call site).
 
