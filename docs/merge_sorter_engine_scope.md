@@ -74,11 +74,25 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   across cycles), NOT a fully-spatial bitonic — area-efficient and throughput is
   ample (see below). Research flagged fixed full bitonic as awkward for variable/wide
   records; folding + key-only sort resolves both.
-- **N_max:** the per-read alnreg count is small but variable → **must be measured**
-  (sets network size + overflow policy). Design for a cap (e.g. 32 or 64) with a
-  software fallback for rare overflow. Spatial bitonic CAS count = N·log₂N·(log₂N+1)/4
-  (N=64 → 672 CAS of 96-bit compare + 106-bit mux ≈ ~100K LUTs fully spatial;
-  N=32 → 240 CAS); folding cuts this ~log²N×.
+- **N_max — MEASURED (2026-06-13, instrumented run, 26.9M sort calls on chr1-5/HG00733):**
+  by COUNT reads are tiny (25% n=1 → no sort; ~78% n≤4; 90.5% n≤32) BUT by sort COST
+  (~count·n·log₂n) the long tail dominates:
+
+  | cap N | % reads | % sort cost |
+  |---|---|---|
+  | ≤4 | 77.9% | 1.5% |
+  | ≤16 | 85.4% | 4.3% |
+  | ≤32 | 90.5% | 11.2% |
+  | ≤64 | 95.6% | 26.7% |
+  | ≤128 | 97.7% | 42.0% |
+
+  Max nonzero bucket = 512 (clamp); 46,201 reads at ≥512 (true n higher). **~58% of
+  sort cost is in reads with n>128 (only 2.3% of reads).** → A FIXED small network
+  (e.g. N=32) covers 90% of reads but captures only ~11% of the cost — wrong design.
+  Need a **scalable/folded merge-sorter that handles the large-N tail (≥512)** plus a
+  **fast-path for n=1** (25%, already sorted) and cheap n≤4. Optimize the TAIL, bypass
+  the trivial bulk. (Spatial bitonic CAS = N·log₂N·(log₂N+1)/4 is impractical at N=512
+  → folded/iterative merge is required regardless.)
 - **Throughput:** fully/partly pipelined → ≈1 read-set per few cycles; at ~200-300 MHz
   that is >>10⁸ read-sets/s, far above need. The sorter is NOT the bottleneck — key
   extraction and (in v2) the dedup loop are. So optimize for AREA, not speed.
@@ -104,7 +118,10 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   `sort_alnreg_re/score` paths (same engine, different call site).
 
 ## 7. Risks / open
-1. **N_max distribution** unknown → measure first (sets size + fallback). Biggest open.
+1. ~~N_max distribution unknown~~ **MEASURED (§4)** — cost is tail-dominated (n>128 = 58%
+   of cost); design must scale to the tail, not the bulk. Open follow-up: raise the 512
+   clamp to find true max n (sets the fallback threshold); re-measure on a more
+   repetitive sample/full genome (tail may be heavier).
 2. **`alnreg_slt2` tie-order** vs `ks_introsort` for v2 — measure how often equal-`re`
    pairs occur and whether output changes; may force replicating introsort tie-order or
    an order-invariant dedup.
@@ -113,8 +130,10 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
    trick stays monotonic (SW scores ≥ T=30 in practice).
 
 ## 8. First steps (in order)
-1. **Measure the per-read alnreg count distribution** on a chr1-5 run (pure software,
-   no board) → N_max + overflow rate. Highest-value, gates the network size.
-2. Build the key-extract + folded merge-sorter model + self-checking TB (v1).
-3. Synthesize for Fmax/area on the assumed part; confirm the area knob (N_max, fold).
+1. ~~Measure the per-read alnreg count distribution~~ **DONE (§4)** via instrumented
+   bwa-mem2 (`alnreg_hist.tsv`): cost is tail-dominated → scalable folded merge-sorter,
+   not a fixed small network. (Optional follow-up: raise the 512 clamp for true max n.)
+2. Build the key-extract + **folded/scalable merge-sorter** model (handles large-N tail
+   + n=1 fast-path) + self-checking TB (v1).
+3. Synthesize for Fmax/area on the assumed part; confirm the area/throughput knob.
 4. Then scope v2 (sort+dedup) with the tie-order measurement.
