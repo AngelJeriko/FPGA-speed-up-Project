@@ -45,6 +45,25 @@ already-present full file, so all points are at comparable depth.
   unmapped — fine for a fire-rate measured *among mapped reads*, and for throughput;
   wasteful only in that we stream reads that can't map.
 
+### Fetched results (confirmed 2026-06-13)
+
+| Sample | Ancestry | Read pairs | Read len | PE-clean? |
+|---|---|---|---|---|
+| HG002 / SRR24123611 | Ashkenazi | 21.4M | 150 bp | ✅ |
+| HG005 / SRR24123546 | Han Chinese | 19.7M | 150 bp | ✅ |
+| HG005 2×250 / SRR2831462 | Han Chinese | **42.5M R1 / 39.5M R2** | 250 bp | ❌ unequal mates |
+| HG00733 / ERR3988823 | Puerto Rican | 50.0M | 150 bp | ✅ |
+| NA19240 / SRR2103644 | Yoruba | 50.0M | **125 bp** | ✅ |
+| NA12878 / ERR174310 (baseline, built at align time) | European | 50M | 101 bp | ✅ |
+
+**SRR2831462 (2×250) is excluded from the paired-end fire-rate run** — its ENA
+`_1`/`_2` files have different read counts (42.5M vs 39.5M), so they are not a clean
+equal-length pair (a known SRA split quirk). bwa-mem2 PE mode needs equal, in-order
+mates. The dedicated 250 bp read-length data point can be recovered later via a
+cleaner 2×250 GIAB accession or a single-end run with an SE-adjusted fire criterion
+(drop the proper-pair requirement). The four clean diverse samples + the European
+baseline still give the full ancestry curve (read lengths 101–150 bp).
+
 ---
 
 ## 2. Fire-rate measurement (`scripts/remote_align_firerate.sh`)
