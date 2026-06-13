@@ -130,9 +130,15 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   + `tb/tb_msort.sv` (self-checking, reads the same golden vectors). Verilator sim:
   **3441/3441 records bit-exact (1,525,044 elements, n=2..1024) vs. real ks_introsort.**
   Vectors auto-bootstrapped by `scripts/run_sim.sh tb_msort` from the committed `.bin.gz`
-  via `host/merge_sorter/gen_rtl_vectors.py`. ~n·ceil(log2 n) cycles/sort (comb-read RAM
-  in v1; registered-read block-RAM is the synth refinement). NEXT: synthesize for
-  Fmax/area (§ below), then v2 (sort+dedup).
+  via `host/merge_sorter/gen_rtl_vectors.py`.
+  **v1.1 (2026-06-13): registered-read BLOCK-RAM version** — memory is now synchronous
+  read+write (infers M20K simple-dual-port); the merge unit keeps each run's head in a
+  register and prefetches the refill to tolerate 1-cycle read latency (2-cycle/element
+  STEP/LATCH merge). Re-verified **3441/3441 bit-exact**. Synthesis flow scaffolded:
+  `scripts/synth_msort.tcl` (+ `msort.sdc`) for Quartus, analytical estimate in
+  `docs/merge_sorter_synthesis.md` (~12 M20K, ~400-800 ALM, est. 250-350 MHz; engine is
+  <0.2% of a Stratix 10 MX → replicate for throughput). NEXT: run synthesis (needs
+  Quartus — not installed here) for real Fmax/area; then v2 (sort+dedup).
 - ~~**v1 (build):**~~ (C++ model + RTL done, above) standalone bit-exact score-sort
   (`alnreg_slt`) engine. Captures roughly half the ~22% (the post-dedup sort).
 - **v2:** combined **sort + de-overlap + dedup** engine — adds the `alnreg_slt2` re-sort

@@ -53,9 +53,11 @@ produce these. Set `ALNREG_VEC_OUT=path.bin` and run `bwa-mem2 mem`; per-size qu
 Run it with `scripts/run_sim.sh tb_msort` (it auto-generates the TB vector file from
 `vectors/alnreg_vectors.bin.gz` via `gen_rtl_vectors.py`).
 
+The RTL uses registered-read block RAM (M20K) — see `docs/merge_sorter_synthesis.md`
+for the Quartus flow (`scripts/synth_msort.tcl`) and the resource/timing estimate.
+
 ## Next
 
-- Synthesize the RTL for Fmax/area on the target part; move from comb-read RAM to
-  registered-read block RAM.
+- Run synthesis (`quartus_sh -t scripts/synth_msort.tcl`) for real Fmax/area.
 - v2: combined sort + de-overlap + dedup engine (the `alnreg_slt2` re-sort + the
   order-dependent dedup loop + the `mem_patch_reg` merge), capturing the full ~22%.
