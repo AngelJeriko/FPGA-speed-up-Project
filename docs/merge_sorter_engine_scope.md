@@ -78,21 +78,28 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   by COUNT reads are tiny (25% n=1 → no sort; ~78% n≤4; 90.5% n≤32) BUT by sort COST
   (~count·n·log₂n) the long tail dominates:
 
-  | cap N | % reads | % sort cost |
-  |---|---|---|
-  | ≤4 | 77.9% | 1.5% |
-  | ≤16 | 85.4% | 4.3% |
-  | ≤32 | 90.5% | 11.2% |
-  | ≤64 | 95.6% | 26.7% |
-  | ≤128 | 97.7% | 42.0% |
+  | cap N | % reads | % sort cost | % cost ABOVE cap |
+  |---|---|---|---|
+  | ≤4 | 78.0% | 1.5% | 98.5% |
+  | ≤16 | 85.4% | 4.3% | 95.8% |
+  | ≤32 | 90.5% | 11.1% | 88.9% |
+  | ≤64 | 95.6% | 26.5% | 73.5% |
+  | ≤128 | 97.7% | 41.7% | 58.3% |
+  | ≤256 | 99.2% | 65.4% | 34.6% |
+  | ≤512 | 99.8% | 90.1% | 9.9% |
+  | ≤1024 | 100.00% | 99.97% | 0.03% |
 
-  Max nonzero bucket = 512 (clamp); 46,201 reads at ≥512 (true n higher). **~58% of
-  sort cost is in reads with n>128 (only 2.3% of reads).** → A FIXED small network
-  (e.g. N=32) covers 90% of reads but captures only ~11% of the cost — wrong design.
-  Need a **scalable/folded merge-sorter that handles the large-N tail (≥512)** plus a
-  **fast-path for n=1** (25%, already sorted) and cheap n≤4. Optimize the TAIL, bypass
-  the trivial bulk. (Spatial bitonic CAS = N·log₂N·(log₂N+1)/4 is impractical at N=512
-  → folded/iterative merge is required regardless.)
+  **TRUE MAX n = 1060** (clamp raised 512→4096 on 2026-06-13 re-run + unbounded
+  max-tracker; nothing reached 4096, so the distribution genuinely tops out at 1060 —
+  earlier "≥512" was a censoring artifact). The tail is **bounded, not pathological**:
+  a hardware sorter can cover the ENTIRE distribution. **A sorter sized to N=1024
+  captures 99.97% of all sort cost**; the read-sets with n∈(1024,1060] are 0.03% of
+  cost → trivial software fallback. → A FIXED small network (e.g. N=32) covers 90% of
+  reads but only ~11% of cost — wrong design. Build a **scalable/folded merge-sorter
+  sized to N=1024** (software-fallback threshold = 1024) plus a **fast-path for n=1**
+  (25%, already sorted) and cheap n≤4. Optimize the TAIL, bypass the trivial bulk.
+  (Spatial bitonic CAS = N·log₂N·(log₂N+1)/4 is impractical at N=1024 → folded/iterative
+  merge is required regardless.)
 - **Throughput:** fully/partly pipelined → ≈1 read-set per few cycles; at ~200-300 MHz
   that is >>10⁸ read-sets/s, far above need. The sorter is NOT the bottleneck — key
   extraction and (in v2) the dedup loop are. So optimize for AREA, not speed.
@@ -108,8 +115,17 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   counts from a real run → sets N_max and the overflow rate.
 
 ## 6. v1 / v2 / deferred
-- **v1 (build):** standalone bit-exact score-sort (`alnreg_slt`) engine — key-extract +
-  folded merge-sorter + gather + self-checking TB on real arrays. Captures roughly half
+- **v1 — C++ MODEL BUILT & VERIFIED (2026-06-13):** `host/merge_sorter/` — `key.h`
+  (96-bit composite key + `pack_key`), `folded_sorter.h` (bottom-up folded merge sort,
+  N_MAX=1024 + n>1024 fallback + n≤1 fast-path), `test_sorter.cpp` (self-checking TB).
+  Run against 21,386 REAL vectors (n=2..1060, chr1-5/HG00733): **21,386/21,386 bit-exact
+  vs. real `ks_introsort` output, packing==comparator (0 mismatches), 0 equal-key ties
+  (confirms strict total order → v1 bit-exactness empirically proven)**. 61 records hit
+  the n>1024 software fallback; worst case 11 merge passes; max rb 2.12e9 (fits 40b),
+  max qb 131, scores [19,150] (inversion trick safe). NEXT: translate to SystemVerilog
+  (`rtl/`) reusing these golden vectors.
+- ~~**v1 (build):**~~ (done, above) standalone bit-exact score-sort (`alnreg_slt`) engine
+  — key-extract + folded merge-sorter + gather + self-checking TB. Captures roughly half
   the ~22% (the post-dedup sort).
 - **v2:** combined **sort + de-overlap + dedup** engine — adds the `alnreg_slt2` re-sort
   (with tie-order analysis), the integer-arithmetic overlap/redundancy test, and the
@@ -118,21 +134,26 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   `sort_alnreg_re/score` paths (same engine, different call site).
 
 ## 7. Risks / open
-1. ~~N_max distribution unknown~~ **MEASURED (§4)** — cost is tail-dominated (n>128 = 58%
-   of cost); design must scale to the tail, not the bulk. Open follow-up: raise the 512
-   clamp to find true max n (sets the fallback threshold); re-measure on a more
-   repetitive sample/full genome (tail may be heavier).
+1. ~~N_max distribution unknown~~ **MEASURED + RESOLVED (§4)** — cost is tail-dominated;
+   ~~raise the 512 clamp to find true max n~~ **DONE: true max = 1060**, N=1024 captures
+   99.97% of cost → fallback threshold = 1024. Remaining open follow-up: re-measure on a
+   more repetitive sample / full-genome reference (tail could shift; chr1-5/HG00733 is
+   one sample) — lower priority now that the bound is known.
 2. **`alnreg_slt2` tie-order** vs `ks_introsort` for v2 — measure how often equal-`re`
    pairs occur and whether output changes; may force replicating introsort tie-order or
    an order-invariant dedup.
-3. **rb width** — chr1-5 fits ~31 b; full hg38 needs ~32 b → size keys for full genome.
-4. Negative/զero scores: confirm SW score range so the `0x7FFFFFFF - score` descending
-   trick stays monotonic (SW scores ≥ T=30 in practice).
+3. ~~**rb width**~~ **MEASURED:** chr1-5 max rb = 2.12e9 (~31 b); key sized RB_BITS=40
+   (cap 1.1e12) → ample headroom for full hg38 bi-index (~6.4e9, ~33 b). qb max 131 (24 b
+   field is overkill but kept for long reads).
+4. ~~Negative/zero scores~~ **MEASURED:** observed SW score range [19,150], all positive
+   (note: min 19 < opt->T=30 — sub-threshold regions still present at sort time, but still
+   ≥0) → `0x7FFFFFFF - score` inversion stays monotonic. Confirmed safe.
 
 ## 8. First steps (in order)
 1. ~~Measure the per-read alnreg count distribution~~ **DONE (§4)** via instrumented
    bwa-mem2 (`alnreg_hist.tsv`): cost is tail-dominated → scalable folded merge-sorter,
-   not a fixed small network. (Optional follow-up: raise the 512 clamp for true max n.)
+   not a fixed small network. Follow-up DONE: clamp raised → true max n = 1060, size
+   sorter to N=1024 (fallback threshold 1024).
 2. Build the key-extract + **folded/scalable merge-sorter** model (handles large-N tail
    + n=1 fast-path) + self-checking TB (v1).
 3. Synthesize for Fmax/area on the assumed part; confirm the area/throughput knob.

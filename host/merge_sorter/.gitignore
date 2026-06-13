@@ -1,0 +1,4 @@
+# raw uncompressed vector dumps are large (~235 MB) — keep only the .gz in git
+vectors/*.bin
+test_sorter
+*.o
