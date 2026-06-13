@@ -94,10 +94,19 @@ pre-dedup alnreg array (rb,re,qb,qe,rid,score; in on-chip RAM)
   `20·x > 19·y` == float `x > 0.95f·y` with 0 mismatches over the operand range, so the
   RTL uses integer arithmetic, bit-exact.
 - **Windowed-dedup RTL: BUILT & VERIFIED** (`rtl/msort_v2_pkg.sv`, `rtl/msort_dedup.sv`,
-  `tb/tb_msort_dedup.sv`) — the nested loop + integer redundancy test + in-place exclusion
-  + load-time tie-detect (raises a SW-fallback flag), block-RAM (registered read/write).
-  Verilator: **1696/1696 records ALL PASS** vs. the validated golden survivors. Run:
-  `scripts/run_sim.sh tb_msort_dedup`.
-- Next (final v2 integration): wire v1 `msort_merge_sorter` (re-key) → `msort_dedup` →
-  `msort_merge_sorter` (score-key) + identical-removal into one top, with the tie/oversize
-  fallback flags, and an end-to-end TB on the captured `alnreg_v2_vectors`.
+  `tb/tb_msort_dedup.sv`) — Verilator **1696/1696 ALL PASS**. Run: `scripts/run_sim.sh
+  tb_msort_dedup`.
+- **FULL v2 ENGINE: BUILT & VERIFIED** (`rtl/msort_v2_top.sv`, `tb/tb_msort_v2.sv`) —
+  one module doing LOAD → re-sort → windowed dedup → compact → score-sort →
+  identical-removal → OUT over two ping-pong record banks, reusing the verified merge-sort
+  algorithm (key-selectable comparator) for both sort passes and the verified dedup loop;
+  raises `fallback` on equal-`re`-tie arrays. Verilator end-to-end (raw pre-dedup input →
+  final output) vs. **real bwa-mem2**: **1696/1696 tie-free arrays ALL PASS**. Run:
+  `scripts/run_sim.sh tb_msort_v2`. **v2 COMPLETE.**
+
+## Final status: the merge-sorter engine is DONE
+
+v1 (score sort) and v2 (full sort + de-overlap + dedup) are both implemented in
+SystemVerilog and verified bit-exact against real bwa-mem2 data:
+`scripts/run_sim.sh {tb_msort, tb_msort_dedup, tb_msort_v2}` → all ALL PASS.
+Remaining: synthesis on Quartus (`scripts/synth_msort.tcl`, needs the tool) for Fmax/area.
