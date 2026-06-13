@@ -141,9 +141,14 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   Quartus — not installed here) for real Fmax/area; then v2 (sort+dedup).
 - ~~**v1 (build):**~~ (C++ model + RTL done, above) standalone bit-exact score-sort
   (`alnreg_slt`) engine. Captures roughly half the ~22% (the post-dedup sort).
-- **v2:** combined **sort + de-overlap + dedup** engine — adds the `alnreg_slt2` re-sort
-  (with tie-order analysis), the integer-arithmetic overlap/redundancy test, and the
-  `mem_patch_reg` merge (reusing the banded-SW core). Captures the full ~22% + dedup.
+- **v2:** combined **sort + de-overlap + dedup** engine — adds the `alnreg_slt2` re-sort,
+  the integer-arithmetic overlap/redundancy test, and the `mem_patch_reg` merge (reusing
+  the banded-SW core). Captures the full ~22% + dedup. **Tie-order analysis DONE**
+  (`docs/merge_sorter_v2_tie_analysis.md`): the re-sort is order-sensitive — a stable
+  merge sort diverges from `ks_introsort` on 0.063% of arrays → v2 keeps the HW sorter
+  stable and **software-falls-back any array with an equal-`re` tie** (1.25% by count) for
+  bit-exactness. Next v2 step: cost-weight the tie arrays, then design the overlap/merge
+  datapath (reuses the banded-SW core already in `rtl/bsw_*`).
 - **Deferred:** the hash orderings (`alnreg_hlt/_hlt2`) for XA/output; paired-end
   `sort_alnreg_re/score` paths (same engine, different call site).
 
@@ -153,9 +158,14 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
    99.97% of cost → fallback threshold = 1024. Remaining open follow-up: re-measure on a
    more repetitive sample / full-genome reference (tail could shift; chr1-5/HG00733 is
    one sample) — lower priority now that the bound is known.
-2. **`alnreg_slt2` tie-order** vs `ks_introsort` for v2 — measure how often equal-`re`
-   pairs occur and whether output changes; may force replicating introsort tie-order or
-   an order-invariant dedup.
+2. ~~**`alnreg_slt2` tie-order** vs `ks_introsort` for v2~~ **MEASURED + RESOLVED
+   (2026-06-13, `docs/merge_sorter_v2_tie_analysis.md`):** 1.25% of arrays have equal-`re`
+   ties (max mult 35); a STABLE merge sort DIVERGES from `ks_introsort` on **0.063% of
+   arrays** (5.05% of tie arrays; 634 even differ in element count) → **stable merge is
+   NOT bit-exact for v2.** Decision: keep the HW sorter stable + **software-fallback any
+   array containing an equal-`re` tie** (1.25% by count; mirrors the v1 n>1024 fallback).
+   Open follow-up: cost-weight of tie arrays (they skew large) to size the realized v2
+   speedup.
 3. ~~**rb width**~~ **MEASURED:** chr1-5 max rb = 2.12e9 (~31 b); key sized RB_BITS=40
    (cap 1.1e12) → ample headroom for full hg38 bi-index (~6.4e9, ~33 b). qb max 131 (24 b
    field is overkill but kept for long reads).
