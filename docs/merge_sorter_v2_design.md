@@ -90,6 +90,14 @@ pre-dedup alnreg array (rb,re,qb,qe,rid,score; in on-chip RAM)
 - C++ reference model: **BUILT & VERIFIED** (`host/merge_sorter/v2_dedup.h`, `test_v2.cpp`)
   — **2625/2625 tie-free arrays bit-exact** vs. real bwa-mem2; 815 tie arrays are the
   fallback set (57 diverge, confirming the fallback). Run: `make run_v2`.
-- Next: (1) RTL the windowed-dedup FSM (the sorter is v1's `msort_merge_sorter`, re-used
-  with the re-key); (2) integrate sorter→dedup→score-sort + tie-detect fallback flag;
-  (3) end-to-end RTL TB on these golden vectors.
+- Integer redundancy surrogate: **PROVEN** (`host/merge_sorter/check_redun_int.cpp`) —
+  `20·x > 19·y` == float `x > 0.95f·y` with 0 mismatches over the operand range, so the
+  RTL uses integer arithmetic, bit-exact.
+- **Windowed-dedup RTL: BUILT & VERIFIED** (`rtl/msort_v2_pkg.sv`, `rtl/msort_dedup.sv`,
+  `tb/tb_msort_dedup.sv`) — the nested loop + integer redundancy test + in-place exclusion
+  + load-time tie-detect (raises a SW-fallback flag), block-RAM (registered read/write).
+  Verilator: **1696/1696 records ALL PASS** vs. the validated golden survivors. Run:
+  `scripts/run_sim.sh tb_msort_dedup`.
+- Next (final v2 integration): wire v1 `msort_merge_sorter` (re-key) → `msort_dedup` →
+  `msort_merge_sorter` (score-key) + identical-removal into one top, with the tie/oversize
+  fallback flags, and an end-to-end TB on the captured `alnreg_v2_vectors`.

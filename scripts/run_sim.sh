@@ -30,6 +30,20 @@ if [[ "$TB" == tb_msort ]]; then
         [[ -f "$BIN" ]] || gunzip -kf "$BIN.gz"
         python3 "$MS/gen_rtl_vectors.py" "$BIN" "$VEC_HEX" "${MSORT_PER_N:-4}"
     fi
+elif [[ "$TB" == tb_msort_dedup ]]; then
+    RTL_FILES=(
+        "$RTL/msort_v2_pkg.sv"
+        "$RTL/msort_dedup.sv"
+    )
+    VEC_HEX="$TBDIR/vectors/msort_dedup_vectors.hex"
+    PLUSARGS=("+VEC=$VEC_HEX")
+    if [[ ! -f "$VEC_HEX" ]]; then
+        MS="$ROOT/host/merge_sorter"
+        BIN="$MS/vectors/alnreg_v2_vectors.bin"
+        echo "Generating $VEC_HEX ..."
+        [[ -f "$BIN" ]] || gunzip -kf "$BIN.gz"
+        python3 "$MS/gen_v2_rtl_vectors.py" "$BIN" "$VEC_HEX" "${MSORT_PER_N:-2}"
+    fi
 else
     RTL_FILES=(
         "$RTL/bsw_pkg.sv"
