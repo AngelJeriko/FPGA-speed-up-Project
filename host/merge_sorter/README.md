@@ -45,9 +45,17 @@ The `INSTRUMENTATION` blocks in `bwa-mem2/src/bwamem.cpp` (histogram + vector du
 produce these. Set `ALNREG_VEC_OUT=path.bin` and run `bwa-mem2 mem`; per-size quota is
 `VEC_QUOTA_PER_N`. Revert instrumentation (`bwamem.cpp.orig`) for a clean binary.
 
-## Next (v2 / RTL)
+## RTL (done)
 
-- Translate `folded_merge_sort` to SystemVerilog (`rtl/`), reuse this testbench's
-  vectors as the RTL golden check.
+`folded_merge_sort` is implemented in SystemVerilog at `rtl/msort_merge_sorter.sv`
+(+ `rtl/msort_pkg.sv`) and verified bit-exact against the same golden vectors by
+`tb/tb_msort.sv`: **3441/3441 records, 1.5M elements, ALL PASS** under Verilator.
+Run it with `scripts/run_sim.sh tb_msort` (it auto-generates the TB vector file from
+`vectors/alnreg_vectors.bin.gz` via `gen_rtl_vectors.py`).
+
+## Next
+
+- Synthesize the RTL for Fmax/area on the target part; move from comb-read RAM to
+  registered-read block RAM.
 - v2: combined sort + de-overlap + dedup engine (the `alnreg_slt2` re-sort + the
   order-dependent dedup loop + the `mem_patch_reg` merge), capturing the full ~22%.

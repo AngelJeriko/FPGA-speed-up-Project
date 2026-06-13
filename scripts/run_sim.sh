@@ -13,16 +13,35 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RTL="$ROOT/rtl"
 TBDIR="$ROOT/tb"
 
-RTL_FILES=(
-    "$RTL/bsw_pkg.sv"
-    "$RTL/bsw_score_matrix.sv"
-    "$RTL/bsw_pe.sv"
-    "$RTL/bsw_systolic_array.sv"
-    "$RTL/bsw_max_tracker.sv"
-    "$RTL/bsw_ctrl_fsm.sv"
-    "$RTL/bsw_top.sv"
-    "$RTL/bsw_axis_adapter.sv"
-)
+# Select the RTL file list + any plusargs based on the testbench.
+PLUSARGS=()
+if [[ "$TB" == tb_msort ]]; then
+    RTL_FILES=(
+        "$RTL/msort_pkg.sv"
+        "$RTL/msort_merge_sorter.sv"
+    )
+    VEC_HEX="$TBDIR/vectors/msort_vectors.hex"
+    PLUSARGS=("+VEC=$VEC_HEX")
+    # Bootstrap the (git-ignored, 76 MB) vector file from the committed .gz.
+    if [[ ! -f "$VEC_HEX" ]]; then
+        MS="$ROOT/host/merge_sorter"
+        BIN="$MS/vectors/alnreg_vectors.bin"
+        echo "Generating $VEC_HEX ..."
+        [[ -f "$BIN" ]] || gunzip -kf "$BIN.gz"
+        python3 "$MS/gen_rtl_vectors.py" "$BIN" "$VEC_HEX" "${MSORT_PER_N:-4}"
+    fi
+else
+    RTL_FILES=(
+        "$RTL/bsw_pkg.sv"
+        "$RTL/bsw_score_matrix.sv"
+        "$RTL/bsw_pe.sv"
+        "$RTL/bsw_systolic_array.sv"
+        "$RTL/bsw_max_tracker.sv"
+        "$RTL/bsw_ctrl_fsm.sv"
+        "$RTL/bsw_top.sv"
+        "$RTL/bsw_axis_adapter.sv"
+    )
+fi
 TB_FILE="$TBDIR/${TB}.sv"
 
 if [[ ! -f "$TB_FILE" ]]; then
@@ -41,7 +60,7 @@ if command -v verilator >/dev/null 2>&1; then
               -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD \
               -I"$RTL" -Mdir "$OBJ" \
               "${RTL_FILES[@]}" "$TB_FILE"
-    "$OBJ/V$TB"
+    "$OBJ/V$TB" "${PLUSARGS[@]}"
     exit $?
 fi
 
@@ -49,7 +68,7 @@ if command -v iverilog >/dev/null 2>&1; then
     echo "Using Icarus Verilog..."
     OUT="$ROOT/${TB}.vvp"
     iverilog -g2012 -o "$OUT" -I "$RTL" "${RTL_FILES[@]}" "$TB_FILE"
-    vvp "$OUT"
+    vvp "$OUT" "${PLUSARGS[@]}"
     exit $?
 fi
 

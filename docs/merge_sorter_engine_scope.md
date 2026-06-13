@@ -124,9 +124,17 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
   the n>1024 software fallback; worst case 11 merge passes; max rb 2.12e9 (fits 40b),
   max qb 131, scores [19,150] (inversion trick safe). NEXT: translate to SystemVerilog
   (`rtl/`) reusing these golden vectors.
-- ~~**v1 (build):**~~ (done, above) standalone bit-exact score-sort (`alnreg_slt`) engine
-  — key-extract + folded merge-sorter + gather + self-checking TB. Captures roughly half
-  the ~22% (the post-dedup sort).
+- **v1 — SystemVerilog RTL BUILT & VERIFIED (2026-06-13):** `rtl/msort_pkg.sv` +
+  `rtl/msort_merge_sorter.sv` (folded bottom-up merge sorter: ping-pong RAM banks, one
+  reusable streaming merge unit swept ceil(log2 n) passes, load/sort/unload FSM, N_MAX=1024)
+  + `tb/tb_msort.sv` (self-checking, reads the same golden vectors). Verilator sim:
+  **3441/3441 records bit-exact (1,525,044 elements, n=2..1024) vs. real ks_introsort.**
+  Vectors auto-bootstrapped by `scripts/run_sim.sh tb_msort` from the committed `.bin.gz`
+  via `host/merge_sorter/gen_rtl_vectors.py`. ~n·ceil(log2 n) cycles/sort (comb-read RAM
+  in v1; registered-read block-RAM is the synth refinement). NEXT: synthesize for
+  Fmax/area (§ below), then v2 (sort+dedup).
+- ~~**v1 (build):**~~ (C++ model + RTL done, above) standalone bit-exact score-sort
+  (`alnreg_slt`) engine. Captures roughly half the ~22% (the post-dedup sort).
 - **v2:** combined **sort + de-overlap + dedup** engine — adds the `alnreg_slt2` re-sort
   (with tie-order analysis), the integer-arithmetic overlap/redundancy test, and the
   `mem_patch_reg` merge (reusing the banded-SW core). Captures the full ~22% + dedup.
