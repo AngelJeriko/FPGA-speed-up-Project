@@ -164,8 +164,9 @@ Output = the array permuted into `alnreg_slt` order — identical to `ks_introso
    arrays** (5.05% of tie arrays; 634 even differ in element count) → **stable merge is
    NOT bit-exact for v2.** Decision: keep the HW sorter stable + **software-fallback any
    array containing an equal-`re` tie** (1.25% by count; mirrors the v1 n>1024 fallback).
-   Open follow-up: cost-weight of tie arrays (they skew large) to size the realized v2
-   speedup.
+   **Cost-weight MEASURED: fallback = only 1.21% of sort+dedup cost** (tie arrays do NOT
+   skew large: mean n 18.83 vs 17.58) → HW handles ~98.8% → **v2 worth building** (lifts
+   engine from ~half to ~full ~22% hotspot, bit-exact).
 3. ~~**rb width**~~ **MEASURED:** chr1-5 max rb = 2.12e9 (~31 b); key sized RB_BITS=40
    (cap 1.1e12) → ample headroom for full hg38 bi-index (~6.4e9, ~33 b). qb max 131 (24 b
    field is overkill but kept for long reads).

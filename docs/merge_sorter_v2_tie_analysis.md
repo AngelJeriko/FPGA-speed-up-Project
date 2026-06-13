@@ -46,12 +46,25 @@ The bit-exact strategy is to keep the hardware merge-sorter STABLE and **detect 
 This mirrors the n>1024 software-fallback already in v1 (0.03% of cost), just with a
 different trigger (presence of an equal-`re` tie instead of oversize).
 
-## Open follow-up (sizes the realized v2 speedup)
+## Fallback cost-weight — MEASURED (resolves the follow-up)
 
-The 1.25% fallback is a **count**; the **cost-weight** matters more. Tie-containing
-arrays likely skew large (more elements → higher chance of an `re` collision; max
-multiplicity 35 supports this), so the fraction of *sort+dedup cost* that falls back
-could exceed 1.25%. Measure the n-distribution of tie arrays before committing to the v2
-throughput estimate. If the cost-weight is acceptable, v2 captures most of the remaining
-~11% (the re-sort + dedup half of the ~22% hotspot); if not, v1 (score sort only) already
-captures roughly half and is fully bit-exact.
+The 1.25% fallback is a count; the **cost-weight** (sum of n·log₂n) is what sizes the
+realized speedup. Measured on the same run:
+
+| metric | value |
+|---|---|
+| arrays with ties (count) | 1.25% |
+| **sort+dedup cost in tie arrays** | **1.21%** |
+| mean n, all arrays | 17.58 |
+| mean n, tie arrays | 18.83 |
+| total cost weight | 2.217×10⁹ (matches the independent histogram total 2.213×10⁹) |
+
+**The hypothesis that tie arrays skew large is refuted** — mean n is barely higher
+(18.83 vs 17.58), so the cost-weight (1.21%) tracks the count (1.25%) almost exactly.
+
+**Verdict: v2 is worth building.** The conservative bit-exact fallback (redo *every*
+tie-containing array on the CPU, not just the 0.063% that actually diverge — divergence
+can't be detected cheaply at sort time) removes only ~1.2% of the re-sort+dedup work.
+Hardware handles ~98.8%, so v2 lifts the engine from ~half the ~22% hotspot to nearly the
+full ~22%, all bit-exact. (A cheap adjacent-equal-`re` detector triggers the fallback —
+same mechanism as v1's n>1024 fallback.)
