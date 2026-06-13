@@ -85,5 +85,11 @@ pre-dedup alnreg array (rb,re,qb,qe,rid,score; in on-chip RAM)
 ## Status / next steps
 
 - Architecture: **FIXED** (this doc). No SW core; integer-only; 3 fallback triggers.
-- Next: (1) capture v2 golden vectors; (2) build the C++ reference model + test;
-  (3) RTL the windowed-dedup FSM (the sorter is v1); (4) integrate + verify end-to-end.
+- Golden vectors: **CAPTURED** (`host/merge_sorter/vectors/alnreg_v2_vectors.bin.gz` —
+  pre-dedup input + real output + has_tie flag, per-size quota 4).
+- C++ reference model: **BUILT & VERIFIED** (`host/merge_sorter/v2_dedup.h`, `test_v2.cpp`)
+  — **2625/2625 tie-free arrays bit-exact** vs. real bwa-mem2; 815 tie arrays are the
+  fallback set (57 diverge, confirming the fallback). Run: `make run_v2`.
+- Next: (1) RTL the windowed-dedup FSM (the sorter is v1's `msort_merge_sorter`, re-used
+  with the re-key); (2) integrate sorter→dedup→score-sort + tie-detect fallback flag;
+  (3) end-to-end RTL TB on these golden vectors.

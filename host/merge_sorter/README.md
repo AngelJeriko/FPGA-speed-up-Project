@@ -56,8 +56,17 @@ Run it with `scripts/run_sim.sh tb_msort` (it auto-generates the TB vector file 
 The RTL uses registered-read block RAM (M20K) — see `docs/merge_sorter_synthesis.md`
 for the Quartus flow (`scripts/synth_msort.tcl`) and the resource/timing estimate.
 
+## v2 (sort + de-overlap + dedup) — C++ model done
+
+`v2_dedup.h` + `test_v2.cpp` model the FULL `mem_sort_dedup_patch` (re-sort + integer
+redundancy de-overlap + score sort + identical removal). Self-contained: the SW-merge
+branch never fires on short reads (measured 0/20.09M), so no banded-SW core is needed;
+tie / merge / oversize arrays take a software fallback. Verified **2625/2625 tie-free
+arrays bit-exact** vs. real bwa-mem2. Run: `make run_v2`. See
+`docs/merge_sorter_v2_design.md`.
+
 ## Next
 
 - Run synthesis (`quartus_sh -t scripts/synth_msort.tcl`) for real Fmax/area.
-- v2: combined sort + de-overlap + dedup engine (the `alnreg_slt2` re-sort + the
-  order-dependent dedup loop + the `mem_patch_reg` merge), capturing the full ~22%.
+- v2 RTL: windowed-dedup FSM (sorter reuses v1's `msort_merge_sorter`), verified on the
+  v2 golden vectors.
