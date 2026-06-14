@@ -108,7 +108,7 @@ module tb_msort_dedup
     end
 
     initial begin
-        #2_000_000_000;
+        #30_000_000_000;  // watchdog (full-coverage)
         $display("RESULT: TIMEOUT");
         $finish;
     end

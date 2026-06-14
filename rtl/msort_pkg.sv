@@ -30,9 +30,7 @@ package msort_pkg;
     parameter int CNT_W    = $clog2(N_MAX + 1);   // 11 : count 0..1024
     parameter int PASS_W   = $clog2(N_MAX + 1);   // run-width counter
 
-    // ---- (key,index) pair carried through the network ----------------------
-    parameter int PAIR_W   = KEY_W + IDX_W;       // 106
-
+    // ---- (key,index) pair carried through the network (106 bits) -----------
     typedef logic [KEY_W-1:0]  key_t;
     typedef logic [IDX_W-1:0]  idx_t;
     typedef logic [CNT_W-1:0]  cnt_t;

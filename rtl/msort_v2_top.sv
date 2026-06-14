@@ -53,12 +53,15 @@ module msort_v2_top
     assign rd_q = rd_bank ? rdB_q : rdA_q;
 
     // ---- comparator: is a before-or-equal b? sel=0 re asc; sel=1 alnreg_slt ----
+    // (only sort-key fields are read — qe/rid are not sort keys; waive UNUSED.)
+    /* verilator lint_off UNUSEDSIGNAL */
     function automatic logic rec_le(input rec_t a, input rec_t b, input logic sel);
         if (!sel) rec_le = (a.re <= b.re);
         else if (a.score != b.score) rec_le = (a.score > b.score);
         else if (a.rb    != b.rb)    rec_le = (a.rb    < b.rb);
         else                         rec_le = (a.qb   <= b.qb);
     endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // ---- states ----
     typedef enum logic [4:0] {
@@ -83,7 +86,10 @@ module msort_v2_top
     rec_t p;
     // compact / output regs
     cnt_t ck, cw, ok;
-    rec_t out_reg, prevk;
+    rec_t out_reg;
+    /* verilator lint_off UNUSEDSIGNAL */
+    rec_t prevk;          // only (score,rb,qb) compared for identical-removal
+    /* verilator lint_on UNUSEDSIGNAL */
     logic prev_valid;
 
     // boundary math for merge sort
@@ -94,7 +100,7 @@ module msort_v2_top
         lo_ext = {{(WW-CNT_W){1'b0}}, lo};
         w_ext  = {{(WW-(CNT_W+1)){1'b0}}, width};
         lo2    = lo_ext + (w_ext << 1);
-        mid_c  = (lo_ext + w_ext < {{(WW-CNT_W){1'b0}}, n}) ? (lo_ext + w_ext) : n;
+        mid_c  = (lo_ext + w_ext < {{(WW-CNT_W){1'b0}}, n}) ? CNT_W'(lo_ext + w_ext) : n;
         hi_c   = (lo2          < {{(WW-CNT_W){1'b0}}, n}) ? lo2[CNT_W-1:0]      : n;
     end
 
@@ -126,7 +132,7 @@ module msort_v2_top
             T_PRIME_L:    rd_addr = mid[IDX_W-1:0];
             T_MERGE_STEP: rd_addr = take_left ? lfetch[IDX_W-1:0] : rfetch[IDX_W-1:0];
             T_DD_RDP:     rd_addr = i[IDX_W-1:0];
-            T_DD_LATP:    rd_addr = (i - 1'b1);
+            T_DD_LATP:    rd_addr = IDX_W'(i - 1'b1);
             T_DD_JRD:     rd_addr = j[IDX_W-1:0];
             T_CMP_RD:     rd_addr = ck[IDX_W-1:0];
             T_OUT_RD:     rd_addr = ok[IDX_W-1:0];
@@ -191,7 +197,7 @@ module msort_v2_top
 
                 // ===== merge sort (shared; second_sort picks key & next phase) =====
                 T_PASS_CHECK: begin
-                    if (width < n && n > 1) begin
+                    if (width < {1'b0, n} && n > 1) begin
                         lo <= '0; k <= '0; state <= T_PAIR_INIT;
                     end else begin
                         // sort complete: result lives in data_in_b bank

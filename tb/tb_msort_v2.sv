@@ -32,7 +32,14 @@ module tb_msort_v2
     rec_t   exp_a[0:N_MAX-1];
     rec_t   got_a[0:N_MAX-1];
     integer got_cnt, pass_cnt, fail_cnt, first_fail;
+    integer has_tie, tie_pass, tie_fail;
     string  vecpath;
+
+    // optional output-backpressure stress: +BP makes out_ready stall ~1/8 cycles
+    logic       bp_en;
+    logic [2:0] bpc = 0;
+    always @(posedge clk) bpc <= bpc + 1;
+    assign out_ready = bp_en ? (bpc != 3'd0) : 1'b1;
 
     function rec_t read_rec(integer f);
         rec_t rc; integer c;
@@ -53,8 +60,9 @@ module tb_msort_v2
         if (!$value$plusargs("VEC=%s", vecpath)) vecpath = "tb/vectors/msort_v2_vectors.hex";
         fd = $fopen(vecpath, "r");
         if (fd == 0) begin $display("FATAL: cannot open %s", vecpath); $fatal; end
-        in_valid=0; in_last=0; out_ready=1;
-        pass_cnt=0; fail_cnt=0; first_fail=-1;
+        in_valid=0; in_last=0;
+        bp_en = $test$plusargs("BP");
+        pass_cnt=0; fail_cnt=0; first_fail=-1; tie_pass=0; tie_fail=0;
         repeat (4) @(posedge clk);
         rst_n = 1; @(posedge clk);
 
@@ -62,7 +70,7 @@ module tb_msort_v2
         $display("=== tb_msort_v2: %0d records from %s ===", num_recs, vecpath);
 
         for (r = 0; r < num_recs; r = r + 1) begin
-            code = $fscanf(fd, "%d %d", n, m);
+            code = $fscanf(fd, "%d %d %d", n, m, has_tie);
             for (idx=0; idx<n; idx=idx+1) in_a[idx]  = read_rec(fd);
             for (idx=0; idx<m; idx=idx+1) exp_a[idx] = read_rec(fd);
 
@@ -76,7 +84,14 @@ module tb_msort_v2
             wait (done == 1'b1);
             @(posedge clk);
 
-            begin
+            if (has_tie) begin
+                // tie array: must raise fallback (host redoes in SW); output is don't-care
+                if (fallback) tie_pass = tie_pass + 1;
+                else begin
+                    tie_fail = tie_fail + 1;
+                    $display("  TIE-FAIL rec %0d (n=%0d): fallback NOT raised on a tie array", r, n);
+                end
+            end else begin
                 automatic bit ok = (got_cnt == m) && !fallback;
                 if (ok) for (idx=0; idx<m; idx=idx+1)
                     if (!rec_eq(got_a[idx], exp_a[idx])) ok = 0;
@@ -86,21 +101,18 @@ module tb_msort_v2
                     if (first_fail < 0) begin
                         first_fail = r;
                         $display("  FAIL rec %0d: n=%0d got=%0d exp=%0d fallback=%0b", r, n, got_cnt, m, fallback);
-                        for (idx=0; idx<m && idx<4; idx=idx+1)
-                            $display("    exp[%0d] re=%0d rb=%0d score=%0d  got re=%0d rb=%0d score=%0d",
-                                idx, exp_a[idx].re, exp_a[idx].rb, exp_a[idx].score,
-                                got_a[idx].re, got_a[idx].rb, got_a[idx].score);
                     end
                 end
             end
             @(posedge clk);
         end
         $fclose(fd);
-        $display("=== results ===  records=%0d  PASS=%0d  FAIL=%0d", num_recs, pass_cnt, fail_cnt);
-        if (fail_cnt) $display("RESULT: FAIL (first failing record %0d)", first_fail);
+        $display("=== results ===  records=%0d  tie-free PASS=%0d FAIL=%0d  |  tie(fallback) PASS=%0d FAIL=%0d",
+                 num_recs, pass_cnt, fail_cnt, tie_pass, tie_fail);
+        if (fail_cnt || tie_fail) $display("RESULT: FAIL (first tie-free fail %0d)", first_fail);
         else          $display("RESULT: ALL PASS");
         $finish;
     end
 
-    initial begin #4_000_000_000; $display("RESULT: TIMEOUT"); $finish; end
+    initial begin #80_000_000_000; $display("RESULT: TIMEOUT"); $finish; end  // watchdog (full-coverage)
 endmodule

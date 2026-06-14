@@ -35,8 +35,7 @@ module msort_merge_sorter
     input  key_t        in_key,
     input  logic        in_last,      // asserted with the final key of the array
     output logic        in_ready,     // accepts a key this cycle
-
-    input  logic        start,        // unused (in_last auto-starts the sort)
+    // (in_last auto-starts the sort; no separate start strobe needed)
 
     // ---- Unload interface (stream sorted pairs out) ----
     output logic        out_valid,
@@ -98,7 +97,7 @@ module msort_merge_sorter
         w_ext  = {{(WW-(PASS_W+1)){1'b0}}, width};
         two_w  = w_ext << 1;
         lo2    = lo_ext + two_w;                                   // lo + 2*width
-        mid_c  = (lo_ext + w_ext  < {{(WW-CNT_W){1'b0}}, n}) ? (lo_ext + w_ext)  : n;  // min(lo+w , n)
+        mid_c  = (lo_ext + w_ext  < {{(WW-CNT_W){1'b0}}, n}) ? CNT_W'(lo_ext + w_ext) : n;  // min(lo+w , n)
         hi_c   = (lo2          < {{(WW-CNT_W){1'b0}}, n}) ? lo2[CNT_W-1:0]       : n;  // min(lo+2w, n)
     end
 
@@ -120,7 +119,7 @@ module msort_merge_sorter
             ST_MERGE_STEP: rd_addr = take_left ? lfetch[IDX_W-1:0]  // refill consumed side
                                                : rfetch[IDX_W-1:0];
             ST_UNLOAD_PRIME: rd_addr = '0;
-            ST_UNLOAD:     rd_addr = out_ready ? (cur + 1'b1) : cur; // prefetch next / hold
+            ST_UNLOAD:     rd_addr = out_ready ? IDX_W'(cur + 1'b1) : cur[IDX_W-1:0]; // prefetch next / hold
             default:       rd_addr = '0;
         endcase
     end
@@ -180,7 +179,7 @@ module msort_merge_sorter
                 ST_PASS_CHECK: begin
                     if (n <= 1) begin
                         cur <= '0; state <= (n == 0) ? ST_DONE : ST_UNLOAD_PRIME;
-                    end else if (width < n) begin
+                    end else if (width < {1'b0, n}) begin
                         lo <= '0; k <= '0; state <= ST_PAIR_INIT;
                     end else begin
                         cur <= '0; state <= ST_UNLOAD_PRIME;

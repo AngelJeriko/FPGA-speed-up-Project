@@ -21,7 +21,6 @@ module tb_msort
     // ---- DUT I/O ----
     logic  in_valid, in_last, in_ready;
     key_t  in_key;
-    logic  start;
     logic  out_valid, out_last, out_ready;
     idx_t  out_idx;
     key_t  out_key;
@@ -30,7 +29,6 @@ module tb_msort
     msort_merge_sorter dut (
         .clk(clk), .rst_n(rst_n),
         .in_valid(in_valid), .in_key(in_key), .in_last(in_last), .in_ready(in_ready),
-        .start(start),
         .out_valid(out_valid), .out_idx(out_idx), .out_key(out_key),
         .out_last(out_last), .out_ready(out_ready),
         .busy(busy), .done(done)
@@ -63,7 +61,7 @@ module tb_msort
         fd = $fopen(vecpath, "r");
         if (fd == 0) begin $display("FATAL: cannot open %s", vecpath); $fatal; end
 
-        in_valid = 0; in_last = 0; in_key = '0; start = 0; out_ready = 1;
+        in_valid = 0; in_last = 0; in_key = '0; out_ready = 1;
         pass_cnt = 0; fail_cnt = 0; total_elems = 0; first_fail_rec = -1;
 
         repeat (4) @(posedge clk);
@@ -127,7 +125,7 @@ module tb_msort
 
     // safety timeout
     initial begin
-        #500_000_000;  // 500 ms sim time
+        #30_000_000_000;  // watchdog (full-coverage runs need ~1 s sim)
         $display("RESULT    : TIMEOUT");
         $finish;
     end

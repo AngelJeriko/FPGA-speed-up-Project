@@ -84,7 +84,7 @@ module msort_dedup
         // read address per state
         unique case (state)
             S_I_RDP:  rd_addr = i[IDX_W-1:0];
-            S_I_LATP: rd_addr = (i - 1'b1);
+            S_I_LATP: rd_addr = IDX_W'(i - 1'b1);
             S_J_RD:   rd_addr = j[IDX_W-1:0];
             S_CMP_RD: rd_addr = k[IDX_W-1:0];
             default:  rd_addr = '0;
