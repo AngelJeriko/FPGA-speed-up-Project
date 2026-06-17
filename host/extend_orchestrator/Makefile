@@ -25,8 +25,14 @@ gen_asm_vectors: gen_asm_vectors.cpp parse.h orch.h ksw.h
 asm: gen_asm_vectors $(VEC)
 	./gen_asm_vectors $(VEC) vectors/asm_vectors.txt
 
-clean:
-	rm -f test_orch gen_orch_vectors gen_asm_vectors $(VEC) \
-	      vectors/ext_prepurge.bin vectors/asm_vectors.txt
+gen_seedcov_vectors: gen_seedcov_vectors.cpp parse.h orch.h ksw.h
+	$(CXX) $(CXXFLAGS) -o $@ gen_seedcov_vectors.cpp
 
-.PHONY: run gen asm clean
+seedcov: gen_seedcov_vectors $(VEC)
+	./gen_seedcov_vectors $(VEC) vectors/seedcov_vectors.txt
+
+clean:
+	rm -f test_orch gen_orch_vectors gen_asm_vectors gen_seedcov_vectors $(VEC) \
+	      vectors/ext_prepurge.bin vectors/asm_vectors.txt vectors/seedcov_vectors.txt
+
+.PHONY: run gen asm seedcov clean

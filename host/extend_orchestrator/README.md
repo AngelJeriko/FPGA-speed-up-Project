@@ -63,8 +63,17 @@ The orchestrator is built bottom-up against model-generated vectors:
     rtl/orch_assemble.sv tb/tb_orch_assemble.sv
   /tmp/obj_asm/Vtb_orch_assemble +VEC=host/extend_orchestrator/vectors/asm_vectors.txt
   ```
-- **Next:** window-builder + `bsw_top` driver (band-doubling), seedcov, per-read
-  accumulator, then the full FSM incl. the HW purge → stream into `msort_v2_top`.
+- **`rtl/orch_seedcov.sv`** — seedcov stage: streaming accumulator, sums seed.len
+  over chain seeds contained in the alnreg's final [qb,qe)x[rb,re). Verified
+  **565,446/565,446** via `tb/tb_orch_seedcov.sv` (`make seedcov` to regenerate):
+  ```sh
+  verilator --binary --timing --top-module tb_orch_seedcov --timescale 1ns/1ps \
+    -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Mdir /tmp/obj_sc \
+    rtl/orch_seedcov.sv tb/tb_orch_seedcov.sv
+  /tmp/obj_sc/Vtb_orch_seedcov +VEC=host/extend_orchestrator/vectors/seedcov_vectors.txt
+  ```
+- **Next:** window-builder + `bsw_top` driver (band-doubling), per-read accumulator,
+  then the full FSM incl. the HW purge → stream into `msort_v2_top`.
 
 **BSW sizing caveat (integration):** the existing `bsw_top` is `MAX_QLEN=128`,
 `MAX_TLEN=256`, `BAND_WIDTH=64`. Real 150 bp extensions need qlen ≤ ~150, target ≤
