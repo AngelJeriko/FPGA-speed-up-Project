@@ -19,7 +19,14 @@ gen_orch_vectors: gen_orch_vectors.cpp parse.h orch.h ksw.h
 gen: gen_orch_vectors $(VEC)
 	./gen_orch_vectors $(VEC) vectors/ext_prepurge.bin
 
-clean:
-	rm -f test_orch gen_orch_vectors $(VEC) vectors/ext_prepurge.bin
+gen_asm_vectors: gen_asm_vectors.cpp parse.h orch.h ksw.h
+	$(CXX) $(CXXFLAGS) -o $@ gen_asm_vectors.cpp
 
-.PHONY: run gen clean
+asm: gen_asm_vectors $(VEC)
+	./gen_asm_vectors $(VEC) vectors/asm_vectors.txt
+
+clean:
+	rm -f test_orch gen_orch_vectors gen_asm_vectors $(VEC) \
+	      vectors/ext_prepurge.bin vectors/asm_vectors.txt
+
+.PHONY: run gen asm clean

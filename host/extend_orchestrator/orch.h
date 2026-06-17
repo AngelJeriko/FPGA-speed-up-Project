@@ -30,6 +30,17 @@ struct ReadVec{ int64_t read_id; int l_query; Cfg cfg;
 
 struct ExtRes { int score, qle, tle, gscore, gtle, w; };
 
+// per-alnreg trace for unit-testing the assembly datapath in RTL: the SW results
+// (left/right) + seed/cfg inputs and the expected assembled fields (excl. seedcov,
+// which depends on the chain seed list and is tested separately).
+struct AsmVec {
+    int l_query, a, w, pen_clip5, pen_clip3;
+    int64_t rbeg, rmax0; int qbeg, len, rid;
+    int need_left, need_right;
+    ExtRes left, right;
+    int64_t rb, re; int qb, qe, score, truesc, wout, seedcov;
+};
+
 // band-doubling extension: ksw at w<<i for i in [0,MAX_BAND_TRY), accept on the
 // same condition bwamem.cpp uses (score unchanged / max_off small / last try).
 static inline ExtRes band_extend(int qlen, const uint8_t *q, int tlen,
@@ -63,7 +74,8 @@ static inline int seedcov_calc(const Chain &c, const Alnreg &A) {
 // av index. This is exactly what the RTL orchestrator produces (the cross-chain
 // purge is host-side); the post-purge orchestrate() wraps this + purge().
 static inline std::vector<Alnreg> extend_only(
-        const ReadVec &rv, std::vector<std::vector<int>> &seed_aln) {
+        const ReadVec &rv, std::vector<std::vector<int>> &seed_aln,
+        std::vector<AsmVec> *trace = nullptr) {
     const Cfg &o = rv.cfg;
     const int l_query = rv.l_query;
     std::vector<Alnreg> av;
@@ -84,6 +96,7 @@ static inline std::vector<Alnreg> extend_only(
             Alnreg A; memset(&A, 0, sizeof(A));
             A.w = o.w; A.score = A.truesc = -1; A.rid = c.rid; A.seedlen0 = s.len;
             A.rb = A.qb = A.re = A.qe = H0M;
+            ExtRes Lr{}, Rr{};
 
             // --- phase 1: set up both sides (matches the per-read loop) ---
             bool need_left = false, need_right = false; int h0L = 0;
@@ -106,6 +119,7 @@ static inline std::vector<Alnreg> extend_only(
                 for (int64_t i = 0; i < tmp; ++i) rs[i] = c.ref[tmp - 1 - i];
                 ExtRes r = band_extend(s.qbeg, qs.data(), (int)tmp, rs.data(),
                                        o, o.pen_clip5, h0L, A.score);
+                Lr = r;
                 A.score = r.score;
                 if (r.gscore <= 0 || r.gscore <= A.score - o.pen_clip5) {
                     A.qb -= r.qle; A.rb -= r.tle; A.truesc = A.score;
@@ -124,6 +138,7 @@ static inline std::vector<Alnreg> extend_only(
                 const int h0R = A.score;
                 ExtRes r = band_extend(len2, qs.data(), (int)len1, rs.data(),
                                        o, o.pen_clip3, h0R, A.score);
+                Rr = r;
                 A.score = r.score;
                 if (r.gscore <= 0 || r.gscore <= A.score - o.pen_clip3) {
                     A.qe += r.qle; A.re += r.tle; A.truesc += A.score - h0R;
@@ -133,6 +148,16 @@ static inline std::vector<Alnreg> extend_only(
                     A.seedcov = seedcov_calc(c, A);
             }
 
+            if (trace) {
+                AsmVec t{};
+                t.l_query=l_query; t.a=o.a; t.w=o.w;
+                t.pen_clip5=o.pen_clip5; t.pen_clip3=o.pen_clip3;
+                t.rbeg=s.rbeg; t.rmax0=c.rmax0; t.qbeg=s.qbeg; t.len=s.len; t.rid=c.rid;
+                t.need_left=need_left; t.need_right=need_right; t.left=Lr; t.right=Rr;
+                t.rb=A.rb; t.re=A.re; t.qb=A.qb; t.qe=A.qe;
+                t.score=A.score; t.truesc=A.truesc; t.wout=A.w; t.seedcov=A.seedcov;
+                trace->push_back(t);
+            }
             av.push_back(A);
             seed_aln[cj][si] = (int)av.size() - 1;
         }

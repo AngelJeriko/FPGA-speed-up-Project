@@ -38,5 +38,35 @@ type 2 OUTPUT: i32 type=2; i64 read_id; i32 n_out;
 
 cfg in the captured set = bwa-mem2 defaults `{1,4,6,1,6,1,100,100,5,5}`.
 
-The C++ reference model (next) replays HEADER+CHAIN through the orchestrator and
-checks bit-exactness against the type-2 OUTPUT array.
+The C++ reference model replays HEADER+CHAIN through the orchestrator and checks
+bit-exactness against the type-2 OUTPUT array.
+
+## C++ model (verified)
+
+`ksw.h` (ksw_extend2 verbatim + scoring helpers), `orch.h` (extend_only → purge →
+orchestrate), `parse.h` (loader). `make run` → **30,000/30,000 reads bit-exact,
+565,446 alnregs**. `make gen` writes the pre-purge golden and reports purge impact
+(**55.9% of pre-purge alnregs are purged** → purge is high-impact, done in HW).
+`make asm` writes per-alnreg assembly vectors for the RTL.
+
+## RTL (in progress)
+
+The orchestrator is built bottom-up against model-generated vectors:
+
+- **`rtl/orch_assemble.sv`** — alnreg assembly datapath (SW results + seed/cfg →
+  rb/re/qb/qe/score/truesc/w). Verified **565,446/565,446** via `tb/tb_orch_assemble.sv`:
+  ```sh
+  make asm                       # host/extend_orchestrator: regenerate vectors
+  cd <repo root>
+  verilator --binary --timing --top-module tb_orch_assemble --timescale 1ns/1ps \
+    -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Mdir /tmp/obj_asm \
+    rtl/orch_assemble.sv tb/tb_orch_assemble.sv
+  /tmp/obj_asm/Vtb_orch_assemble +VEC=host/extend_orchestrator/vectors/asm_vectors.txt
+  ```
+- **Next:** window-builder + `bsw_top` driver (band-doubling), seedcov, per-read
+  accumulator, then the full FSM incl. the HW purge → stream into `msort_v2_top`.
+
+**BSW sizing caveat (integration):** the existing `bsw_top` is `MAX_QLEN=128`,
+`MAX_TLEN=256`, `BAND_WIDTH=64`. Real 150 bp extensions need qlen ≤ ~150, target ≤
+~800, band ≤ ~150 → `bsw_pkg` params must be raised and the BSW engine re-verified
+before it can drive the orchestrator.
