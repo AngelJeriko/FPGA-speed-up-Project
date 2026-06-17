@@ -48,8 +48,19 @@ static inline ExtRes band_extend(int qlen, const uint8_t *q, int tlen,
     ExtRes r{};
     for (int i = 0; i < MAX_BAND_TRY; ++i) {
         int w = o.w << i, qle, tle, gtle, gscore, maxoff;
+#ifdef FULLDP_BAND
+        // HW-faithful mode: the systolic array computes the FULL DP (one PE per
+        // query base, no in-array band). We model that by running ksw at an
+        // effectively infinite band, while keeping `w` (the stored band label)
+        // and the accept test exactly as bwa-mem2 does. This lets test_orch
+        // measure whether the full-DP array stays bit-exact with the captured
+        // (banded) real output.
+        int w_run = 1000000;
+#else
+        int w_run = w;
+#endif
         int sc = ksw_extend2(qlen, q, tlen, t, 5, o.mat, o.o_del, o.e_del,
-                             o.o_ins, o.e_ins, w, end_bonus, o.zdrop, h0,
+                             o.o_ins, o.e_ins, w_run, end_bonus, o.zdrop, h0,
                              &qle, &tle, &gtle, &gscore, &maxoff);
         if (sc == prev || maxoff < (w >> 1) + (w >> 2) || i + 1 == MAX_BAND_TRY) {
             r = {sc, qle, tle, gscore, gtle, w};
