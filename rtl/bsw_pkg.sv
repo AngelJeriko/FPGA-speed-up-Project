@@ -7,9 +7,17 @@
 
 package bsw_pkg;
 
-    // ---- Sequence sizing (matches MAX_SEQ_LEN_QER / MAX_SEQ_LEN_REF in bandedSWA.h) ----
-    parameter int MAX_QLEN     = 128;
-    parameter int MAX_TLEN     = 256;
+    // ---- Sequence sizing ----
+    // Sized for real bwa-mem2 150bp short-read extension. Measured maxima over
+    // 747,258 captured ksw_extend2 calls (hg38 chr1-5 / HG00733): qlen<=131,
+    // tlen<=786, ref window<=811. MAX_QLEN/N_PE carry headroom to 160; MAX_TLEN
+    // rounds to 1024 (power of 2). Because the systolic array computes the FULL
+    // DP (one PE per query base, no in-array banding), it is bit-exact with the
+    // banded C++ ksw_extend2 only while 2*w+1 >= qlen; with the default band
+    // w=100 and qlen<=160, 2*100+1=201 covers the whole query, so banding is a
+    // no-op and the result matches. (See docs / measure_dims.cpp.)
+    parameter int MAX_QLEN     = 160;
+    parameter int MAX_TLEN     = 1024;
     parameter int LEN_WIDTH    = 16;  // wide enough for both lengths and i/j indices
 
     // ---- Alphabet (A,C,G,T,N) ----
@@ -17,14 +25,17 @@ package bsw_pkg;
     parameter int BASE_WIDTH   = 3;   // ceil(log2(5))
 
     // ---- Score width ----
-    // With qlen<=128 and match score up to a few units, H stays within ~10 bits.
-    // 16-bit signed gives 4-5 bits of headroom and matches the C++ 16-bit SIMD path.
+    // With qlen<=160 and match score up to a few units, H stays within ~11 bits
+    // (peak ~ qlen + h0 + end_bonus, well under 2^15). 16-bit signed gives ample
+    // headroom and matches the C++ 16-bit SIMD path.
     parameter int SCORE_WIDTH  = 16;
 
     // ---- Systolic array sizing ----
     // PEs in the linear array. Each PE holds one query position and computes one
-    // (H,E,F) cell per cycle. BAND_WIDTH must be >= 2*w+1 to cover the band.
-    parameter int BAND_WIDTH   = 64;
+    // (H,E,F) cell per cycle. The array is full-width (one PE per query base), so
+    // qlen must be <= N_PE (= BAND_WIDTH); a request with qlen > N_PE is rejected
+    // by the FSM. BAND_WIDTH must therefore be >= MAX_QLEN.
+    parameter int BAND_WIDTH   = 160;
     parameter int PE_IDX_WIDTH = $clog2(BAND_WIDTH);
 
     // ---- Default scoring (BWA-MEM2 defaults) ----

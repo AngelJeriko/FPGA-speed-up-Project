@@ -5,4 +5,8 @@ vectors/*.txt
 test_orch
 gen_orch_vectors
 gen_asm_vectors
+gen_seedcov_vectors
+gen_window_vectors
+measure_dims
+check_band
 *.o

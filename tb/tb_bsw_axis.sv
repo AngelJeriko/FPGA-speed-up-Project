@@ -206,9 +206,10 @@ module tb_bsw_axis
         check("T2 tag echo",                   int'(rxtag),              16'hBEEF);
 
         // ---------------- T3: oversize query -> error=1, score=0 ----------------
-        for (int i = 0; i < MAX_QLEN; i++) q[i] = (i < 100) ? 3'd0 : '0;
+        // qlen = N_PE+1 is the smallest oversize request (parametric in BAND_WIDTH).
+        for (int i = 0; i < MAX_QLEN; i++) q[i] = 3'd0;
         for (int i = 0; i < MAX_TLEN; i++) t[i] = (i <   8) ? 3'd0 : '0;
-        cfg = default_cfg(100, 8);   // qlen=100 > N_PE=64 -> reject
+        cfg = default_cfg(BAND_WIDTH + 1, 8);   // qlen = N_PE+1 > N_PE -> reject
         fork
             send_request(cfg, 16'h1234, q, t);
             recv_result(res, rxtag);
