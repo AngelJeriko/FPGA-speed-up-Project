@@ -10,13 +10,26 @@ Pristine backup: `bwamem.cpp.orig` (LF, 116,545 B). Instrumented: `bwamem.cpp`
 (125,908 B, ~+9.4 KB ≈ ~200 lines). All additions are tagged `/* INSTRUMENTATION */`
 or wrapped in `--- INSTRUMENTATION ... ---` comment banners.
 
-## The three instruments
+## The instruments
 
 | # | name | source lines | activated by | output | overhead |
 |---|---|---|---|---|---|
 | 1 | alnreg count **histogram** | ~161–200 + hooks 484/485/557 | **always on** | `ALNREG_HIST_OUT` (default `alnreg_hist.tsv`) at exit | negligible (atomic increments) |
 | 2 | score-sort **vector dumper** | ~202–246 + hook ~536 | env `ALNREG_VEC_OUT` set | that path (binary) | none unless enabled |
 | 3 | re-sort **tie-order test** | ~380–475 + hooks 486–489/558 | env `ALNREG_TIE_TEST` set | `ALNREG_TIE_OUT` (default `alnreg_tie.txt`) at exit | ~2× dedup cost when on |
+| 4 | v2 dedup **vector dumper** | ~488–514 + hook ~529 | env `ALNREG_V2_OUT` set | that path (binary) | none unless enabled |
+| 5 | **extend-orchestrator capture** | ext block after #4 + hooks in `mem_chain2aln_across_reads_V2` | env `ALNREG_EXT_OUT` set (`ALNREG_EXT_MAX` caps #reads, default 30000) | that path (binary) | none unless enabled |
+
+### 5. Extend-orchestrator capture (`ExtDumper`, env `ALNREG_EXT_OUT`)
+Captures the inputs and output of `mem_chain2aln_across_reads_V2` for the Stage-1
+on-chip BSW→sorter pipeline (`host/extend_orchestrator/`): per-read HEADER
+(query + 10 `opt` SW-config fields), per-chain CHAIN (ref window `rseq` + seeds),
+and per-read OUTPUT (the fully-assembled alnreg array, captured at function end
+after the cross-chain redundancy purge). Records are tagged and carry a globally-
+unique `read_id` (thread-safe spinlock around writes; records interleave, join by
+`read_id`). Format documented in `host/extend_orchestrator/README.md`. Driver:
+`scripts/remote_ext_capture.sh` (detect SIMD arch → rebuild that variant → small
+50k-pair subset → capture → gzip). Captured 2026-06-16; remote reverted to clean.
 
 ### 1. Histogram (`AlnregHistDumper`)
 Counts the pre-dedup array length `n` and post-dedup length `m` entering/leaving

@@ -1,0 +1,4 @@
+# raw uncompressed vector dumps are large (~125 MB) — keep only the .gz in git
+vectors/*.bin
+test_orch
+*.o
