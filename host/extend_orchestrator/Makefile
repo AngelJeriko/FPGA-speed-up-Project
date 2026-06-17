@@ -13,7 +13,13 @@ $(VEC): $(VEC_GZ)
 run: test_orch $(VEC)
 	./test_orch $(VEC)
 
-clean:
-	rm -f test_orch $(VEC)
+gen_orch_vectors: gen_orch_vectors.cpp parse.h orch.h ksw.h
+	$(CXX) $(CXXFLAGS) -o $@ gen_orch_vectors.cpp
 
-.PHONY: run clean
+gen: gen_orch_vectors $(VEC)
+	./gen_orch_vectors $(VEC) vectors/ext_prepurge.bin
+
+clean:
+	rm -f test_orch gen_orch_vectors $(VEC) vectors/ext_prepurge.bin
+
+.PHONY: run gen clean

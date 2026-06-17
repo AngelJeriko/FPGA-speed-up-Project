@@ -58,12 +58,16 @@ static inline int seedcov_calc(const Chain &c, const Alnreg &A) {
     return sc;
 }
 
-static inline std::vector<Alnreg> orchestrate(const ReadVec &rv) {
+// ---- extension only (pre-purge): seed sort -> left/right SW -> assembly ----
+// Returns the raw alnreg array in append order and fills seed_aln[chain][seed] =
+// av index. This is exactly what the RTL orchestrator produces (the cross-chain
+// purge is host-side); the post-purge orchestrate() wraps this + purge().
+static inline std::vector<Alnreg> extend_only(
+        const ReadVec &rv, std::vector<std::vector<int>> &seed_aln) {
     const Cfg &o = rv.cfg;
     const int l_query = rv.l_query;
     std::vector<Alnreg> av;
-    std::vector<std::vector<int>>      seed_aln(rv.chains.size());
-    std::vector<std::vector<uint32_t>> srt2(rv.chains.size());
+    seed_aln.assign(rv.chains.size(), {});
 
     for (size_t cj = 0; cj < rv.chains.size(); ++cj) {
         const Chain &c = rv.chains[cj];
@@ -73,8 +77,6 @@ static inline std::vector<Alnreg> orchestrate(const ReadVec &rv) {
         for (int i = 0; i < n; ++i)
             srt[i] = ((uint64_t)(uint32_t)c.seeds[i].score << 32) | (uint32_t)i;
         std::sort(srt.begin(), srt.end());
-        srt2[cj].resize(n);
-        for (int i = 0; i < n; ++i) srt2[cj][i] = (uint32_t)(srt[i] & 0xffffffffu);
 
         for (int k = n - 1; k >= 0; --k) {
             const int si = (int)(srt[k] & 0xffffffffu);
@@ -135,8 +137,29 @@ static inline std::vector<Alnreg> orchestrate(const ReadVec &rv) {
             seed_aln[cj][si] = (int)av.size() - 1;
         }
     }
+    return av;
+}
 
-    // --- cross-chain redundancy purge (sets qb=qe=-1 on contained seeds) ---
+// ---- cross-chain redundancy purge (host-side): sets qb=qe=-1 on contained ----
+// seeds whose extension is redundant with an existing alnreg. Mirrors the
+// "discard seeds" loop at the end of mem_chain2aln_across_reads_V2. Operates
+// in place on the pre-purge av from extend_only().
+static inline void purge(const ReadVec &rv, std::vector<Alnreg> &av,
+                         const std::vector<std::vector<int>> &seed_aln) {
+    const Cfg &o = rv.cfg;
+    const int l_query = rv.l_query;
+    // recompute the per-chain seed sort order (same as extend_only)
+    std::vector<std::vector<uint32_t>> srt2(rv.chains.size());
+    for (size_t cj = 0; cj < rv.chains.size(); ++cj) {
+        const int n = (int)rv.chains[cj].seeds.size();
+        std::vector<uint64_t> srt(n);
+        for (int i = 0; i < n; ++i)
+            srt[i] = ((uint64_t)(uint32_t)rv.chains[cj].seeds[i].score << 32) | (uint32_t)i;
+        std::sort(srt.begin(), srt.end());
+        srt2[cj].resize(n);
+        for (int i = 0; i < n; ++i) srt2[cj][i] = (uint32_t)(srt[i] & 0xffffffffu);
+    }
+
     int lim = 0;
     for (size_t cj = 0; cj < rv.chains.size(); ++cj) {
         const Chain &c = rv.chains[cj];
@@ -184,5 +207,12 @@ static inline std::vector<Alnreg> orchestrate(const ReadVec &rv) {
             lim++;
         }
     }
+}
+
+// ---- full orchestration (extend + host-side purge) = bit-exact vs capture ----
+static inline std::vector<Alnreg> orchestrate(const ReadVec &rv) {
+    std::vector<std::vector<int>> seed_aln;
+    std::vector<Alnreg> av = extend_only(rv, seed_aln);
+    purge(rv, av, seed_aln);
     return av;
 }
