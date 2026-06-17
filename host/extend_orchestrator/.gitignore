@@ -7,6 +7,9 @@ gen_orch_vectors
 gen_asm_vectors
 gen_seedcov_vectors
 gen_window_vectors
+gen_ext_vectors
 measure_dims
 check_band
+check_fulldp
+check_truedp
 *.o

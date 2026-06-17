@@ -69,6 +69,19 @@ else
         "$RTL/bsw_top.sv"
         "$RTL/bsw_axis_adapter.sv"
     )
+    # tb_bsw_ext checks bsw_top against real-data ksw vectors; bootstrap them
+    # from the committed capture (.bin.gz) via the C++ generator if missing.
+    if [[ "$TB" == tb_bsw_ext ]]; then
+        EO="$ROOT/host/extend_orchestrator"
+        VEC_TXT="$EO/vectors/ext_sw_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+            ( cd "$EO" && g++ -O2 -std=c++17 -o gen_ext_vectors gen_ext_vectors.cpp \
+              && ./gen_ext_vectors vectors/ext_vec.bin vectors/ext_sw_vectors.txt )
+        fi
+    fi
 fi
 TB_FILE="$TBDIR/${TB}.sv"
 
