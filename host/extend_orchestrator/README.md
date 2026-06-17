@@ -72,8 +72,18 @@ The orchestrator is built bottom-up against model-generated vectors:
     rtl/orch_seedcov.sv tb/tb_orch_seedcov.sv
   /tmp/obj_sc/Vtb_orch_seedcov +VEC=host/extend_orchestrator/vectors/seedcov_vectors.txt
   ```
-- **Next:** window-builder + `bsw_top` driver (band-doubling), per-read accumulator,
-  then the full FSM incl. the HW purge → stream into `msort_v2_top`.
+- **`rtl/orch_window.sv`** — window-builder (address generator): streams the source
+  indices for the 4 extension windows (Lq/Lr reversed, Rq/Rr forward) so an external
+  query/ref block-RAM read fills the bsw_top inputs. Verified **565,446/565,446** via
+  `tb/tb_orch_window.sv` (`make window` to regenerate):
+  ```sh
+  verilator --binary --timing --top-module tb_orch_window --timescale 1ns/1ps \
+    -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Mdir /tmp/obj_win \
+    rtl/orch_window.sv tb/tb_orch_window.sv
+  /tmp/obj_win/Vtb_orch_window +VEC=host/extend_orchestrator/vectors/window_vectors.txt
+  ```
+- **Next:** `bsw_top` driver (band-doubling; needs the BSW resize), per-read
+  accumulator, then the full FSM incl. the HW purge → stream into `msort_v2_top`.
 
 **BSW sizing caveat (integration):** the existing `bsw_top` is `MAX_QLEN=128`,
 `MAX_TLEN=256`, `BAND_WIDTH=64`. Real 150 bp extensions need qlen ≤ ~150, target ≤

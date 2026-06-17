@@ -31,8 +31,15 @@ gen_seedcov_vectors: gen_seedcov_vectors.cpp parse.h orch.h ksw.h
 seedcov: gen_seedcov_vectors $(VEC)
 	./gen_seedcov_vectors $(VEC) vectors/seedcov_vectors.txt
 
-clean:
-	rm -f test_orch gen_orch_vectors gen_asm_vectors gen_seedcov_vectors $(VEC) \
-	      vectors/ext_prepurge.bin vectors/asm_vectors.txt vectors/seedcov_vectors.txt
+gen_window_vectors: gen_window_vectors.cpp parse.h orch.h ksw.h
+	$(CXX) $(CXXFLAGS) -o $@ gen_window_vectors.cpp
 
-.PHONY: run gen asm seedcov clean
+window: gen_window_vectors $(VEC)
+	./gen_window_vectors $(VEC) vectors/window_vectors.txt
+
+clean:
+	rm -f test_orch gen_orch_vectors gen_asm_vectors gen_seedcov_vectors \
+	      gen_window_vectors $(VEC) vectors/ext_prepurge.bin vectors/asm_vectors.txt \
+	      vectors/seedcov_vectors.txt vectors/window_vectors.txt
+
+.PHONY: run gen asm seedcov window clean
