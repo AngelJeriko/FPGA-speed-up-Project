@@ -82,6 +82,20 @@ else
               && ./gen_ext_vectors vectors/ext_vec.bin vectors/ext_sw_vectors.txt )
         fi
     fi
+    # tb_bsw_seed_unit checks the per-seed extension+assembly unit (orch_window +
+    # bsw_top + orch_assemble) against the HW-model pre-purge alnreg per seed.
+    if [[ "$TB" == tb_bsw_seed_unit ]]; then
+        RTL_FILES+=("$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/bsw_seed_unit.sv")
+        EO="$ROOT/host/extend_orchestrator"
+        VEC_TXT="$EO/vectors/seedext_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -o gen_seedext_vectors gen_seedext_vectors.cpp \
+              && ./gen_seedext_vectors vectors/ext_vec.bin vectors/seedext_vectors.txt )
+        fi
+    fi
 fi
 TB_FILE="$TBDIR/${TB}.sv"
 
@@ -98,7 +112,7 @@ if command -v verilator >/dev/null 2>&1; then
     mkdir -p "$OBJ"
     verilator --binary --timing --top-module "$TB" \
               --timescale 1ns/1ps \
-              -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD \
+              -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Wno-INITIALDLY \
               -I"$RTL" -Mdir "$OBJ" \
               "${RTL_FILES[@]}" "$TB_FILE"
     "$OBJ/V$TB" "${PLUSARGS[@]}"
