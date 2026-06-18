@@ -1,0 +1,4 @@
+chain_test
+*.o
+vectors/*.bin
+vectors/*.txt
