@@ -136,3 +136,30 @@ sub-project than the back half and is where the memory-placement analysis applie
 offloading as much as possible is correct — the ceiling climbs from ~1.5× (today)
 to ~2× (＋mate-rescue＋chaining, still easy/bit-exact) before hitting the seeding
 wall, which is the real decision point for a full-hardware-mapper ambition.
+
+## Addendum — fresh measurement (2026-06-17, perf cpu-clock, 2M pairs, 1.15M samples)
+
+Re-profiled the clean binary (101 bp, chr1-5) and grouped self-times by engine:
+
+| Engine / stage | self-time |
+|---|---|
+| Seeding (backwardExt 15.1 + getSMEMs 10.6 + get_sa 3.6 + bwtSeed 2.6) | 31.9% |
+| Sort/dedup (ars 10.9 + ars2 9.2 + dedup_patch 1.8 + combsort 0.6 + hash 0.2) | 22.7% |
+| Mate-rescue (kswv512 10.0 + wrapper 1.3 + matesw pre/post 1.2 + ksw_global2 1.3) | ~12.5–13.8% |
+| Extension (mem_chain2aln 5.65 + sw512_8/16 5.1 + wrappers 1.3) | ~12.0% |
+| Chaining (mem_chain_flt 3.46 + mem_chain_seeds 1.59 + mem_flt sort 0.14) | ~5.2% |
+| ref fetch (bns_get_seq) | 4.4% |
+
+**Confirmations + corrections vs the estimates above:**
+- **accel_top (extension + sort/dedup) = ~34.7%** — confirms the ~33% estimate. Ceiling 1.53×.
+- **Mate-rescue ≈ 12.5%**, *larger* than the ~9–11% estimate, and `kswv512_u8` alone (10.0%)
+  is the single biggest SW kernel — bigger than all of extension SW (~5%). Building it before
+  chaining was the right order.
+- **Chaining ≈ 5.2%**, *smaller* than the ~11% estimate — the old "~11%" conflated the SA
+  lookups (`get_sa_entries`, really seeding) with the chain logic. The actual chain
+  grouping+filter is ~5%.
+
+Cumulative on-chip ceilings (fresh): accel_top 34.7% → **1.53×**; ＋mate-rescue 47.2% →
+**1.89×**; ＋chaining 52.4% → **2.10×**. The ~2× target holds, but **mate-rescue (~12.5%),
+not chaining (~5%), is the bigger second lever** — already built. (The 150/250 bp read-length
+run is still unmeasured — no long-read FASTQ on the server.)
