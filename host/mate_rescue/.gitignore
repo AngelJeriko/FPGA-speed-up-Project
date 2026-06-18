@@ -1,0 +1,5 @@
+ref_test
+hw_test
+*.o
+vectors/*.bin
+vectors/*.txt
