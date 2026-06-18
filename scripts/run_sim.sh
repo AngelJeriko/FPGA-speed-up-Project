@@ -96,6 +96,21 @@ else
               && ./gen_seedext_vectors vectors/ext_vec.bin vectors/seedext_vectors.txt )
         fi
     fi
+    # tb_orch_chain_unit checks the per-chain sequencer (seed-sort + per-seed
+    # extension + seedcov + ordered collect) against extend_only's per-chain slice.
+    if [[ "$TB" == tb_orch_chain_unit ]]; then
+        RTL_FILES+=("$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" \
+                    "$RTL/bsw_seed_unit.sv" "$RTL/orch_chain_unit.sv")
+        EO="$ROOT/host/extend_orchestrator"
+        VEC_TXT="$EO/vectors/chain_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -o gen_chain_vectors gen_chain_vectors.cpp \
+              && ./gen_chain_vectors vectors/ext_vec.bin vectors/chain_vectors.txt )
+        fi
+    fi
 fi
 TB_FILE="$TBDIR/${TB}.sv"
 

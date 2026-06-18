@@ -9,6 +9,7 @@ gen_seedcov_vectors
 gen_window_vectors
 gen_ext_vectors
 gen_seedext_vectors
+gen_chain_vectors
 measure_dims
 check_band
 check_fulldp

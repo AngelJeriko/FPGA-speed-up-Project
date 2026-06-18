@@ -80,15 +80,22 @@ gen_seedext_vectors: gen_seedext_vectors.cpp parse.h orch.h ksw.h hw.h
 seedext: gen_seedext_vectors $(VEC)
 	./gen_seedext_vectors $(VEC) vectors/seedext_vectors.txt
 
+# Per-chain golden for tb_orch_chain_unit (expected = extend_only per-chain slice).
+gen_chain_vectors: gen_chain_vectors.cpp parse.h orch.h ksw.h hw.h
+	$(CXX) $(CXXFLAGS) -DHWMODEL -o $@ gen_chain_vectors.cpp
+chainvec: gen_chain_vectors $(VEC)
+	./gen_chain_vectors $(VEC) vectors/chain_vectors.txt
+
 dp_dump: dp_dump.cpp
 	$(CXX) $(CXXFLAGS) -o $@ dp_dump.cpp
 
 clean:
 	rm -f test_orch test_orch_full test_orch_hw gen_orch_vectors gen_asm_vectors \
 	      gen_seedcov_vectors gen_window_vectors gen_ext_vectors gen_seedext_vectors \
-	      measure_dims check_band check_fulldp check_truedp dp_dump \
+	      gen_chain_vectors measure_dims check_band check_fulldp check_truedp dp_dump \
 	      $(VEC) vectors/ext_prepurge.bin vectors/asm_vectors.txt \
 	      vectors/seedcov_vectors.txt vectors/window_vectors.txt \
-	      vectors/ext_sw_vectors.txt vectors/ext_small.txt vectors/seedext_vectors.txt
+	      vectors/ext_sw_vectors.txt vectors/ext_small.txt vectors/seedext_vectors.txt \
+	      vectors/chain_vectors.txt
 
-.PHONY: run runfull runhw gen asm seedcov window dims extvec seedext checkband checkfull clean
+.PHONY: run runfull runhw gen asm seedcov window dims extvec seedext chainvec checkband checkfull clean
