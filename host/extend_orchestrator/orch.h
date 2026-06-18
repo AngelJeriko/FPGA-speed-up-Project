@@ -222,16 +222,30 @@ static inline void purge(const ReadVec &rv, std::vector<Alnreg> &av,
                 if (p.qb == -1 && p.qe == -1) continue;
                 if (s.rbeg < p.rb || s.rbeg + s.len > p.re ||
                     s.qbeg < p.qb || s.qbeg + s.len > p.qe) { v++; continue; }
+#ifdef INTPURGE
+                if ((s.len - p.seedlen0) * 10 > l_query) { v++; continue; }
+#else
                 if (s.len - p.seedlen0 > 0.1 * l_query) { v++; continue; }
+#endif
                 int64_t rd; int qd, w, max_gap;
                 qd = s.qbeg - p.qb; rd = s.rbeg - p.rb;
+#ifdef INTPURGE
+                max_gap = cal_max_gap_int(o.a, o.o_del, o.e_del, o.o_ins, o.e_ins, o.w,
+                                          (int)(qd < rd ? qd : rd));
+#else
                 max_gap = cal_max_gap(o.a, o.o_del, o.e_del, o.o_ins, o.e_ins, o.w,
                                       (int)(qd < rd ? qd : rd));
+#endif
                 w = max_gap < p.w ? max_gap : p.w;
                 if (qd - rd < w && rd - qd < w) break;
                 qd = (int)(p.qe - (s.qbeg + s.len)); rd = p.re - (s.rbeg + s.len);
+#ifdef INTPURGE
+                max_gap = cal_max_gap_int(o.a, o.o_del, o.e_del, o.o_ins, o.e_ins, o.w,
+                                          (int)(qd < rd ? qd : rd));
+#else
                 max_gap = cal_max_gap(o.a, o.o_del, o.e_del, o.o_ins, o.e_ins, o.w,
                                       (int)(qd < rd ? qd : rd));
+#endif
                 w = max_gap < p.w ? max_gap : p.w;
                 if (qd - rd < w && rd - qd < w) break;
                 v++;
@@ -241,7 +255,11 @@ static inline void purge(const ReadVec &rv, std::vector<Alnreg> &av,
                 for (vv = k + 1; vv < n; ++vv) {
                     if (srt2[cj][vv] == 0xffffffffu) continue;
                     const Seed &t = c.seeds[srt2[cj][vv]];
+#ifdef INTPURGE
+                    if (t.len * 100 < s.len * 95) continue;
+#else
                     if (t.len < s.len * 0.95) continue;
+#endif
                     if (s.qbeg <= t.qbeg && s.qbeg + s.len - t.qbeg >= s.len >> 2 &&
                         t.qbeg - s.qbeg != t.rbeg - s.rbeg) break;
                     if (t.qbeg <= s.qbeg && t.qbeg + t.len - s.qbeg >= s.len >> 2 &&

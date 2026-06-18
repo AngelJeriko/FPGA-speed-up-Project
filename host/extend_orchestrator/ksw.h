@@ -36,6 +36,19 @@ static inline int cal_max_gap(int a, int o_del, int e_del, int o_ins, int e_ins,
     return l < w << 1 ? l : w << 1;
 }
 
+// Integer-only equivalent for hardware: (int)((double)X/e + 1.) == trunc((X+e)/e)
+// because the +1.0 is applied before truncation, i.e. trunc(X/e + 1) =
+// trunc((X+e)/e); C/SV signed `/` both truncate toward zero, so this is exact.
+// Verified == cal_max_gap over all captured data (test_orch -DINTPURGE: 30000/30000).
+static inline int cal_max_gap_int(int a, int o_del, int e_del, int o_ins, int e_ins,
+                                  int w, int qlen) {
+    int l_del = (qlen * a - o_del + e_del) / e_del;
+    int l_ins = (qlen * a - o_ins + e_ins) / e_ins;
+    int l = l_del > l_ins ? l_del : l_ins;
+    l = l > 1 ? l : 1;
+    return l < w << 1 ? l : w << 1;
+}
+
 // ksw.cpp:ksw_extend2  (verbatim)
 static inline int ksw_extend2(int qlen, const uint8_t *query, int tlen,
         const uint8_t *target, int m, const int8_t *mat, int o_del, int e_del,

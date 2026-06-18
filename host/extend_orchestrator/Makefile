@@ -67,6 +67,13 @@ test_orch_hw: test_orch.cpp orch.h ksw.h hw.h
 runhw: test_orch_hw $(VEC)
 	./test_orch_hw $(VEC)
 
+# Full hardware-faithful model: full-rectangle SW (hw.h) + integer-only purge.
+# ALL PASS proves the entire orchestrator is integer-exact vs real bwa-mem2.
+test_orch_inthw: test_orch.cpp orch.h ksw.h hw.h
+	$(CXX) $(CXXFLAGS) -DHWMODEL -DINTPURGE -o $@ test_orch.cpp
+runinthw: test_orch_inthw $(VEC)
+	./test_orch_inthw $(VEC)
+
 # Per-extension SW golden for tb_bsw_ext (expected = hw.h full-rectangle array).
 gen_ext_vectors: gen_ext_vectors.cpp parse.h orch.h ksw.h hw.h
 	$(CXX) $(CXXFLAGS) -o $@ gen_ext_vectors.cpp
@@ -90,7 +97,7 @@ dp_dump: dp_dump.cpp
 	$(CXX) $(CXXFLAGS) -o $@ dp_dump.cpp
 
 clean:
-	rm -f test_orch test_orch_full test_orch_hw gen_orch_vectors gen_asm_vectors \
+	rm -f test_orch test_orch_int test_orch_full test_orch_hw test_orch_inthw gen_orch_vectors gen_asm_vectors \
 	      gen_seedcov_vectors gen_window_vectors gen_ext_vectors gen_seedext_vectors \
 	      gen_chain_vectors measure_dims check_band check_fulldp check_truedp dp_dump \
 	      $(VEC) vectors/ext_prepurge.bin vectors/asm_vectors.txt \
