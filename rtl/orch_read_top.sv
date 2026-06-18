@@ -64,6 +64,7 @@ module orch_read_top
     input  logic               read_finish,
     output logic               read_done,
     output logic               busy,
+    output logic [15:0]        o_nav,        // # collected alnregs (valid after read_done)
 
     // ---- post-purge readback (full alnreg) ----
     input  logic [15:0]        rd_idx,
@@ -160,6 +161,7 @@ module orch_read_top
     st_t state;
     assign busy     = (state != S_IDLE);
     assign ch_ready = (state == S_RDY);
+    assign o_nav    = av_wptr;
 
     // purge av-buffer write: mirror the local buffer write (same cycle + index)
     assign pg_av_ld  = (state == S_CH_WAIT) && cu_ovalid;

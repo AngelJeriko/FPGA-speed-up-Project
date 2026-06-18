@@ -141,6 +141,23 @@ else
               && ./gen_read_vectors vectors/ext_vec.bin vectors/read_vectors.txt )
         fi
     fi
+    # tb_accel_top: full accelerator (extend-orchestrator + compaction + merge-
+    # sorter) vs orchestrate()->compact->v2_dedup end-to-end.
+    if [[ "$TB" == tb_accel_top ]]; then
+        RTL_FILES+=("$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" \
+                    "$RTL/bsw_seed_unit.sv" "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" \
+                    "$RTL/orch_read_top.sv" "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" \
+                    "$RTL/accel_top.sv")
+        EO="$ROOT/host/extend_orchestrator"
+        VEC_TXT="$EO/vectors/accel_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -o gen_accel_vectors gen_accel_vectors.cpp \
+              && ./gen_accel_vectors vectors/ext_vec.bin vectors/accel_vectors.txt )
+        fi
+    fi
 fi
 TB_FILE="$TBDIR/${TB}.sv"
 
