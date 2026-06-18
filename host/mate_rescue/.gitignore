@@ -1,4 +1,5 @@
 ref_test
+cross_check
 hw_test
 *.o
 vectors/*.bin

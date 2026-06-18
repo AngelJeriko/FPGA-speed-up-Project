@@ -10,7 +10,13 @@ ref_test: ref_test.cpp ksw_ref.cpp ksw_ref.h macro.h
 run: ref_test
 	./ref_test
 
-clean:
-	rm -f ref_test
+# Cross-check the scalar HW model (hw.h) vs the upstream ksw_align2 reference.
+cross_check: cross_check.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -o $@ cross_check.cpp ksw_ref.cpp
+check: cross_check
+	./cross_check 200000
 
-.PHONY: run clean
+clean:
+	rm -f ref_test cross_check
+
+.PHONY: run check clean
