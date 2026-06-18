@@ -22,7 +22,25 @@ gen_matesw_vectors: gen_matesw_vectors.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h
 matevec: gen_matesw_vectors
 	./gen_matesw_vectors vectors/matesw_vectors.txt 4000
 
-clean:
-	rm -f ref_test cross_check gen_matesw_vectors
+# Validate hw_align2 vs REAL captured kswv outputs (capture/matesw_capture.inc).
+# Usage: make checkcap && ./check_capture vectors/mate_vec.bin
+check_capture: check_capture.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -o $@ check_capture.cpp ksw_ref.cpp
+checkcap: check_capture
 
-.PHONY: run check matevec clean
+# Mate-rescue ORCHESTRATION model (orch.h) — synthetic sanity test.
+matesw_orch_test: matesw_orch_test.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -o $@ matesw_orch_test.cpp ksw_ref.cpp
+orch: matesw_orch_test
+	./matesw_orch_test
+
+# Validate orch.h vs REAL captured mem_matesw calls (capture/orch_capture.inc).
+# Usage: make checkorch && ./check_orch vectors/orch_vec.bin
+check_orch: check_orch.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -o $@ check_orch.cpp ksw_ref.cpp
+checkorch: check_orch
+
+clean:
+	rm -f ref_test cross_check gen_matesw_vectors check_capture matesw_orch_test check_orch
+
+.PHONY: run check matevec checkcap orch checkorch clean

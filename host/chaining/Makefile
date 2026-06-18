@@ -8,7 +8,13 @@ chain_test: chain_test.cpp chain.h
 run: chain_test
 	./chain_test
 
-clean:
-	rm -f chain_test
+# Validate chain.h vs REAL captured chains (capture/chain_capture.inc).
+# Usage: make checkcap && ./check_capture vectors/chain_vec.bin
+check_capture: check_capture.cpp chain.h
+	$(CXX) $(CXXFLAGS) -o $@ check_capture.cpp
+checkcap: check_capture
 
-.PHONY: run clean
+clean:
+	rm -f chain_test check_capture
+
+.PHONY: run checkcap clean

@@ -1,6 +1,9 @@
 ref_test
 cross_check
 gen_matesw_vectors
+check_capture
+matesw_orch_test
+check_orch
 hw_test
 *.o
 vectors/*.bin
