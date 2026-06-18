@@ -24,6 +24,7 @@ module bsw_systolic_array
     // Per-alignment control
     input  logic                    clear_i,
     input  logic                    load_q_i,
+    input  logic                    restart_mode,    // 0=extension, 1=local SW (mate-rescue)
     input  base_t  [N_PE-1:0]       query_bases_i,
     input  score_t [N_PE-1:0]       init_h_curr_i,   // eh[j] per-PE init for first row
 
@@ -74,6 +75,7 @@ module bsw_systolic_array
                 .rst_n        (rst_n),
                 .clear_i      (clear_i),
                 .load_q_i     (load_q_i),
+                .restart_mode (restart_mode),
                 .query_base_i (query_bases_i[j]),
                 .init_h_curr_i(init_h_curr_i[j]),
                 .o_del_i      (o_del_i),

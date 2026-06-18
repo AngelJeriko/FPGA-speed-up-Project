@@ -210,6 +210,7 @@ module bsw_axis_adapter
     bsw_top #(.N_PE(N_PE)) u_top (
         .clk            (clk),
         .rst_n          (rst_n),
+        .restart_mode   (1'b0),
         .req_valid_i    (req_valid_int),
         .req_ready_o    (req_ready_int),
         .query_i        (query_buf),

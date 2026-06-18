@@ -38,6 +38,9 @@ module bsw_pe
     input  logic        load_q_i,      // capture query_base_i + init_h_curr_i
     input  base_t       query_base_i,
     input  score_t      init_h_curr_i, // initial H state ( = eh[j] from C++ first-row init)
+    // SW mode: 0 = banded extension (ksw_extend2, no fresh restart: M = diag?diag+s:0);
+    //          1 = local SW (ksw_align2 / mate-rescue, fresh restart: M = diag+s).
+    input  logic        restart_mode,
 
     // Penalties (broadcast from config; positive magnitudes)
     input  score_t      o_del_i,
@@ -119,11 +122,14 @@ module bsw_pe
     //   2. oe_del / oe_ins use the load-time registered values
     //      (oe_del_reg / oe_ins_reg) — no per-cycle adder needed.
     always_comb begin
-        // M = (H_diag != 0) ? H_diag + S : 0
-        // The "!= 0" check disallows starting an alignment from a zero cell mid-way,
-        // mirroring the C++ "M? M + q[j] : 0" idiom.
+        // Extension (restart_mode=0): M = (H_diag != 0) ? H_diag + S : 0 — the
+        //   "!= 0" check disallows starting an alignment from a zero cell mid-way
+        //   (C++ "M ? M + q[j] : 0").
+        // Local SW / mate-rescue (restart_mode=1): M = H_diag + S — a positive
+        //   match can start a fresh alignment anywhere (ksw_u8/ksw_align2). The
+        //   0-floor of H is still provided by E_reg, f_i >= 0 below.
         diag_nz   = (h_diag_i != SZERO);
-        M_term    = diag_nz ? (h_diag_i + s_match) : SZERO;
+        M_term    = (restart_mode || diag_nz) ? (h_diag_i + s_match) : SZERO;
 
         // H_new = max(M, E, f_i)  -- clamp >= 0 implicit via E and f_i being >= 0
         H_max_ME  = (M_term  > E_reg) ? M_term : E_reg;     // >= 0 since E_reg >= 0

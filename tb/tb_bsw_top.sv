@@ -29,6 +29,7 @@ module tb_bsw_top
     bsw_top dut (
         .clk            (clk),
         .rst_n          (rst_n),
+        .restart_mode   (1'b0),
         .req_valid_i    (req_valid),
         .req_ready_o    (req_ready),
         .query_i        (query),

@@ -114,6 +114,7 @@ module bsw_seed_unit
 
     bsw_top u_bsw (
         .clk(clk), .rst_n(rst_n),
+        .restart_mode(1'b0),                 // extension: banded SW, no fresh restart
         .req_valid_i(bsw_req), .req_ready_o(bsw_req_rdy),
         .query_i(bsw_q), .target_i(bsw_t), .cfg_i(bsw_cfg),
         .result_valid_o(bsw_res_vld), .result_ready_i(1'b1), .result_o(bsw_res)

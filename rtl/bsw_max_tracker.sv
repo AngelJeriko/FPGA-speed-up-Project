@@ -50,6 +50,11 @@ module bsw_max_tracker
     input  score_t                  zdrop_i,
     input  score_t                  e_del_i,
     input  score_t                  e_ins_i,
+    // SW mode: 0 = extension (argmax tie -> rightmost col; dead-row early exit on);
+    //          1 = local SW / mate-rescue (argmax tie -> leftmost col, matching
+    //          ksw_u8's min-index qe; NO dead-row exit — a zero row may be followed
+    //          by a fresh restart alignment).
+    input  logic                    restart_mode,
 
     // Per-PE taps from the systolic array
     input  logic   [N_PE-1:0]       cell_valid_i,
@@ -196,9 +201,13 @@ module bsw_max_tracker
                 if (row_vld_pipe[k-1]) begin
                     row_idx_pipe[k] <= row_idx_pipe[k-1];
                     row_vld_pipe[k] <= 1'b1;
-                    // >= so the RIGHTMOST column at the row max wins (ksw: mj =
-                    // mm > h ? mj : j, i.e. update mj on h >= mm).
-                    if (cell_valid_i[k] && (h_cells_i[k] >= row_m_pipe[k-1])) begin
+                    // Extension: >= so the RIGHTMOST column at the row max wins
+                    // (ksw_extend2: mj = mm > h ? mj : j). Local SW / mate-rescue:
+                    // > so the LEFTMOST column wins (ksw_u8 reports qe = min query
+                    // index at the column max).
+                    if (cell_valid_i[k] &&
+                        (restart_mode ? (h_cells_i[k] >  row_m_pipe[k-1])
+                                      : (h_cells_i[k] >= row_m_pipe[k-1]))) begin
                         row_m_pipe[k]  <= h_cells_i[k];
                         row_mj_pipe[k] <= len_t'(k);
                     end else begin
@@ -351,7 +360,9 @@ module bsw_max_tracker
     end
 
     assign zdrop_break_o = zdrop_break_q;
-    assign dead_row_o    = dead_row_q;
+    // In local-SW / mate-rescue mode, do NOT early-exit on a zero row: a fresh
+    // restart alignment can occur after it (ksw_u8 scans all target rows).
+    assign dead_row_o    = restart_mode ? 1'b0 : dead_row_q;
 
     // ------------------------------------------------------------
     // Final result. Latched on done_i (FSM signals end of alignment).

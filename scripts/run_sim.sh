@@ -141,6 +141,20 @@ else
               && ./gen_read_vectors vectors/ext_vec.bin vectors/read_vectors.txt )
         fi
     fi
+    # tb_matesw_top: mate-rescue engine (2-pass local SW on the BSW core in restart
+    # mode) vs hw_align2 (== upstream ksw_align2).
+    if [[ "$TB" == tb_matesw_top ]]; then
+        RTL_FILES+=("$RTL/matesw_top.sv")
+        MR="$ROOT/host/mate_rescue"
+        VEC_TXT="$MR/vectors/matesw_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            mkdir -p "$MR/vectors"
+            ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -o gen_matesw_vectors gen_matesw_vectors.cpp ksw_ref.cpp \
+              && ./gen_matesw_vectors vectors/matesw_vectors.txt 4000 )
+        fi
+    fi
     # tb_accel_top: full accelerator (extend-orchestrator + compaction + merge-
     # sorter) vs orchestrate()->compact->v2_dedup end-to-end.
     if [[ "$TB" == tb_accel_top ]]; then

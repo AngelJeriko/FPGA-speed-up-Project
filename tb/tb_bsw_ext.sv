@@ -24,7 +24,7 @@ module tb_bsw_ext
     bsw_result_t          result;
 
     bsw_top dut (
-        .clk(clk), .rst_n(rst_n),
+        .clk(clk), .rst_n(rst_n), .restart_mode(1'b0),
         .req_valid_i(req_valid), .req_ready_o(req_ready),
         .query_i(query), .target_i(target), .cfg_i(cfg),
         .result_valid_o(result_valid), .result_ready_i(result_ready),

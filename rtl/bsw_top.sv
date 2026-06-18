@@ -13,6 +13,9 @@ module bsw_top
     input  logic                       clk,
     input  logic                       rst_n,
 
+    // SW mode: 0 = banded extension (default), 1 = local SW / mate-rescue.
+    input  logic                       restart_mode,
+
     // Request handshake
     input  logic                       req_valid_i,
     output logic                       req_ready_o,
@@ -97,6 +100,7 @@ module bsw_top
         .rst_n           (rst_n),
         .clear_i         (sa_clear),
         .load_q_i        (sa_load_q),
+        .restart_mode    (restart_mode),
         .query_bases_i   (sa_query_bases),
         .init_h_curr_i   (sa_init_h_curr),
         .o_del_i         (sa_o_del),
@@ -124,6 +128,7 @@ module bsw_top
         .clear_i         (tr_clear),
         .start_i         (tr_start),
         .done_i          (tr_done),
+        .restart_mode    (restart_mode),
         .qlen_i          (tr_qlen),
         .tlen_i          (tr_tlen),
         .h0_i            (tr_h0),
