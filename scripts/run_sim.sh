@@ -125,6 +125,22 @@ else
               && ./gen_purge_vectors vectors/ext_vec.bin vectors/purge_vectors.txt )
         fi
     fi
+    # tb_orch_read_top: full extend-orchestrator (chains -> post-purge alnregs)
+    # vs orchestrate() on a sample of full reads.
+    if [[ "$TB" == tb_orch_read_top ]]; then
+        RTL_FILES+=("$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" \
+                    "$RTL/bsw_seed_unit.sv" "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" \
+                    "$RTL/orch_read_top.sv")
+        EO="$ROOT/host/extend_orchestrator"
+        VEC_TXT="$EO/vectors/read_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -o gen_read_vectors gen_read_vectors.cpp \
+              && ./gen_read_vectors vectors/ext_vec.bin vectors/read_vectors.txt )
+        fi
+    fi
 fi
 TB_FILE="$TBDIR/${TB}.sv"
 

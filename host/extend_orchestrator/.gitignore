@@ -11,6 +11,7 @@ gen_ext_vectors
 gen_seedext_vectors
 gen_chain_vectors
 gen_purge_vectors
+gen_read_vectors
 measure_dims
 check_band
 check_fulldp
