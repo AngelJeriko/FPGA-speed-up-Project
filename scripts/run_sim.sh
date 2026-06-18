@@ -111,6 +111,20 @@ else
               && ./gen_chain_vectors vectors/ext_vec.bin vectors/chain_vectors.txt )
         fi
     fi
+    # tb_orch_purge checks the cross-chain redundancy purge (integer-only) against
+    # extend_only+purge on a sample of full reads.
+    if [[ "$TB" == tb_orch_purge ]]; then
+        RTL_FILES+=("$RTL/orch_purge.sv")
+        EO="$ROOT/host/extend_orchestrator"
+        VEC_TXT="$EO/vectors/purge_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -o gen_purge_vectors gen_purge_vectors.cpp \
+              && ./gen_purge_vectors vectors/ext_vec.bin vectors/purge_vectors.txt )
+        fi
+    fi
 fi
 TB_FILE="$TBDIR/${TB}.sv"
 
