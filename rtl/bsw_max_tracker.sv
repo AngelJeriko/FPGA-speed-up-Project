@@ -115,6 +115,10 @@ module bsw_max_tracker
         reduced_i = glob_max_i;
         reduced_j = glob_max_j;
         any_valid = 1'b0;
+        // NOTE: glob_max here is used only for the score VALUE and max_off (which
+        // the orchestrator does not consume). The bit-exact argmax (qle/tle) is
+        // derived from the row pipeline below, matching ksw's "first row to
+        // strictly exceed, rightmost column in that row" tie-break.
         for (int k = 0; k < N_PE; k++) begin
             if (cell_valid_i[k] && (h_cells_i[k] > reduced_h)) begin
                 reduced_h = h_cells_i[k];
@@ -192,7 +196,9 @@ module bsw_max_tracker
                 if (row_vld_pipe[k-1]) begin
                     row_idx_pipe[k] <= row_idx_pipe[k-1];
                     row_vld_pipe[k] <= 1'b1;
-                    if (cell_valid_i[k] && (h_cells_i[k] > row_m_pipe[k-1])) begin
+                    // >= so the RIGHTMOST column at the row max wins (ksw: mj =
+                    // mm > h ? mj : j, i.e. update mj on h >= mm).
+                    if (cell_valid_i[k] && (h_cells_i[k] >= row_m_pipe[k-1])) begin
                         row_m_pipe[k]  <= h_cells_i[k];
                         row_mj_pipe[k] <= len_t'(k);
                     end else begin
@@ -265,10 +271,37 @@ module bsw_max_tracker
             gtle_r   <= '0;
             max_ie_r <= '1;
         end else if (row_tail_valid) begin
-            if ($signed(row_tail_h_last) > $signed(gscore_r)) begin
+            // ksw updates on h1 >= gscore (max_ie = gscore>h1 ? max_ie : i), i.e.
+            // ties go to the LATER row. Rows graduate in increasing order, so use
+            // >= here (strict > kept the earlier row and gave a wrong gtle).
+            if ($signed(row_tail_h_last) >= $signed(gscore_r)) begin
                 gscore_r <= row_tail_h_last;
                 gtle_r   <= row_tail_idx + len_t'(1);   // +1 like C++ "tle = max_i + 1"
                 max_ie_r <= row_tail_idx;
+            end
+        end
+    end
+
+    // ------------------------------------------------------------
+    // Row-based global argmax (score/qle/tle). ksw updates max only on a row
+    // whose max STRICTLY exceeds the running max (mm > max), recording that
+    // row's index and its RIGHTMOST max column (row_tail_mj). The per-cycle
+    // glob_max reduction above gets the right VALUE but not ksw's tie-break, so
+    // derive the reported argmax here instead. Initialised to h0 / -1 like C++.
+    // ------------------------------------------------------------
+    score_t rmax_score;
+    len_t   rmax_i, rmax_j;
+    always_ff @(posedge clk) begin
+        if (!rst_n || clear_i) begin
+            rmax_score <= h0_i;
+            rmax_i     <= '1;     // -1 sentinel
+            rmax_j     <= '1;
+        end else begin
+            if (start_i) rmax_score <= h0_i;
+            if (row_tail_valid && ($signed(row_tail_m) > $signed(rmax_score))) begin
+                rmax_score <= row_tail_m;
+                rmax_i     <= row_tail_idx;
+                rmax_j     <= row_tail_mj;
             end
         end
     end
@@ -330,9 +363,12 @@ module bsw_max_tracker
         if (!rst_n || clear_i) begin
             result_q <= '0;
         end else if (done_i) begin
-            result_q.score   <= glob_max;
-            result_q.qle     <= glob_max_j + len_t'(1);
-            result_q.tle     <= glob_max_i + len_t'(1);
+            // score/qle/tle from the row-based argmax (ksw tie-break). The value
+            // rmax_score equals glob_max; using it keeps score/qle/tle mutually
+            // consistent from one source.
+            result_q.score   <= rmax_score;
+            result_q.qle     <= rmax_j + len_t'(1);
+            result_q.tle     <= rmax_i + len_t'(1);
             result_q.gscore  <= gscore_r;
             result_q.gtle    <= max_ie_r + len_t'(1);
             result_q.max_off <= glob_max_off;

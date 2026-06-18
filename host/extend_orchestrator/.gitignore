@@ -12,4 +12,7 @@ measure_dims
 check_band
 check_fulldp
 check_truedp
+dp_dump
+test_orch_full
+test_orch_hw
 *.o

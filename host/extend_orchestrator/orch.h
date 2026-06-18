@@ -12,6 +12,9 @@
 #include <vector>
 #include <algorithm>
 #include "ksw.h"
+#ifdef HWMODEL
+#include "hw.h"   // full-rectangle array model; band_extend dispatches to it
+#endif
 
 static const int H0M = -99;
 static const int MAX_BAND_TRY = 2;
@@ -48,6 +51,16 @@ static inline ExtRes band_extend(int qlen, const uint8_t *q, int tlen,
     ExtRes r{};
     for (int i = 0; i < MAX_BAND_TRY; ++i) {
         int w = o.w << i, qle, tle, gtle, gscore, maxoff;
+#ifdef HWMODEL
+        // The hardware full-rectangle array: single run, no banding/narrowing.
+        // (Band-doubling is proven a no-op here — stored w is always o.w.)
+        int sc = hw_extend2(qlen, q, tlen, t, 5, o.mat, o.o_del, o.e_del,
+                            o.o_ins, o.e_ins, w, end_bonus, o.zdrop, h0,
+                            &qle, &tle, &gtle, &gscore, &maxoff);
+        (void)prev;
+        r = {sc, qle, tle, gscore, gtle, w};
+        return r;
+#else
 #ifdef FULLDP_BAND
         // HW-faithful mode: the systolic array computes the FULL DP (one PE per
         // query base, no in-array band). We model that by running ksw at an
@@ -67,6 +80,7 @@ static inline ExtRes band_extend(int qlen, const uint8_t *q, int tlen,
             return r;
         }
         prev = sc;
+#endif  // HWMODEL
     }
     return r;
 }

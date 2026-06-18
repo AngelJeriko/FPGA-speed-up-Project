@@ -227,11 +227,15 @@ module bsw_ctrl_fsm
     end
 
     always_comb begin
+        // Off-by-one fix: PE_k's preloaded H_curr_reg only matters as the value
+        // that rolls into H_prev_reg and is delivered as the ROW-0 diagonal to
+        // PE_{k+1}. ksw uses M(0,j) = eh_init[j], so PE_{k+1}'s (0,k+1) diagonal
+        // must be eh_init[k+1] -> PE_k must preload eh_init[k+1] (NOT eh_init[k]).
+        // PE_0's own (0,0) diagonal comes from bound_reg (= h0 = eh_init[0]), and
+        // row>=1 diagonals come from real computed cells, so only this row-0
+        // boundary mapping is affected. The last PE feeds no one (drive 0).
         for (int k = 0; k < N_PE; k++) begin
-            // For PE indices >= qlen, the PE is processing a padding column
-            // and its initial H doesn't matter (active never reaches it within
-            // qlen rows). Still safe to drive eh_init[k] there.
-            sa_init_h_curr_o[k] = eh_init[k];
+            sa_init_h_curr_o[k] = (k + 1 < N_PE) ? eh_init[k+1] : score_t'(0);
         end
     end
 

@@ -59,10 +59,29 @@ test_orch_full: test_orch.cpp orch.h ksw.h
 runfull: test_orch_full $(VEC)
 	./test_orch_full $(VEC)
 
-clean:
-	rm -f test_orch test_orch_full gen_orch_vectors gen_asm_vectors gen_seedcov_vectors \
-	      gen_window_vectors measure_dims check_band check_fulldp \
-	      $(VEC) vectors/ext_prepurge.bin vectors/asm_vectors.txt \
-	      vectors/seedcov_vectors.txt vectors/window_vectors.txt
+# HW-model (full-rectangle systolic array, hw.h) end-to-end vs golden. This is
+# the model bsw_top reproduces bit-exactly; ALL PASS proves the array's gscore/
+# argmax behaviour drives a bit-exact orchestrator output.
+test_orch_hw: test_orch.cpp orch.h ksw.h hw.h
+	$(CXX) $(CXXFLAGS) -DHWMODEL -o $@ test_orch.cpp
+runhw: test_orch_hw $(VEC)
+	./test_orch_hw $(VEC)
 
-.PHONY: run runfull gen asm seedcov window dims checkband checkfull clean
+# Per-extension SW golden for tb_bsw_ext (expected = hw.h full-rectangle array).
+gen_ext_vectors: gen_ext_vectors.cpp parse.h orch.h ksw.h hw.h
+	$(CXX) $(CXXFLAGS) -o $@ gen_ext_vectors.cpp
+extvec: gen_ext_vectors $(VEC)
+	./gen_ext_vectors $(VEC) vectors/ext_sw_vectors.txt
+
+dp_dump: dp_dump.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dp_dump.cpp
+
+clean:
+	rm -f test_orch test_orch_full test_orch_hw gen_orch_vectors gen_asm_vectors \
+	      gen_seedcov_vectors gen_window_vectors gen_ext_vectors measure_dims \
+	      check_band check_fulldp check_truedp dp_dump \
+	      $(VEC) vectors/ext_prepurge.bin vectors/asm_vectors.txt \
+	      vectors/seedcov_vectors.txt vectors/window_vectors.txt \
+	      vectors/ext_sw_vectors.txt vectors/ext_small.txt
+
+.PHONY: run runfull runhw gen asm seedcov window dims extvec checkband checkfull clean

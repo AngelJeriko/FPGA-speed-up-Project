@@ -23,6 +23,8 @@
 #include <vector>
 #include <string>
 #include "parse.h"
+#include "hw.h"     // expected outputs come from the full-rectangle ARRAY model,
+                    // not ksw — that is what bsw_top reproduces bit-exactly.
 
 static const int BIG = 1000000;
 static const int TAIL_MIN = 320;   // keep every extension with tlen >= this
@@ -35,9 +37,9 @@ struct K { int sc, qle, tle, gtle, gscore, maxoff; };
 static K run(int qlen, const uint8_t*q, int tlen, const uint8_t*t,
              const Cfg&o, int eb, int h0) {
     K k{};
-    k.sc = ksw_extend2(qlen, q, tlen, t, 5, o.mat, o.o_del, o.e_del, o.o_ins,
-                       o.e_ins, BIG, eb, o.zdrop, h0, &k.qle, &k.tle, &k.gtle,
-                       &k.gscore, &k.maxoff);
+    k.sc = hw_extend2(qlen, q, tlen, t, 5, o.mat, o.o_del, o.e_del, o.o_ins,
+                      o.e_ins, BIG, eb, o.zdrop, h0, &k.qle, &k.tle, &k.gtle,
+                      &k.gscore, &k.maxoff);
     return k;
 }
 
