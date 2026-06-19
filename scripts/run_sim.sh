@@ -197,6 +197,21 @@ else
               && ./gen_orchrtl_vectors vectors/orchrtl_vectors.txt 3000 )
         fi
     fi
+    # tb_matesw_pe_top: paired-end candidate loop (matesw_orch_top per candidate,
+    # threading the shared ma) vs matesw_orchestrate looped.
+    if [[ "$TB" == tb_matesw_pe_top ]]; then
+        RTL_FILES+=("$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" \
+                    "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv" "$RTL/matesw_pe_top.sv")
+        MR="$ROOT/host/mate_rescue"
+        VEC_TXT="$MR/vectors/petop_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            mkdir -p "$MR/vectors"
+            ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -DMR_DEDUP_INT -o gen_petop_vectors gen_petop_vectors.cpp ksw_ref.cpp \
+              && ./gen_petop_vectors vectors/petop_vectors.txt 2000 )
+        fi
+    fi
     # tb_accel_top: full accelerator (extend-orchestrator + compaction + merge-
     # sorter) vs orchestrate()->compact->v2_dedup end-to-end.
     if [[ "$TB" == tb_accel_top ]]; then

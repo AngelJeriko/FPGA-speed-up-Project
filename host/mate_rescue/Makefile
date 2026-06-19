@@ -41,6 +41,12 @@ gen_orchrtl_vectors: gen_orchrtl_vectors.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h m
 orchrtlvec: gen_orchrtl_vectors
 	./gen_orchrtl_vectors vectors/orchrtl_vectors.txt 3000
 
+# Golden vectors for tb_matesw_pe_top (paired-end candidate loop).
+gen_petop_vectors: gen_petop_vectors.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_petop_vectors.cpp ksw_ref.cpp
+petopvec: gen_petop_vectors
+	./gen_petop_vectors vectors/petop_vectors.txt 2000
+
 # Validate hw_align2 vs REAL captured kswv outputs (capture/matesw_capture.inc).
 # Usage: make checkcap && ./check_capture vectors/mate_vec.bin
 check_capture: check_capture.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h

@@ -4,6 +4,7 @@ gen_matesw_vectors
 gen_orient_vectors
 gen_dedup_vectors
 gen_orchrtl_vectors
+gen_petop_vectors
 _chk*
 check_capture
 matesw_orch_test
