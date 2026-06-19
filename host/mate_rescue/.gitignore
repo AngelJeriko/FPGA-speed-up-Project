@@ -14,3 +14,4 @@ hw_test
 *.o
 vectors/*.bin
 vectors/*.txt
+gen_pe2_vectors

@@ -130,13 +130,40 @@ rescue each into ma = accel(read !i) → final a[!i]. The host now only supplies
 FPGA structurally cannot (Stage-1): the mate sequence and the per-candidate reference
 windows (no on-chip `bns_fetch_seq`), plus the selection scalars `pen_unpaired`/`max_matesw`.
 
+## Step 4 — full closed-loop golden (`tb_accel_pe2_loop`)  ✅ 94/94 bit-exact end-to-end
+
+**What.** Closes the loop the per-stage tbs only covered separately: drives the WHOLE fold
+through the RTL on real-accel data and checks the FINAL rescued ma bit-exact.
+
+**Generator (`host/mate_rescue/gen_pe2_vectors.cpp`, `-DMR_DEDUP_INT`).** Combining the
+extend + mate header subsystems in one TU collides (`ksw_extend2` C-vs-C++ linkage in
+extend `ksw.h` vs mate `ksw_ref.h`; `LIM_*` scope). Sidestepped entirely: the accel outputs
+are ALREADY in `accel_vectors.txt` (gen_accel) and `tb_accel_pe2_top` already proved the RTL
+accel output equals them — so the generator just PARSES `accel_vectors.txt`, taking read i's
+output as the candidate SOURCE and read !i's as the entry ma, and runs ONLY
+`pe.h::matesw_pe_select` for the rescue (mate headers only, no clash). It re-emits both reads'
+accel INPUT blocks (so the RTL regenerates the identical source/ma on-chip) + rescue params +
+ms (= read !i's query) + synthesized per-candidate windows + the final ma. Pairs are emitted
+only when both reads are non-fallback, non-empty, and ≤64 (94 cases from 200 reads / 100
+pairs; 6 skipped; 391 candidates selected). `l_pac` = 3e9 (> all coords; host-fed identically
+to the RTL so any value is bit-consistent).
+
+**Verification (`tb/tb_accel_pe2_loop.sv`).** Per case: drive accel for read i
+(`run_is_cand=1` → source), assert `n_src_o==nout_i` & no fallback; drive accel for read !i
+(`run_is_cand=0` → ma), assert `n_ma_init_o==nout_j`; load ms + selection params, pulse
+`sel_start`; service each `cand_req` with that candidate's windows; check the FINAL ma
+bit-exact. Result: `tb_accel_pe2_loop: 94 cases, 0 failures -> ALL PASS`. `run_sim.sh` branch
++ Makefile (`pe2vec`) + `.gitignore` added.
+
+**Files.** `host/mate_rescue/gen_pe2_vectors.cpp` (new), `tb/tb_accel_pe2_loop.sv` (new),
+edits to `host/mate_rescue/Makefile`, `host/mate_rescue/.gitignore`, `scripts/run_sim.sh`.
+
+**Coverage now = closed loop.** accel(i)→source ∘ accel(!i)→ma ∘ on-chip selection ∘ rescue,
+checked as ONE pass through the RTL against the accel-pipeline ∘ pe.h golden — not just the
+per-stage tbs composed.
+
 ## Remaining / deferred
 
-- **Full rescue-golden end-to-end for the fold** (heavier follow-on): a combined generator
-  (gen_accel×2 for source+ma + synthesized windows + `pe.h` selection) feeding one
-  `tb_accel_pe2_top` run that pulses `sel_start` and checks the FINAL rescued ma bit-exact.
-  Current coverage = capture routing (here) ∘ selection+rescue (`tb_matesw_pe_sel_top`),
-  composed but not yet checked as one closed loop on real-accel data.
 - **Selection-predicate validation on real data** — confirm `score >= top - pen_unpaired`
   + `max_matesw` cap (and the defaults) against the BATCHED `mem_sam_pe_batch` source at the
   next remote capture (extend the prepped capture set).
