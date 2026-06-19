@@ -212,6 +212,22 @@ else
               && ./gen_petop_vectors vectors/petop_vectors.txt 2000 )
         fi
     fi
+    # tb_matesw_pe_sel_top: on-chip candidate selection + rescue loop (the b[i]
+    # selection of mem_sam_pe_batch) vs matesw_pe_select (pe.h).
+    if [[ "$TB" == tb_matesw_pe_sel_top ]]; then
+        RTL_FILES+=("$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" \
+                    "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv" "$RTL/matesw_pe_top.sv" \
+                    "$RTL/matesw_pe_sel_top.sv")
+        MR="$ROOT/host/mate_rescue"
+        VEC_TXT="$MR/vectors/pesel_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            mkdir -p "$MR/vectors"
+            ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -DMR_DEDUP_INT -o gen_pesel_vectors gen_pesel_vectors.cpp ksw_ref.cpp \
+              && ./gen_pesel_vectors vectors/pesel_vectors.txt 2000 )
+        fi
+    fi
     # tb_accel_pe_top: the accel->mate-rescue on-chip handoff. Reuses the accel
     # vectors; checks the captured ma == accel's sorted/deduped output a[R].
     if [[ "$TB" == tb_accel_pe_top ]]; then
@@ -221,6 +237,25 @@ else
                     "$RTL/accel_top.sv" "$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" \
                     "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv" "$RTL/matesw_pe_top.sv" \
                     "$RTL/accel_pe_top.sv")
+        EO="$ROOT/host/extend_orchestrator"
+        VEC_TXT="$EO/vectors/accel_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -o gen_accel_vectors gen_accel_vectors.cpp \
+              && ./gen_accel_vectors vectors/ext_vec.bin vectors/accel_vectors.txt )
+        fi
+    fi
+    # tb_accel_pe2_top: two-run fold — candidate source (run i) + ma (run !i) both
+    # captured from accel; checks the two-target capture routing. Reuses accel vectors.
+    if [[ "$TB" == tb_accel_pe2_top ]]; then
+        RTL_FILES+=("$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" \
+                    "$RTL/bsw_seed_unit.sv" "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" \
+                    "$RTL/orch_read_top.sv" "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" \
+                    "$RTL/accel_top.sv" "$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" \
+                    "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv" "$RTL/matesw_pe_top.sv" \
+                    "$RTL/matesw_pe_sel_top.sv" "$RTL/accel_pe2_top.sv")
         EO="$ROOT/host/extend_orchestrator"
         VEC_TXT="$EO/vectors/accel_vectors.txt"
         PLUSARGS=("+VEC=$VEC_TXT")

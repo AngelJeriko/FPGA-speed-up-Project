@@ -47,6 +47,12 @@ gen_petop_vectors: gen_petop_vectors.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro
 petopvec: gen_petop_vectors
 	./gen_petop_vectors vectors/petop_vectors.txt 2000
 
+# Golden vectors for tb_matesw_pe_sel_top (on-chip candidate selection + loop).
+gen_pesel_vectors: gen_pesel_vectors.cpp pe.h orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_pesel_vectors.cpp ksw_ref.cpp
+peselvec: gen_pesel_vectors
+	./gen_pesel_vectors vectors/pesel_vectors.txt 2000
+
 # Validate hw_align2 vs REAL captured kswv outputs (capture/matesw_capture.inc).
 # Usage: make checkcap && ./check_capture vectors/mate_vec.bin
 check_capture: check_capture.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h
