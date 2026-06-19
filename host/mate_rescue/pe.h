@@ -44,18 +44,26 @@ struct MPeOpt {                  // pe-level mate-rescue selection knobs (runtim
 //              only the selected prefix is consumed).
 //   ms,l_ms  : the UNMAPPED mate's sequence (read !i).
 //   ma       : read !i's alnreg list — mutated in place across candidates.
+//   max_entry_ma (opt): receives the MAX ma count seen at ENTRY to any mem_matesw call
+//     (incl. the initial entry ma). The HW (matesw_orch_top) raises `overflow` and no-ops
+//     a call when its entry count exceeds MA_MAX-4, so a caller compares this against that
+//     bound to detect cases the on-chip buffers can't hold (host SW fallback) and exclude
+//     them from a bit-exact comparison — same contract as the merge-sorter's n>1024.
 // Returns the final ma size. Selected-candidate count is (return is via ma).
 static inline int matesw_pe_select(const MOpt& o, const MPeOpt& po, int64_t l_pac,
                                    const std::vector<MAln>& cand_src,
                                    int l_ms, const uint8_t* ms,
                                    const MPes pes[4],
                                    const std::vector<std::array<MWin,4>>& win,
-                                   std::vector<MAln>& ma) {
+                                   std::vector<MAln>& ma,
+                                   int* max_entry_ma = nullptr) {
+    if (max_entry_ma) *max_entry_ma = (int)ma.size();
     if (cand_src.empty()) return (int)ma.size();
     const int top = cand_src[0].score;          // a[i][0] = highest (sorted desc)
     const int thr = top - po.pen_unpaired;
     for (int j = 0; j < (int)cand_src.size() && j < po.max_matesw; ++j) {
         if (cand_src[j].score < thr) break;      // sorted desc -> rest also fail
+        if (max_entry_ma && (int)ma.size() > *max_entry_ma) *max_entry_ma = (int)ma.size();
         matesw_orchestrate(o, l_pac, cand_src[j], l_ms, ms, pes, win[j].data(), ma);
     }
     return (int)ma.size();

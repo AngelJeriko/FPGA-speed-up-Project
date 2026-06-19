@@ -290,6 +290,30 @@ else
               && ./gen_pe2_vectors ../extend_orchestrator/vectors/accel_vectors.txt vectors/pe2_vectors.txt 300 )
         fi
     fi
+    # tb_accel_pe_pair_top: BOTH-directions sequencer — full pair (a[0]'+a[1]') vs
+    # gen_pe2pair_vectors (pe.h twice with original sources).
+    if [[ "$TB" == tb_accel_pe_pair_top ]]; then
+        RTL_FILES+=("$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" \
+                    "$RTL/bsw_seed_unit.sv" "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" \
+                    "$RTL/orch_read_top.sv" "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" \
+                    "$RTL/accel_top.sv" "$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" \
+                    "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv" "$RTL/matesw_pe_top.sv" \
+                    "$RTL/matesw_pe_sel_top.sv" "$RTL/accel_pe2_top.sv" "$RTL/accel_pe_pair_top.sv")
+        EO="$ROOT/host/extend_orchestrator"; MR="$ROOT/host/mate_rescue"
+        VEC_TXT="$MR/vectors/pe2pair_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            if [[ ! -f "$EO/vectors/accel_vectors.txt" ]]; then
+                [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"
+                ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -o gen_accel_vectors gen_accel_vectors.cpp \
+                  && ./gen_accel_vectors vectors/ext_vec.bin vectors/accel_vectors.txt )
+            fi
+            mkdir -p "$MR/vectors"
+            ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -DMR_DEDUP_INT -o gen_pe2pair_vectors gen_pe2pair_vectors.cpp ksw_ref.cpp \
+              && ./gen_pe2pair_vectors ../extend_orchestrator/vectors/accel_vectors.txt vectors/pe2pair_vectors.txt 300 )
+        fi
+    fi
     # tb_accel_top: full accelerator (extend-orchestrator + compaction + merge-
     # sorter) vs orchestrate()->compact->v2_dedup end-to-end.
     if [[ "$TB" == tb_accel_top ]]; then

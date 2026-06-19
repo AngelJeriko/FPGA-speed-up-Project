@@ -61,6 +61,12 @@ gen_pe2_vectors: gen_pe2_vectors.cpp pe.h orch.h hw.h ksw_ref.cpp ksw_ref.h macr
 pe2vec: gen_pe2_vectors
 	./gen_pe2_vectors ../extend_orchestrator/vectors/accel_vectors.txt vectors/pe2_vectors.txt 300
 
+# Both-directions closed-loop golden for tb_accel_pe_pair_top (full pair: a[0]' + a[1]').
+gen_pe2pair_vectors: gen_pe2pair_vectors.cpp pe.h orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_pe2pair_vectors.cpp ksw_ref.cpp
+pe2pairvec: gen_pe2pair_vectors
+	./gen_pe2pair_vectors ../extend_orchestrator/vectors/accel_vectors.txt vectors/pe2pair_vectors.txt 300
+
 # Validate hw_align2 vs REAL captured kswv outputs (capture/matesw_capture.inc).
 # Usage: make checkcap && ./check_capture vectors/mate_vec.bin
 check_capture: check_capture.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h

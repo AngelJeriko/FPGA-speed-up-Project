@@ -15,3 +15,4 @@ hw_test
 vectors/*.bin
 vectors/*.txt
 gen_pe2_vectors
+gen_pe2pair_vectors
