@@ -35,7 +35,7 @@ Both are env-gated (zero cost unless the env var is set) and follow the proven
   (seed-stream accumulate in `mem_chain`; SEEDSTREAM+pre-flt record after
   `__kb_traverse`; pre/post snapshot around the `mem_chain_flt` call).
 - `scripts/remote_batched_capture.sh` — arch-detect → rebuild → 50k-pair PE run
-  with **both** captures armed → one paired run produces both `.bin`s.
+  with **all three** captures armed → one paired run produces all three `.bin`s.
 - `host/mate_rescue/check_capture.cpp` (`make checkcap`) — runs `hw_align2` on each
   captured input, compares score/qb/qe/tb/te to the captured kswv output.
 - `host/mate_rescue/check_orch.cpp` (`make checkorch`) — replays each captured
@@ -84,11 +84,11 @@ type 1 FLT:        i32 type=1; i64 flt_id; i32 n_in;  n_in *CHAIN (pre-flt);
 1. **Backup** (if not already): `cp src/bwamem.cpp src/bwamem.cpp.orig` and
    `cp src/bwamem_pair.cpp src/bwamem_pair.cpp.orig`. (bwamem.cpp.orig already
    exists from prior sessions — confirm it is the CLEAN one first.)
-2. **Paste** the two `.inc` files per their `STEP` headers (anchors are quoted in
-   each file). `matesw_capture.inc` → `bwamem_pair.cpp`; `chain_capture.inc` →
-   `bwamem.cpp`.
+2. **Paste** the three `.inc` files per their `STEP` headers (anchors are quoted in
+   each file). `matesw_capture.inc` **and** `orch_capture.inc` → `bwamem_pair.cpp`;
+   `chain_capture.inc` → `bwamem.cpp`.
 3. **Run** `scripts/remote_batched_capture.sh` (rebuilds the dispatched arch,
-   produces `~/cap_batched/{mate_vec.bin,chain_vec.bin}`).
+   produces `~/cap_batched/{mate_vec.bin,orch_vec.bin,chain_vec.bin}`).
 4. **Copy back** (via WSL scp → /tmp → cp), gzip, drop into
    `host/mate_rescue/vectors/` and `host/chaining/vectors/`.
 5. **Validate locally:**
