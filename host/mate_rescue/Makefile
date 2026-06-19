@@ -22,6 +22,25 @@ gen_matesw_vectors: gen_matesw_vectors.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h
 matevec: gen_matesw_vectors
 	./gen_matesw_vectors vectors/matesw_vectors.txt 4000
 
+# Golden vectors for tb_matesw_orient_unit (matesw_top + kswr->alnreg transform).
+gen_orient_vectors: gen_orient_vectors.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -o $@ gen_orient_vectors.cpp ksw_ref.cpp
+orientvec: gen_orient_vectors
+	./gen_orient_vectors vectors/orient_vectors.txt 4000
+
+# Golden vectors for tb_matesw_dedup (mem_sort_dedup_patch on the ma list).
+# -DMR_DEDUP_INT: oracle uses the HW integer redundancy surrogate (20*ov>19*minlen).
+gen_dedup_vectors: gen_dedup_vectors.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_dedup_vectors.cpp ksw_ref.cpp
+dedupvec: gen_dedup_vectors
+	./gen_dedup_vectors vectors/dedup_vectors.txt 6000
+
+# Golden vectors for tb_matesw_orch_top (full mem_matesw orchestration).
+gen_orchrtl_vectors: gen_orchrtl_vectors.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_orchrtl_vectors.cpp ksw_ref.cpp
+orchrtlvec: gen_orchrtl_vectors
+	./gen_orchrtl_vectors vectors/orchrtl_vectors.txt 3000
+
 # Validate hw_align2 vs REAL captured kswv outputs (capture/matesw_capture.inc).
 # Usage: make checkcap && ./check_capture vectors/mate_vec.bin
 check_capture: check_capture.cpp hw.h ksw_ref.cpp ksw_ref.h macro.h

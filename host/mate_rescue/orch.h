@@ -76,7 +76,17 @@ static inline int mr_dedup(const MOpt& o, std::vector<MAln>& a) {
             oq = q->qb < p->qb? q->qe - p->qb : p->qe - q->qb;
             mr = q->re - q->rb < p->re - p->rb? q->re - q->rb : p->re - p->rb;
             mq = q->qe - q->qb < p->qe - p->qb? q->qe - q->qb : p->qe - p->qb;
-            if (or_ > o.mask_level_redun * mr && oq > o.mask_level_redun * mq) {
+            // mask_level_redun = 0.95. Real bwa-mem2 computes this in FLOAT; the HW
+            // (matesw_dedup) uses the proven integer surrogate 20*ov > 19*minlen.
+            // Build the RTL vector generators with -DMR_DEDUP_INT so the oracle
+            // matches the HW; the surrogate-vs-float gap on REAL data is assessed at
+            // capture (check_orch), mirroring the merge-sorter v2 methodology.
+#ifdef MR_DEDUP_INT
+            bool redundant = (20*or_ > 19*mr) && (20*oq > 19*mq);
+#else
+            bool redundant = (or_ > o.mask_level_redun * mr) && (oq > o.mask_level_redun * mq);
+#endif
+            if (redundant) {
                 if (p->score < q->score) { p->qe = p->qb; break; }
                 else q->qe = q->qb;
             }

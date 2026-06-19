@@ -58,6 +58,19 @@ elif [[ "$TB" == tb_msort_v2 ]]; then
         [[ -f "$BIN" ]] || gunzip -kf "$BIN.gz"
         python3 "$MS/gen_v2_top_vectors.py" "$BIN" "$VEC_HEX" "${MSORT_PER_N:-2}"
     fi
+elif [[ "$TB" == tb_matesw_dedup ]]; then
+    RTL_FILES=(
+        "$RTL/matesw_dedup.sv"
+    )
+    MR="$ROOT/host/mate_rescue"
+    VEC_TXT="$MR/vectors/dedup_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$MR/vectors"
+        ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -DMR_DEDUP_INT -o gen_dedup_vectors gen_dedup_vectors.cpp ksw_ref.cpp \
+          && ./gen_dedup_vectors vectors/dedup_vectors.txt 6000 )
+    fi
 else
     RTL_FILES=(
         "$RTL/bsw_pkg.sv"
@@ -153,6 +166,35 @@ else
             mkdir -p "$MR/vectors"
             ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -o gen_matesw_vectors gen_matesw_vectors.cpp ksw_ref.cpp \
               && ./gen_matesw_vectors vectors/matesw_vectors.txt 4000 )
+        fi
+    fi
+    # tb_matesw_orient_unit: per-orientation mate-rescue unit (matesw_top + the
+    # mem_matesw kswr->alnreg transform) vs hw_align2 + orch.h transform.
+    if [[ "$TB" == tb_matesw_orient_unit ]]; then
+        RTL_FILES+=("$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv")
+        MR="$ROOT/host/mate_rescue"
+        VEC_TXT="$MR/vectors/orient_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            mkdir -p "$MR/vectors"
+            ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -o gen_orient_vectors gen_orient_vectors.cpp ksw_ref.cpp \
+              && ./gen_orient_vectors vectors/orient_vectors.txt 4000 )
+        fi
+    fi
+    # tb_matesw_orch_top: full mate-rescue orchestration (skip + per-orientation
+    # matesw_orient_unit + insertion + matesw_dedup) vs orch.h::matesw_orchestrate.
+    if [[ "$TB" == tb_matesw_orch_top ]]; then
+        RTL_FILES+=("$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" \
+                    "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv")
+        MR="$ROOT/host/mate_rescue"
+        VEC_TXT="$MR/vectors/orchrtl_vectors.txt"
+        PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ ! -f "$VEC_TXT" ]]; then
+            echo "Generating $VEC_TXT ..."
+            mkdir -p "$MR/vectors"
+            ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -DMR_DEDUP_INT -o gen_orchrtl_vectors gen_orchrtl_vectors.cpp ksw_ref.cpp \
+              && ./gen_orchrtl_vectors vectors/orchrtl_vectors.txt 3000 )
         fi
     fi
     # tb_accel_top: full accelerator (extend-orchestrator + compaction + merge-
