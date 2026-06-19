@@ -49,14 +49,38 @@ pre-dedup alnreg array (rb,re,qb,qe,rid,score; in on-chip RAM)
   → emit survivors
 ```
 
-`mask_level_redun` is a float (default 0.5). To stay integer/bit-exact, compare
-`2·or_ > mr` style after clearing denominators, or use the exact fixed-point the C++ uses
-(`or_ > 0.5·mr` ⇒ `2·or_ > mr`); confirm against the float path in the C++ model.
+`mask_level_redun` is a float, **default 0.95** (distinct from `mask_level`/`drop_ratio`,
+which are 0.5 and are used elsewhere — chaining/primary-marking — NOT in this redundancy
+test). To stay integer/bit-exact, clear the denominator: `or_ > 0.95·mr` ⇒ `20·or_ > 19·mr`
+(0.95 = 19/20, exact rational). This surrogate is **proven** equal to the float path
+`or_ > 0.95f·mr` over the operand range with 0 mismatches by
+`host/merge_sorter/check_redun_int.cpp`; the C++ model (`v2_dedup.h`) uses the float form,
+the RTL (`msort_v2_pkg.sv`, `RED_NUM/RED_DEN = 20/19`) uses the surrogate.
 
 ### Fallback triggers (all bit-exact; hardware emits a "redo in SW" flag)
 1. `n > 1024` (oversize) — ~0.03% of cost.
 2. array contains an equal-`re` tie — 1.25% of arrays, 1.21% of cost.
 3. branch B would fire (a patch/merge) — ~0% on short reads.
+
+> **KNOWN GAP (logged 2026-06-19, not yet fixed): trigger #1 is specified but NOT
+> implemented in RTL.** No module actually checks the element count against `N_MAX`:
+> - `msort_v2_top` raises `fallback` only on the adjacent-equal-`re` tie; load uses
+>   `wr_addr = wptr[IDX_W-1:0]` (low 10 bits), so element 1024 aliases to address 0 and
+>   `n` (11-bit `cnt_t`) keeps counting — the sort then runs over a corrupted bank.
+> - `accel_top` wires `fallback <= ms_fallback` and has no `surv_cnt > N_MAX` check (even
+>   though `surv_cnt` is already computed in pass A / `C_FIND_EVAL`).
+> - `orch_read_top` is the *earliest* overflow point: it writes `av_*[av_wptr]` into
+>   `NAV=1024`-deep arrays with an uncapped 16-bit `av_wptr` and exports `o_nav = av_wptr`
+>   with no cap, so the orchestrator's own buffers alias on write before accel even counts.
+>
+> Effect: an oversize read (`n > 1024`) produces **silently wrong output with `fallback`
+> stuck low**, instead of the intended clean SW handoff. It is currently masked because
+> oversize arrays are rare (~0.03% of cost) and none appear in the sampled `tb_accel_top`
+> vectors, so all tests pass. Fix (deferred to a later audit): guard at the earliest point
+> — `orch_read_top` latches an `overflow` output when `av_wptr` would reach `NAV`; `accel_top`
+> ORs it into `fb_latch` and adds the cheap `surv_cnt > N_MAX` check in `C_DECIDE` (→ `C_DONE`,
+> never streaming); optional defensive self-guard in `msort_v2_top` load. Exercise it with a
+> directed small-`N_MAX` test build rather than synthesizing a >1024-alnreg read.
 
 ## Microarchitecture notes
 
