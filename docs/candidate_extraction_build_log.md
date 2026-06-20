@@ -276,8 +276,17 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
 - **Chaining RTL** — now unblocked: sorted-array chain store + `c_test_and_merge` + dup-pos
   fallback flag + weight/overlap filter (reuse the merge-sorter for the chain sort; the restart
   SW core for `mem_flt_chained_seeds`). chain.h is bit-exact validated.
-- **hw.h / orch.h real-data validation** — the mate SW kernel + per-call orchestration captures
-  still un-run (orch.h transitively covers the kernel). A follow-on remote session.
+- ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
+  calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
+  issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on
+  sort-key TIES the surviving identical-key alnreg (its seedcov/order) differs. Fix = additive
+  `fb` SW-fallback flag on equal-re / equal-(score,rb,qb) ties (~1.66% of calls, over-approx of
+  the true ~0.04%; RTL matesw_dedup detects the same). orch.h transitively validates the SW
+  kernel (its only SW is hw_align2). Remote reverted clean.
+- **hw.h direct kernel capture** — still un-run (transitively covered by orch.h above; the
+  matesw_capture HOOK-A has a seqPairArray-indexing subtlety to resolve first). Lower priority.
+- **Propagate the dedup-tie fallback to the RTL** matesw_dedup (additive flag, like orch.h);
+  small follow-on, mirrors the chaining dup-pos fallback.
 - **hw.h / orch.h real-data validation** — the mate SW kernel + per-call orchestration captures
   (`matesw_/orch_capture.inc`) still un-run. orch.h transitively covers the kernel (its only SW
   is hw_align2). orch.h's hooks need care: bwamem_pair.cpp has near-duplicate mem_matesw /

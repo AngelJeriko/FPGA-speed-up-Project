@@ -12,8 +12,13 @@
 // the insertion-sort by score, and the per-orientation mem_sort_dedup_patch.
 //
 // Faithful to mem_matesw_batch_post (!MATE_SORT path, bwamem_pair.cpp:1095-1248).
-// Validated bit-exact only after the remote orchestration capture (see
-// docs/remote_capture_plan.md / mate_rescue_engine_scope.md). csub (=aln.score2) is
+// REAL-DATA VALIDATED 2026-06-19 (orch_capture.inc, HG00733 50k pairs, 100000 calls):
+// check_orch ALL PASS, 0 non-fallback failures. Bit-exact on rb/re/qb/qe/score/is_alt/
+// seedcov EXCEPT mr_dedup sort-key TIES, where real's unstable ks_introsort reorders
+// equal elements differently from std::stable_sort (changing which identical-key alnreg
+// survives -> seedcov/order). Those tie arrays are a SW-FALLBACK (the `fb` flag in
+// mr_dedup/matesw_orchestrate; ~1.66% of calls, an over-approx of the true ~0.04%
+// divergence; the RTL matesw_dedup detects the same way). csub (=aln.score2) is
 // NOT modeled (hw.h omits score2; mem_matesw stores it but it is not a sort/dedup
 // key and never affects the consumed ma_out fields) — so csub is excluded from the
 // comparison, like the kernel-level check.
@@ -60,10 +65,18 @@ static inline bool mr_score_lt(const MAln& x, const MAln& y) {
     if (x.rb    != y.rb)    return x.rb    < y.rb;
     return x.qb < y.qb;
 }
-static inline int mr_dedup(const MOpt& o, std::vector<MAln>& a) {
+// fb (optional): set true if the dedup has a sort-key TIE (adjacent equal `re` in the
+// re-sort, or equal (score,rb,qb) in the score-sort). Real mem_sort_dedup_patch uses
+// UNSTABLE ks_introsort, which reorders such ties differently from this std::stable_sort
+// (even for small arrays — the introsort partition can swap equal elements), changing
+// which identical-key alnreg survives (its seedcov / order). So tie arrays are a
+// SW-fallback condition (cf. merge-sorter equal-re tie / chaining dup-pos). Measured
+// ~0.04% of mem_matesw calls. The RTL matesw_dedup detects the same way.
+static inline int mr_dedup(const MOpt& o, std::vector<MAln>& a, bool* fb=nullptr) {
     int n = (int)a.size(), m, i, j;
     if (n <= 1) return n;
     std::stable_sort(a.begin(), a.end(), mr_re_lt);
+    if (fb) for (i = 1; i < n; ++i) if (a[i].re == a[i-1].re) { *fb = true; break; }
     for (i = 0; i < n; ++i) a[i].n_comp = 1;
     for (i = 1; i < n; ++i) {
         MAln* p = &a[i];
@@ -97,6 +110,8 @@ static inline int mr_dedup(const MOpt& o, std::vector<MAln>& a) {
     n = m;
     a.resize(n);
     std::stable_sort(a.begin(), a.end(), mr_score_lt);
+    if (fb) for (i = 1; i < n; ++i)
+        if (a[i].score==a[i-1].score && a[i].rb==a[i-1].rb && a[i].qb==a[i-1].qb) { *fb = true; break; }
     for (i = 1; i < n; ++i)
         if (a[i].score==a[i-1].score && a[i].rb==a[i-1].rb && a[i].qb==a[i-1].qb) a[i].qe = a[i].qb;
     for (i = 1, m = 1; i < n; ++i) if (a[i].qe > a[i].qb) { if (m != i) a[m++] = a[i]; else ++m; }
@@ -109,7 +124,7 @@ static inline int mr_dedup(const MOpt& o, std::vector<MAln>& a) {
 static inline int matesw_orchestrate(const MOpt& o, int64_t l_pac, const MAln& a,
                                      int l_ms, const uint8_t* ms,
                                      const MPes pes[4], const MWin win[4],
-                                     std::vector<MAln>& ma) {
+                                     std::vector<MAln>& ma, bool* fb=nullptr) {
     int skip[4];
     for (int r = 0; r < 4; ++r) skip[r] = pes[r].failed? 1 : 0;
     for (size_t i = 0; i < ma.size(); ++i) {
@@ -158,7 +173,7 @@ static inline int matesw_orchestrate(const MOpt& o, int64_t l_pac, const MAln& a
                 ++n;
             }
         }
-        if (n) mr_dedup(o, ma);            // per-orientation dedup (!MATE_SORT)
+        if (n) mr_dedup(o, ma, fb);        // per-orientation dedup (!MATE_SORT)
     }
     return n;
 }

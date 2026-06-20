@@ -32,7 +32,7 @@ int main(int argc, char** argv){
     FILE* f=fopen(argv[1],"rb");
     if(!f){ fprintf(stderr,"cannot open %s\n",argv[1]); return 2; }
 
-    long checked=0, fails=0, rescued=0;
+    long checked=0, fails=0, rescued=0, fbcount=0;
     int32_t type;
     while (rd(f,type)){
         if (type!=0){ fprintf(stderr,"bad type %d\n",type); break; }
@@ -64,9 +64,11 @@ int main(int argc, char** argv){
         MOpt o; o.a=cfg[0]; o.b=cfg[1]; o.o_del=cfg[2]; o.e_del=cfg[3];
         o.o_ins=cfg[4]; o.e_ins=cfg[5]; o.min_seed_len=cfg[6];
         MAln A{}; A.rb=a_rb; A.rid=a_rid; A.is_alt=a_alt;
-        matesw_orchestrate(o, l_pac, A, l_ms, ms.data(), pes, win, ma);
+        bool fb=false;
+        matesw_orchestrate(o, l_pac, A, l_ms, ms.data(), pes, win, ma, &fb);
 
         checked++;
+        if (fb) { fbcount++; continue; }   // dedup sort-key tie -> SW-fallback (introsort vs stable)
         if ((int)ma.size() > nin) rescued++;
         bool bad = ((int)ma.size()!=nout);
         if (!bad) for (int i=0;i<nout;++i) if(!eq(ma[i],cap[i])){ bad=true; break; }
@@ -83,7 +85,7 @@ int main(int argc, char** argv){
         }
     }
     fclose(f);
-    printf("check_orch: %ld calls checked, %ld with a rescue appended, %ld failures -> %s\n",
-           checked, rescued, fails, (fails==0 && checked>0) ? "ALL PASS" : "FAIL");
+    printf("check_orch: %ld calls checked, %ld SW-fallback (dedup tie, excluded), %ld rescue, %ld NON-FALLBACK failures -> %s\n",
+           checked, fbcount, rescued, fails, (fails==0 && checked>0) ? "ALL PASS" : "FAIL");
     return (fails==0 && checked>0) ? 0 : 1;
 }
