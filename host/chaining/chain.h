@@ -173,17 +173,17 @@ static inline void ks_introsort_memflt(size_t n, CChain a[], bool* comb=nullptr)
     }
 }
 
-// bwamem.cpp:mem_chain_flt (per read = one seqid group).
-static inline std::vector<CChain> c_mem_chain_flt(const COpt& o, std::vector<CChain> a) {
-    if (a.empty()) return a;
-    // weight + drop (min_chain_weight default 0 -> nothing dropped)
-    std::vector<CChain> b;
-    for (auto& c : a) { c.first=-1; c.kept=0; c.w=c_chain_weight(c);
-        if (c.w >= o.min_chain_weight) b.push_back(c); }
-    int n = (int)b.size(); if (n == 0) return b;
-    // sort by weight desc using the EXACT ks_introsort(mem_flt) port (flt_lt: a.w>b.w),
-    // so equal-weight tie order matches bwa bit-exact (real-data validated 2026-06-19).
-    ks_introsort_memflt((size_t)n, b.data());
+// bwamem.cpp:mem_chain_flt POST-SORT stage = the greedy overlap/shadow filter + max_chain_extend
+// cap + output. Input `b` MUST already be weighted (b[i].w set) and sorted by w DESC. Self-
+// contained: (re)initialises b[i].first/.kept. Annotates b[i].kept (0 drop / 1 shadowed-
+// resurrected / 2 overlapped-kept / 3 primary) and returns the kept chains in sorted order.
+// Split out of c_mem_chain_flt so the RTL chain_flt (filter stage) tests against the SAME
+// reference. Behaviour identical to the original inline body.
+static inline std::vector<CChain> c_chain_flt_post(const COpt& o, std::vector<CChain>& b) {
+    int n = (int)b.size();
+    std::vector<CChain> out;
+    if (n == 0) return out;
+    for (int z = 0; z < n; ++z) { b[z].first = -1; b[z].kept = 0; }
     auto cbeg = [](const CChain&c){ return c.seeds[0].qbeg; };
     auto cend = [](const CChain&c){ return c.seeds.back().qbeg + c.seeds.back().len; };
     std::vector<int> keptlist;
@@ -213,7 +213,20 @@ static inline std::vector<CChain> c_mem_chain_flt(const COpt& o, std::vector<CCh
     int i, k;
     for (i = k = 0; i < n; ++i) { if (b[i].kept == 0 || b[i].kept == 3) continue; if (++k >= o.max_chain_extend) break; }
     for (; i < n; ++i) if (b[i].kept < 3) b[i].kept = 0;
-    std::vector<CChain> out;
     for (i = 0; i < n; ++i) if (b[i].kept != 0) out.push_back(b[i]);
     return out;
+}
+
+// bwamem.cpp:mem_chain_flt (per read = one seqid group) = weight + drop + sort + post-filter.
+static inline std::vector<CChain> c_mem_chain_flt(const COpt& o, std::vector<CChain> a) {
+    if (a.empty()) return a;
+    // weight + drop (min_chain_weight default 0 -> nothing dropped)
+    std::vector<CChain> b;
+    for (auto& c : a) { c.first=-1; c.kept=0; c.w=c_chain_weight(c);
+        if (c.w >= o.min_chain_weight) b.push_back(c); }
+    int n = (int)b.size(); if (n == 0) return b;
+    // sort by weight desc using the EXACT ks_introsort(mem_flt) port (flt_lt: a.w>b.w),
+    // so equal-weight tie order matches bwa bit-exact (real-data validated 2026-06-19).
+    ks_introsort_memflt((size_t)n, b.data());
+    return c_chain_flt_post(o, b);
 }

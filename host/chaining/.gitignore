@@ -9,3 +9,5 @@ gen_chain_weight_vectors
 vectors/chainweight_vectors.txt
 gen_chain_introsort_vectors
 vectors/chainintro_vectors.txt
+gen_chain_flt_vectors
+vectors/chainflt_vectors.txt

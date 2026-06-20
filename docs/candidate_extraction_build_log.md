@@ -317,7 +317,22 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     dup-pos), or implement combsort with VERIFIED fixed-point gap (Rfix=round(2^B/S), prove
     floor(gap*Rfix>>B)==(size_t)(gap/S) for all gap<=NMAX). Replacing the fallback branch with a
     combsort FSM is purely additive — no rework. My synthetic 8.4% is inflated (1/7 cases all-equal).
-  - NEXT: chain_flt (weight+sort+overlap/shadow greedy filter) — the last chaining module.
+  - **chain_flt DONE 2026-06-20** (`rtl/chain_flt.sv`): mem_chain_flt POST-SORT stage = the
+    greedy overlap/shadow filter + max_chain_extend cap + kept annotation. Operates on chains
+    already WEIGHTED + SORTED-by-w-DESC (upstream chain_weight + chain_introsort), each reduced
+    to (w, cbeg, cend, isalt). Greedy keptlist: each chain i vs every survivor j — a SIGNIFICANT
+    query overlap (>= half smaller span via 2*(e_min-b_max)>=min_l, span<gap, j not-alt-unless-i-
+    alt) records a shadow (first[j]=i) and DROPS i if much weaker (2*w_i<w_j && gap>=2*msl).
+    Survivors resurrect their first-shadowed (kept=1). kept: 0 drop/1 resurrected/2 overlapped/
+    3 primary; chain set = kept!=0. FSM L_CLR/L_OUTER/L_INNER/L_ADD/L_NEXT/L_RES/L_EXT1/L_EXT2.
+    Verified vs chain.h::c_chain_flt_post: tb_chain_flt 4000/0 incl. 661 small-mce (cap path) +
+    shadow-drop + resurrect. gen_chain_flt_vectors decouples w from span (w set directly, single
+    seed carries span). chain.h refactor: extracted c_chain_flt_post (behaviour-identical) so RTL
+    + generator share one reference; c_mem_chain_flt now = weight+drop+sort+c_chain_flt_post.
+  - **CHAINING RTL UNITS COMPLETE** (4/4): chain_store, chain_weight, chain_introsort, chain_flt
+    all bit-exact. NEXT: a thin chaining top wiring chain_weight (xN) + chain_introsort + chain_flt
+    for an END-TO-END check vs c_mem_chain_flt on real reads (also measures the true combined
+    fallback rate: dup-pos + combsort). Optional: fixed-point combsort if that rate is high.
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on
