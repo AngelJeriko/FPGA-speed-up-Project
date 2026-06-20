@@ -15,7 +15,7 @@
 //     n_ma_in   n_ma_in*{rb re qb qe rid score cov}
 //     ms[l_ms]
 //     for r in 0..3: reflen[r]  ref[r][0..reflen-1]      (reflen=0 when !used)
-//     n_ma_out  n_ma_out*{rb re qb qe rid score cov}
+//     n_ma_out fb   n_ma_out*{rb re qb qe rid score cov}   (fb = dedup-tie SW-fallback)
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -95,7 +95,8 @@ int main(int argc, char** argv) {
         }
 
         std::vector<MAln> ma_in = ma;
-        matesw_orchestrate(o, l_pac, MAln{a_rb,0,0,0,a_rid,a_is_alt,0,0,0,0,0,0,0,-1}, l_ms, ms.data(), pes, win, ma);
+        bool fb = false;
+        matesw_orchestrate(o, l_pac, MAln{a_rb,0,0,0,a_rid,a_is_alt,0,0,0,0,0,0,0,-1}, l_ms, ms.data(), pes, win, ma, &fb);
         if ((int)ma.size() != (int)ma_in.size()) with_rescue++;
 
         // ---- emit ----
@@ -119,7 +120,7 @@ int main(int argc, char** argv) {
             for (int i=0;i<rl;++i){ snprintf(line,sizeof line,"%d ",refs[r][i]); buf+=line; }
             buf+='\n';
         }
-        snprintf(line,sizeof line,"%d\n",(int)ma.size()); buf+=line;
+        snprintf(line,sizeof line,"%d %d\n",(int)ma.size(),fb?1:0); buf+=line;
         for (auto&m:ma){ snprintf(line,sizeof line,"%lld %lld %d %d %d %d %d\n",
             (long long)m.rb,(long long)m.re,m.qb,m.qe,m.rid,m.score,m.seedcov); buf+=line; }
     }

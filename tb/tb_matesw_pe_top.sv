@@ -20,7 +20,7 @@ module tb_matesw_pe_top
     logic [3:0] win_used, pes_failed;
     logic signed [63:0] win_rb[4], win_re[4], pes_low[4], pes_high[4];
     logic signed [31:0] win_rid[4];
-    logic busy, cand_done; logic [15:0] n_ma, rd_idx;
+    logic busy, cand_done, tie; logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
 
     matesw_pe_top #(.MA_MAX(64)) dut(.clk,.rst_n,
@@ -28,9 +28,9 @@ module tb_matesw_pe_top
         .ld_ma_en,.ld_ma_idx,.ld_ma_rb,.ld_ma_re,.ld_ma_qb,.ld_ma_qe,.ld_ma_rid,.ld_ma_score,.ld_ma_cov,
         .init,.n_ma_init,.cand_start,.l_ms,.min_seed_len,.a,.o_del,.e_del,.o_ins,.e_ins,
         .a_rb,.l_pac,.a_rid,.a_is_alt,.win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
-        .busy,.cand_done,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
+        .busy,.cand_done,.tie,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
-    integer fd,got,cnt,ci,k,r,c,fails,guard,ncand,ninit,nfin,rl;
+    integer fd,got,cnt,ci,k,r,c,fails,guard,ncand,ninit,nfin,rl,e_fb;
     integer t_lms,t_lpac,t_msl,t_a,t_od,t_ed,t_oi,t_ei;
     integer pf[0:3],pl[0:3],ph[0:3];
     integer c_arb,c_arid,c_aalt,wu[0:3],wrb[0:3],wre[0:3],wrid[0:3];
@@ -92,10 +92,14 @@ module tb_matesw_pe_top
                 guard=0; while (!cand_done && guard<4000000) begin @(posedge clk); guard=guard+1; end
             end
 
-            got=$fscanf(fd,"%d",nfin);
+            got=$fscanf(fd,"%d %d",nfin,e_fb);
             for (k=0;k<nfin;k=k+1) got=$fscanf(fd,"%d %d %d %d %d %d %d",
                 e_rb[k],e_re[k],e_qb[k],e_qe[k],e_rid[k],e_sc[k],e_cov[k]);
 
+            if (tie !== e_fb[0]) begin
+                fails=fails+1;
+                if (fails<=15) $display("MISMATCH[%0d] tie %0b/%0b (ncand=%0d)", ci, tie, e_fb[0], ncand);
+            end
             if (n_ma !== nfin[15:0]) begin
                 fails=fails+1;
                 if (fails<=15) $display("MISMATCH[%0d] n_ma %0d/%0d (ninit=%0d ncand=%0d)", ci, n_ma, nfin, ninit, ncand);

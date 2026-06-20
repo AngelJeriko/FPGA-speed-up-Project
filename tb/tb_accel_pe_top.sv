@@ -32,7 +32,7 @@ module tb_accel_pe_top
     logic [3:0] win_used,pes_failed;
     logic signed [63:0] win_rb[4],win_re[4],pes_low[4],pes_high[4];
     logic signed [31:0] win_rid[4];
-    logic rescue_busy,cand_done; logic [15:0] n_ma, rd_idx;
+    logic rescue_busy,cand_done,tie; logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
 
     accel_pe_top #(.MA_MAX(64)) dut(.clk,.rst_n,
@@ -44,7 +44,7 @@ module tb_accel_pe_top
         .ld_ms_en,.ld_ms_addr,.ld_ms_data,.ld_ref_en,.ld_ref_win,.ld_ref_addr,.ld_ref_data,
         .cand_start,.l_ms,.min_seed_len,.a_sc,.mo_del,.me_del,.mo_ins,.me_ins,
         .a_rb,.l_pac,.a_rid,.a_is_alt,.win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
-        .rescue_busy,.cand_done,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
+        .rescue_busy,.cand_done,.tie,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
     integer fd,got,nreads,ri,cj,i,b,fails,guard,seen;
     integer t_lq,t_a,t_od,t_ed,t_oi,t_ei,t_zd,t_w,t_p5,t_p3,t_nch,t_nav,t_fb,t_nout;

@@ -36,7 +36,7 @@ module tb_accel_pe2_top
     logic cand_req; logic [15:0] cur_cand; logic cand_wins_ready;
     logic [15:0] src_rd_idx;
     logic signed [63:0] src_o_rb; logic signed [31:0] src_o_rid,src_o_alt,src_o_sc;
-    logic rescue_busy,sel_done; logic [15:0] n_ma, rd_idx;
+    logic rescue_busy,sel_done,tie; logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
 
     accel_pe2_top #(.MA_MAX(64), .NSRC(64)) dut(.clk,.rst_n,
@@ -51,7 +51,7 @@ module tb_accel_pe2_top
         .win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
         .cand_req,.cur_cand,.cand_wins_ready,
         .src_rd_idx,.src_o_rb,.src_o_rid,.src_o_alt,.src_o_sc,
-        .rescue_busy,.sel_done,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
+        .rescue_busy,.sel_done,.tie,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
     integer fd,got,nreads,ri,cj,i,b,fails,guard,seen,iscand;
     integer t_lq,t_a,t_od,t_ed,t_oi,t_ei,t_zd,t_w,t_p5,t_p3,t_nch,t_nav,t_fb,t_nout;

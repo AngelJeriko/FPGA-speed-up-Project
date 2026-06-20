@@ -74,6 +74,7 @@ module matesw_orch_top
     output logic               busy,
     output logic               done,
     output logic               overflow,
+    output logic               tie,        // any per-orientation dedup tie -> SW fallback
     output logic [15:0]        n_out,
     input  logic [15:0]        rd_idx,
     output logic signed [63:0] o_rb,
@@ -154,7 +155,7 @@ module matesw_orch_top
     // ---- matesw_dedup ----
     logic               dd_ld_en; logic [15:0] dd_ld_idx;
     logic signed [63:0] dd_ld_rb, dd_ld_re; logic signed [31:0] dd_ld_qb,dd_ld_qe,dd_ld_rid,dd_ld_sc,dd_ld_cov;
-    logic               dd_start, dd_busy, dd_done, dd_ovf; logic [15:0] dd_n_in, dd_n_out;
+    logic               dd_start, dd_busy, dd_done, dd_ovf, dd_tie; logic [15:0] dd_n_in, dd_n_out;
     logic [15:0]        dd_rd_idx;
     logic signed [63:0] dd_o_rb, dd_o_re; logic signed [31:0] dd_o_qb,dd_o_qe,dd_o_rid,dd_o_sc,dd_o_cov;
 
@@ -164,7 +165,7 @@ module matesw_orch_top
         .ld_rb(dd_ld_rb), .ld_re(dd_ld_re), .ld_qb(dd_ld_qb), .ld_qe(dd_ld_qe),
         .ld_rid(dd_ld_rid), .ld_score(dd_ld_sc), .ld_cov(dd_ld_cov),
         .start(dd_start), .n_in(dd_n_in), .busy(dd_busy), .done(dd_done),
-        .overflow(dd_ovf), .n_out(dd_n_out),
+        .overflow(dd_ovf), .tie(dd_tie), .n_out(dd_n_out),
         .rd_idx(dd_rd_idx), .o_rb(dd_o_rb), .o_re(dd_o_re), .o_qb(dd_o_qb), .o_qe(dd_o_qe),
         .o_rid(dd_o_rid), .o_score(dd_o_sc), .o_cov(dd_o_cov)
     );
@@ -197,7 +198,7 @@ module matesw_orch_top
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            state<=T_IDLE; done<=1'b0; overflow<=1'b0; n_out<='0;
+            state<=T_IDLE; done<=1'b0; overflow<=1'b0; tie<=1'b0; n_out<='0;
             ou_start<=1'b0; ou_ld_en<=1'b0; dd_start<=1'b0;
         end else begin
             done<=1'b0; ou_start<=1'b0; dd_start<=1'b0; ou_ld_en<=1'b0;
@@ -207,7 +208,7 @@ module matesw_orch_top
                     od_r<=o_del; ed_r<=e_del; oi_r<=o_ins; ei_r<=e_ins;
                     arb_r<=a_rb; lpac_r<=l_pac; arid_r<=a_rid; aalt_r<=a_is_alt;
                     // reserve headroom: up to 4 rescue inserts can grow n before dedup
-                    n<=n_ma_in; overflow<=(n_ma_in > MA_MAX[15:0]-16'd4);
+                    n<=n_ma_in; overflow<=(n_ma_in > MA_MAX[15:0]-16'd4); tie<=1'b0;
                     skip<=pes_failed; any_gate<=1'b0;
                     if (n_ma_in > MA_MAX[15:0]-16'd4) begin n_out<=n_ma_in; state<=T_DONE; end
                     else begin ii<=0; state<=T_SKIP; end
@@ -292,7 +293,7 @@ module matesw_orch_top
                     else k<=k+1;
                 end
                 T_DD_RUN: begin dd_n_in<=n[15:0]; dd_start<=1'b1; state<=T_DD_WAIT; end
-                T_DD_WAIT: if (dd_done) begin n<=dd_n_out; k<=0;
+                T_DD_WAIT: if (dd_done) begin n<=dd_n_out; k<=0; tie<=tie|dd_tie;
 `ifdef MOT_TRACE
                     $display("[D] r=%0d dedup n_in=%0d -> n_out=%0d", r_cur, dd_n_in, dd_n_out);
 `endif

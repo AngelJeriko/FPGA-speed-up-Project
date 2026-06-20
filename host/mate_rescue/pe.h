@@ -56,7 +56,7 @@ static inline int matesw_pe_select(const MOpt& o, const MPeOpt& po, int64_t l_pa
                                    const MPes pes[4],
                                    const std::vector<std::array<MWin,4>>& win,
                                    std::vector<MAln>& ma,
-                                   int* max_entry_ma = nullptr) {
+                                   int* max_entry_ma = nullptr, bool* fb = nullptr) {
     if (max_entry_ma) *max_entry_ma = (int)ma.size();
     if (cand_src.empty()) return (int)ma.size();
     const int top = cand_src[0].score;          // a[i][0] = highest (sorted desc)
@@ -64,7 +64,7 @@ static inline int matesw_pe_select(const MOpt& o, const MPeOpt& po, int64_t l_pa
     for (int j = 0; j < (int)cand_src.size() && j < po.max_matesw; ++j) {
         if (cand_src[j].score < thr) break;      // sorted desc -> rest also fail
         if (max_entry_ma && (int)ma.size() > *max_entry_ma) *max_entry_ma = (int)ma.size();
-        matesw_orchestrate(o, l_pac, cand_src[j], l_ms, ms, pes, win[j].data(), ma);
+        matesw_orchestrate(o, l_pac, cand_src[j], l_ms, ms, pes, win[j].data(), ma, fb);  // fb accumulates
     }
     return (int)ma.size();
 }

@@ -80,6 +80,7 @@ module accel_pe2_top
     // ======== rescue status / result ========
     output logic               rescue_busy,
     output logic               sel_done,
+    output logic               tie,        // rescue dedup tie -> SW fallback
     output logic [15:0]        n_ma,
     input  logic [15:0]        rd_idx,
     output logic signed [63:0] o_rb,
@@ -177,7 +178,7 @@ module accel_pe2_top
         .cand_req(cand_req), .cur_cand(cur_cand), .cand_wins_ready(cand_wins_ready),
         .src_rd_idx(src_rd_idx), .src_o_rb(src_o_rb), .src_o_rid(src_o_rid),
         .src_o_alt(src_o_alt), .src_o_sc(src_o_sc),
-        .busy(rescue_busy), .done(sel_done), .n_ma(n_ma),
+        .busy(rescue_busy), .done(sel_done), .tie(tie), .n_ma(n_ma),
         .rd_idx(rd_idx), .o_rb(o_rb), .o_re(o_re), .o_qb(o_qb), .o_qe(o_qe),
         .o_rid(o_rid), .o_score(o_score), .o_cov(o_cov)
     );

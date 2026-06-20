@@ -86,10 +86,11 @@ int main(int argc, char** argv) {
         }
 
         std::vector<MAln> ma_init = ma;
+        bool fb = false;
         for (int c = 0; c < n_cand; ++c) {
             Cand& cd = cands[c];
             MAln A{cd.a_rb,0,0,0,cd.a_rid,cd.a_is_alt,0,0,0,0,0,0,0,-1};
-            matesw_orchestrate(o, l_pac, A, l_ms, ms.data(), pes, cd.win, ma);
+            matesw_orchestrate(o, l_pac, A, l_ms, ms.data(), pes, cd.win, ma, &fb);  // fb accumulates
         }
         total_cand += n_cand;
 
@@ -114,7 +115,7 @@ int main(int argc, char** argv) {
                 snprintf(line,sizeof line,"%d ",rl); buf+=line;
                 for (int i=0;i<rl;++i){ snprintf(line,sizeof line,"%d ",cd.refs[r][i]); buf+=line; } buf+='\n'; }
         }
-        snprintf(line,sizeof line,"%d\n",(int)ma.size()); buf+=line;
+        snprintf(line,sizeof line,"%d %d\n",(int)ma.size(),fb?1:0); buf+=line;
         for (auto&m:ma){ snprintf(line,sizeof line,"%lld %lld %d %d %d %d %d\n",
             (long long)m.rb,(long long)m.re,m.qb,m.qe,m.rid,m.score,m.seedcov); buf+=line; }
     }

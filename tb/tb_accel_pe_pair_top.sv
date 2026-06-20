@@ -30,7 +30,7 @@ module tb_accel_pe_pair_top
     logic signed [63:0] win_rb[4],win_re[4],pes_low[4],pes_high[4];
     logic signed [31:0] win_rid[4];
     logic cand_req; logic [15:0] cur_cand; logic cand_wins_ready;
-    logic rescue_busy,sel_done;
+    logic rescue_busy,sel_done,tie;
     logic snap_a_start, snap_busy, snap_done, res_from_a;
     logic [15:0] rd_idx, n_ma;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
@@ -45,7 +45,7 @@ module tb_accel_pe_pair_top
         .sel_start,.l_ms,.min_seed_len,.a_sc,.mo_del,.me_del,.mo_ins,.me_ins,.l_pac,
         .pen_unpaired,.max_matesw,
         .win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
-        .cand_req,.cur_cand,.cand_wins_ready,.rescue_busy,.sel_done,
+        .cand_req,.cur_cand,.cand_wins_ready,.rescue_busy,.sel_done,.tie,
         .snap_a_start,.snap_busy,.snap_done,.res_from_a,
         .rd_idx,.n_ma,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 

@@ -70,6 +70,7 @@ module matesw_pe_top
     // ---- status / result ----
     output logic               busy,
     output logic               cand_done,
+    output logic               tie,        // any candidate's dedup tie -> SW fallback
     output logic [15:0]        n_ma,
     input  logic [15:0]        rd_idx,
     output logic signed [63:0] o_rb,
@@ -110,7 +111,7 @@ module matesw_pe_top
     // ---- inner orch_top ----
     logic               ot_ldma_en; logic [15:0] ot_ldma_idx;
     logic signed [63:0] ot_ldma_rb, ot_ldma_re; logic signed [31:0] ot_ldma_qb,ot_ldma_qe,ot_ldma_rid,ot_ldma_sc,ot_ldma_cov;
-    logic               ot_start, ot_busy, ot_done, ot_ovf; logic [15:0] ot_nin, ot_nout;
+    logic               ot_start, ot_busy, ot_done, ot_ovf, ot_tie; logic [15:0] ot_nin, ot_nout;
     logic [15:0]        ot_rd_idx;
     logic signed [63:0] ot_o_rb, ot_o_re; logic signed [31:0] ot_o_qb,ot_o_qe,ot_o_rid,ot_o_sc,ot_o_cov;
 
@@ -128,7 +129,7 @@ module matesw_pe_top
         .a_rb(arb_r), .l_pac(lpac_r), .a_rid(arid_r), .a_is_alt(aalt_r),
         .n_ma_in(n_r), .win_used(wu_r), .win_rb(wrb_r), .win_re(wre_r), .win_rid(wrid_r),
         .pes_low(plo_r), .pes_high(phi_r), .pes_failed(pf_r),
-        .busy(ot_busy), .done(ot_done), .overflow(ot_ovf), .n_out(ot_nout),
+        .busy(ot_busy), .done(ot_done), .overflow(ot_ovf), .tie(ot_tie), .n_out(ot_nout),
         .rd_idx(ot_rd_idx), .o_rb(ot_o_rb), .o_re(ot_o_re), .o_qb(ot_o_qb), .o_qe(ot_o_qe),
         .o_rid(ot_o_rid), .o_score(ot_o_sc), .o_cov(ot_o_cov)
     );
@@ -144,7 +145,7 @@ module matesw_pe_top
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            state<=P_IDLE; cand_done<=1'b0; ot_start<=1'b0; n_r<='0;
+            state<=P_IDLE; cand_done<=1'b0; ot_start<=1'b0; n_r<='0; tie<=1'b0;
         end else begin
             cand_done<=1'b0; ot_start<=1'b0;
 
@@ -154,7 +155,7 @@ module matesw_pe_top
                 w_qe[ld_ma_idx]<=ld_ma_qe; w_rid[ld_ma_idx]<=ld_ma_rid; w_sc[ld_ma_idx]<=ld_ma_score;
                 w_cov[ld_ma_idx]<=ld_ma_cov;
             end
-            if (init) n_r <= n_ma_init;
+            if (init) begin n_r <= n_ma_init; tie <= 1'b0; end   // new direction: reset tie
 
             case (state)
                 P_IDLE: if (cand_start) begin
@@ -174,7 +175,7 @@ module matesw_pe_top
                 end
                 P_RUN: begin ot_start<=1'b1; state<=P_WAIT; end
                 P_WAIT: if (ot_done) begin
-                    n_r <= ot_nout; k<=0;
+                    n_r <= ot_nout; k<=0; tie <= tie | ot_tie;
                     if (ot_nout==0) state<=P_DONE; else state<=P_RD0;
                 end
                 P_RD0: state<=P_RD1;                // ot_rd_idx=k registered into orch_top read

@@ -32,7 +32,7 @@ module tb_matesw_pe_sel_top
     logic signed [31:0] win_rid[4];
     // handshake + result
     logic cand_req; logic [15:0] cur_cand; logic cand_wins_ready;
-    logic busy, done; logic [15:0] n_ma, rd_idx;
+    logic busy, done, tie; logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
     // debug source readback (unused here; exercised by tb_accel_pe2_top)
     logic [15:0] src_rd_idx = '0;
@@ -47,9 +47,9 @@ module tb_matesw_pe_sel_top
         .win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
         .cand_req,.cur_cand,.cand_wins_ready,
         .src_rd_idx,.src_o_rb,.src_o_rid,.src_o_alt,.src_o_sc,
-        .busy,.done,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
+        .busy,.done,.tie,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
-    integer fd,got,cnt,ci,k,r,c,fails,guard,nsrc,ninit,nfin,rl;
+    integer fd,got,cnt,ci,k,r,c,fails,guard,nsrc,ninit,nfin,rl,e_fb;
     integer t_lms,t_lpac,t_msl,t_a,t_od,t_ed,t_oi,t_ei,t_pen,t_maxm;
     integer pf[0:3],pl[0:3],ph[0:3];
     integer i_rb[0:63],i_re[0:63],i_qb[0:63],i_qe[0:63],i_rid[0:63],i_sc[0:63],i_cov[0:63];
@@ -92,7 +92,7 @@ module tb_matesw_pe_sel_top
                     for (k=0;k<rl;k=k+1) got=$fscanf(fd,"%d",refs[c][r][k]);
                 end
             end
-            got=$fscanf(fd,"%d",nfin);
+            got=$fscanf(fd,"%d %d",nfin,e_fb);
             for (k=0;k<nfin;k=k+1) got=$fscanf(fd,"%d %d %d %d %d %d %d",
                 e_rb[k],e_re[k],e_qb[k],e_qe[k],e_rid[k],e_sc[k],e_cov[k]);
 
@@ -134,6 +134,10 @@ module tb_matesw_pe_sel_top
             end
 
             // ---- check final ma ----
+            if (tie !== e_fb[0]) begin
+                fails=fails+1;
+                if (fails<=15) $display("MISMATCH[%0d] tie %0b/%0b (nsrc=%0d)", ci, tie, e_fb[0], nsrc);
+            end
             if (n_ma !== nfin[15:0]) begin
                 fails=fails+1;
                 if (fails<=15) $display("MISMATCH[%0d] n_ma %0d/%0d (ninit=%0d nsrc=%0d pen=%0d maxm=%0d)",

@@ -36,7 +36,7 @@ module tb_accel_pe2_loop
     logic cand_req; logic [15:0] cur_cand; logic cand_wins_ready;
     logic [15:0] src_rd_idx;
     logic signed [63:0] src_o_rb; logic signed [31:0] src_o_rid,src_o_alt,src_o_sc;
-    logic rescue_busy,sel_done; logic [15:0] n_ma, rd_idx;
+    logic rescue_busy,sel_done,tie; logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
 
     accel_pe2_top #(.MA_MAX(64), .NSRC(64)) dut(.clk,.rst_n,
@@ -51,9 +51,9 @@ module tb_accel_pe2_loop
         .win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
         .cand_req,.cur_cand,.cand_wins_ready,
         .src_rd_idx,.src_o_rb,.src_o_rid,.src_o_alt,.src_o_sc,
-        .rescue_busy,.sel_done,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
+        .rescue_busy,.sel_done,.tie,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
-    integer fd,got,cnt,ci,k,r,c,b,fails,guard,nsrc,nfin,rl,iret;
+    integer fd,got,cnt,ci,k,r,c,b,fails,guard,nsrc,nfin,rl,iret,e_fb;
     integer t_lq,t_a,t_od,t_ed,t_oi,t_ei,t_zd,t_w,t_p5,t_p3,t_nch,t_nav,t_fb,t_nout;
     integer t_lms,t_msl,t_asc,t_mod,t_med,t_moi,t_mei,t_pen,t_maxm;
     longint t_lpac;
@@ -150,7 +150,7 @@ module tb_accel_pe2_loop
                     for (k=0;k<rl;k=k+1) got=$fscanf(fd,"%d",refs[c][r][k]);
                 end
             end
-            got=$fscanf(fd,"%d",nfin);
+            got=$fscanf(fd,"%d %d",nfin,e_fb);
             for (k=0;k<nfin;k=k+1) got=$fscanf(fd,"%d %d %d %d %d %d %d",
                 e_rb[k],e_re[k],e_qb[k],e_qe[k],e_rid[k],e_sc[k],e_cov[k]);
 
@@ -180,6 +180,10 @@ module tb_accel_pe2_loop
             end
 
             // ---- check final ma ----
+            if (tie !== e_fb[0]) begin
+                fails=fails+1;
+                if (fails<=12) $display("MISMATCH[%0d] tie %0b/%0b", ci, tie, e_fb[0]);
+            end
             if (n_ma !== nfin[15:0]) begin
                 fails=fails+1;
                 if (fails<=12) $display("MISMATCH[%0d] final n_ma %0d/%0d (nsrc=%0d pen=%0d maxm=%0d)", ci, n_ma, nfin, nsrc, t_pen, t_maxm);

@@ -109,7 +109,8 @@ int main(int argc, char** argv) {
 
         // ---- run the model -> final ma ----
         std::vector<MAln> ma_init = ma;
-        matesw_pe_select(o, po, l_pac, src, l_ms, ms.data(), pes, win, ma);
+        bool fb = false;
+        matesw_pe_select(o, po, l_pac, src, l_ms, ms.data(), pes, win, ma, nullptr, &fb);
 
         // count selected (for the stderr summary only — matches the RTL's K)
         { int thr = src[0].score - po.pen_unpaired, k=0;
@@ -140,7 +141,7 @@ int main(int argc, char** argv) {
                 snprintf(line,sizeof line,"%d ",rl); buf+=line;
                 for (int i=0;i<rl;++i){ snprintf(line,sizeof line,"%d ",win[c][r].ref[i]); buf+=line; } buf+='\n'; }
         }
-        snprintf(line,sizeof line,"%d\n",(int)ma.size()); buf+=line;
+        snprintf(line,sizeof line,"%d %d\n",(int)ma.size(),fb?1:0); buf+=line;
         for (auto&m:ma){ snprintf(line,sizeof line,"%lld %lld %d %d %d %d %d\n",
             (long long)m.rb,(long long)m.re,m.qb,m.qe,m.rid,m.score,m.seedcov); buf+=line; }
     }
