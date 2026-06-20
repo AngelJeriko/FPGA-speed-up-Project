@@ -230,12 +230,58 @@ meaningfully (848568 gated, 594747 rescued). Remote source reverted to clean `.o
 **pe.h selection is now real-data validated** (it had none before — this session's transcription).
 `scripts/remote_batched_capture.sh` updated to arm `ALNREG_SEL_OUT` as a 4th capture.
 
+## Step 7 — chaining model validation on REAL data  ⚠️ chain.h NOT bit-exact (2 bugs found)
+
+Ran `chain_capture.inc` on the remote (HG00733 50k pairs, 30000 reads). The capture did its
+job — it caught `chain.h` diverging from real bwa-mem2 in exactly the two ways prep predicted:
+- **mem_chain: 662/30000 (2.2%)** differ, model chain count < real → the sorted-array
+  predecessor / `c_test_and_merge` does not reproduce the kbtree on dup-`pos` cases.
+- **mem_chain_flt: 15434/30000 (51%)** differ with EQUAL counts → chain order/content diverges;
+  `ks_introsort(mem_flt)` is unstable vs the model's `std::stable_sort` (equal-weight ties).
+
+Both are FIX-before-chaining-RTL items (chaining RTL is gated on chain.h being bit-exact).
+Logged in `host/chaining/chain.h` header + `docs/chaining_engine_scope.md`. Remote reverted
+clean (both source files). Capture mechanics now fully proven (pull→edit→push→build→run→
+validate→revert), including the WSL `~`-expansion gotcha (use absolute `/home/ccloud` paths).
+
+## Step 8 — chain.h fixes (2026-06-19)  ✅ BIT-EXACT (check_capture ALL PASS)
+
+**Final:** `mem_chain_flt: 0 failures`, `mem_chain: 0 non-fallback failures` (dup-pos reads
+SW-fallback, ~3-4%). Both fixes below confirmed on a fresh real-data re-capture.
+
+Iterated `chain.h` against the local `chain_vec.bin` (re-validation is local — fast):
+- **mem_chain_flt (was 51%):** ported klib `ks_introsort(mem_flt)` VERBATIM (median-of-3,
+  threshold-16 quicksort, combsort-on-depth, final insertion sort) replacing `std::stable_sort`
+  → fixed the bulk. The 1125 residual was traced to a **capture bug** (not the model):
+  `mem_chain_flt` `free()`s dropped chains' seeds (`SEEDS_PER_CHAIN=1`), and HOOK-C's shallow
+  snapshot was written after the call → garbage seeds. **Fixed `chain_capture.inc` to deep-copy
+  flt input seeds.** The flt model is believed bit-exact; a re-capture will confirm 0.
+- **mem_chain (was 2.2% = 662):** two correct fixes → **236 (0.79%)**: (1) predecessor matches
+  `kb_intervalp` (exact pos → leftmost equal; else rightmost `pos<key`); (2) insert new chains at
+  `lo+1` (the `kb_putp` position) to replicate the kbtree array order for duplicate `pos`.
+  **Residual 236 = MULTI-NODE B-tree** cases (mostly order-only, counts match): on tree splits
+  (~>9 chains) `kb_intervalp` returns an internal-node separator a single sorted array can't
+  reproduce. That order feeds the unstable flt sort, so it matters.
+
+**RESOLVED (Option 1 — SW-fallback):** measured the dup-pos detector — it catches ALL real
+divergences (0 misses) and flags ~2.8-3.9% of reads (over-approx of the true ~0.8%). Added a
+`fb` flag to `c_mem_chain` (set on a duplicate-pos chain insert; the RTL detects it the same
+way) and excluded those reads from the comparison. Re-captured with the fixed HOOK-C and got
+`check_capture: ALL PASS` (mem_chain 0 non-fallback, mem_chain_flt 0). chain.h is now the
+bit-exact sorted-array reference for the chaining RTL, with the dup-pos SW-fallback (cf.
+merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
+
 ## Remaining / deferred
 
-- **hw.h / orch.h / chain.h real-data validation** — the OTHER three prepped captures (mate SW
-  kernel, per-call orchestration, chaining) still un-run; a follow-on remote session pastes
-  `matesw_/orch_/chain_capture.inc` + runs `remote_batched_capture.sh` + `checkcap`/`checkorch`/
-  `checkcap`. (This session did only the new selection capture.)
+- **Chaining RTL** — now unblocked: sorted-array chain store + `c_test_and_merge` + dup-pos
+  fallback flag + weight/overlap filter (reuse the merge-sorter for the chain sort; the restart
+  SW core for `mem_flt_chained_seeds`). chain.h is bit-exact validated.
+- **hw.h / orch.h real-data validation** — the mate SW kernel + per-call orchestration captures
+  still un-run (orch.h transitively covers the kernel). A follow-on remote session.
+- **hw.h / orch.h real-data validation** — the mate SW kernel + per-call orchestration captures
+  (`matesw_/orch_capture.inc`) still un-run. orch.h transitively covers the kernel (its only SW
+  is hw_align2). orch.h's hooks need care: bwamem_pair.cpp has near-duplicate mem_matesw /
+  mem_matesw_batch_post, so anchor uniqueness matters. (This session validated selection + chaining.)
 - ~~**Both directions**~~ — DONE (Step 5, `accel_pe_pair_top`, 91/91).
 - **matesw ma-overflow → fallback** — thread `ot_ovf` up to a `fallback` output (KNOWN GAP
   above); deferred to the same later audit as the sorter oversize gap.

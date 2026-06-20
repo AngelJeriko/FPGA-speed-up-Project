@@ -147,11 +147,19 @@ if (g_chn_enabled>0) {
  *     (rid/seqid/pos/is_alt/seeds) into a temporary BEFORE the call.
  */
 /* INSTRUMENTATION: chaining capture — FLT in/out (paste around the flt call) */
-/* (a) before `chn->n = mem_chain_flt(...)`: */
+/* (a) before `chn->n = mem_chain_flt(...)`: DEEP-COPY seeds — mem_chain_flt FREES the
+ *     seeds of dropped chains with m>SEEDS_PER_CHAIN(=1) during compaction, so a shallow
+ *     snapshot read AFTER the call returns FREED (garbage) seeds for dropped multi-seed
+ *     chains. Deep-copy makes flt_in self-contained. */
 int32_t flt_n_in = chn->n; mem_chain_t *flt_in = NULL;
 if (g_chn_enabled>0 && flt_n_in > 0) {
     flt_in = (mem_chain_t*)malloc(sizeof(mem_chain_t)*flt_n_in);
-    for (int ci=0; ci<flt_n_in; ++ci) flt_in[ci] = chn->a[ci];   /* shallow: seeds ptr still valid */
+    for (int ci=0; ci<flt_n_in; ++ci) {
+        flt_in[ci] = chn->a[ci];
+        mem_seed_t* sd_ = (mem_seed_t*)malloc(sizeof(mem_seed_t)*(chn->a[ci].n>0?chn->a[ci].n:1));
+        for (int si=0; si<chn->a[ci].n; ++si) sd_[si] = chn->a[ci].seeds[si];
+        flt_in[ci].seeds = sd_;   /* own copy, immune to mem_chain_flt's free() */
+    }
 }
 /* (b) after the call, with the post-flt chn: */
 if (g_chn_enabled>0) {
@@ -168,5 +176,5 @@ if (g_chn_enabled>0) {
     }
     chn_unlock();
 }
-if (flt_in) free(flt_in);
+if (flt_in) { for (int ci=0; ci<flt_n_in; ++ci) free(flt_in[ci].seeds); free(flt_in); }
 /* --- end HOOK-C ------------------------------------------------------------ */

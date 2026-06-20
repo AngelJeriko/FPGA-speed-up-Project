@@ -2,11 +2,27 @@
 // per read. The kbtree-of-chains is replaced by a sorted-by-pos array with a
 // predecessor query, which returns the SAME `lower` chain the kbtree does, so the
 // chaining output is identical. Faithful to bwamem.cpp; integer surrogates for the
-// 0.5 float ratios are exact. NOTE: validated bit-exact only after the remote
-// capture of real (seed-stream -> chains) vectors (the real mem_chain can't be
-// compiled standalone — kbtree/bns/FM-index deps). See docs/chaining_engine_scope.md.
+// 0.5 float ratios are exact. See docs/chaining_engine_scope.md.
+//
+// REAL-DATA VALIDATION 2026-06-19 -- BIT-EXACT, check_capture ALL PASS (HG00733 50k pairs,
+// 30000 reads each of mem_chain + mem_chain_flt):
+//   - mem_chain_flt : 0 failures. FIXED by porting klib ks_introsort(mem_flt) VERBATIM (below)
+//     -- the model's std::stable_sort reordered equal-weight ties; ks_introsort is unstable.
+//     (An apparent 1125 residual was a CAPTURE BUG: mem_chain_flt free()s dropped chains' seeds
+//     [SEEDS_PER_CHAIN=1], and the old HOOK-C shallow snapshot was written after the call ->
+//     garbage; chain_capture.inc HOOK-C now deep-copies. Re-capture -> 0.)
+//   - mem_chain     : 0 NON-FALLBACK failures. Two fixes make the sorted-array predecessor
+//     match the kbtree: (1) predecessor = kb_intervalp (exact pos -> LEFTMOST equal; else
+//     rightmost pos<key); (2) new chains insert at lo+1 (kb_putp position), replicating the
+//     kbtree array order for duplicate pos. A multi-node B-tree still reorders dup-pos chains
+//     in ways a flat array cannot, so DUPLICATE-POS reads are a SW-FALLBACK condition (the `fb`
+//     flag below; ~3-4% of reads, ~0.4% runtime; a superset of the true ~0.8% divergence --
+//     measured, all real divergences caught). The RTL detects it the same way (dup-pos insert).
+//   So chain.h is the bit-exact sorted-array reference for the chaining RTL, with the dup-pos
+//   SW-fallback (cf. merge-sorter equal-re tie / accel n>1024). Vectors: vectors/chain_vec.bin.
 #pragma once
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 #include <algorithm>
 
@@ -59,29 +75,98 @@ static inline int c_chain_weight(const CChain& c) {
 }
 
 // mem_chain over one read's ordered seed stream. seeds[i] carries rid[i].
+// fb (optional): set true if a DUPLICATE pos chain is created. The sorted-array
+// predecessor matches the kbtree EXACTLY for distinct pos and for single-node dup pos,
+// but a multi-node B-tree reorders dup-pos chains in ways a flat array cannot reproduce
+// (and that order feeds the unstable mem_chain_flt sort). So duplicate-pos reads are a
+// SW-fallback condition for the RTL (measured ~2.79% of reads, ~0.3% runtime; a superset
+// of the real divergences — see docs/chaining_engine_scope.md). The RTL detects this the
+// same way: a new chain whose pos equals an existing chain's pos.
 static inline std::vector<CChain> c_mem_chain(const COpt& o, int64_t l_pac, int seqid,
         const std::vector<CSeed>& seeds, const std::vector<int>& rid,
-        const std::vector<bool>& is_alt) {
+        const std::vector<bool>& is_alt, bool* fb = nullptr) {
+    if (fb) *fb = false;
     std::vector<CChain> chains;   // kept sorted by pos ascending (kbtree replacement)
     for (size_t i = 0; i < seeds.size(); ++i) {
         const CSeed& s = seeds[i];
-        // predecessor: chain with the largest pos <= s.rbeg
-        int lo = -1;
-        for (int c = 0; c < (int)chains.size(); ++c) {
-            if (chains[c].pos <= s.rbeg) lo = c; else break;   // sorted -> first > breaks
-        }
+        // predecessor matching klib kb_intervalp (single-leaf): an EXACT pos match
+        // returns the LEFTMOST equal chain; otherwise the RIGHTMOST chain with pos <
+        // s.rbeg (last of the predecessor group). (The model picked rightmost-<=, which
+        // differs on exact dup-pos matches — the real-data mem_chain discrepancy.)
+        int beg = 0, nc_ = (int)chains.size();
+        while (beg < nc_ && chains[beg].pos < s.rbeg) ++beg;
+        int lo = (beg < nc_ && chains[beg].pos == s.rbeg) ? beg : beg - 1;
         int to_add = 1;
         if (lo >= 0 && c_test_and_merge(o, l_pac, chains[lo], s, rid[i])) to_add = 0;
         if (to_add) {
+            if (fb && lo >= 0 && chains[lo].pos == s.rbeg) *fb = true;  // duplicate pos -> SW fallback
             CChain nc; nc.rid = rid[i]; nc.seqid = seqid; nc.pos = s.rbeg;
             nc.is_alt = is_alt[i]; nc.seeds.push_back(s);
-            // insert keeping sorted-by-pos (stable for equal pos: after existing)
-            int ins = (int)chains.size();
-            for (int c = 0; c < (int)chains.size(); ++c) if (chains[c].pos > nc.pos) { ins = c; break; }
-            chains.insert(chains.begin() + ins, nc);
+            // kb_putp inserts at __kb_getp_aux(k)+1 = lo+1. For duplicate pos this yields
+            // the kbtree's array order [first, newest, .., second] that __kb_traverse emits
+            // (NOT plain insertion order); still keeps the array sorted by pos.
+            chains.insert(chains.begin() + (lo + 1), nc);
         }
     }
     return chains;
+}
+
+// ---- EXACT port of klib ks_introsort(mem_flt) (ksort.h), comparator flt_lt(a,b)=
+//      (a.w > b.w). Verbatim: median-of-3 pivot, threshold-16 quicksort, combsort on
+//      depth-limit, final whole-array insertion sort. Reproduces bwa's UNSTABLE
+//      equal-weight tie order bit-exact (std::stable_sort did not). ------------------
+struct ks_isort_stack_t { CChain *left, *right; int depth; };
+static inline bool flt_lt(const CChain& a, const CChain& b){ return a.w > b.w; }
+static inline void ks_insertsort_memflt(CChain* s, CChain* t){
+    CChain *i, *j, swap_tmp;
+    for (i = s + 1; i < t; ++i)
+        for (j = i; j > s && flt_lt(*j, *(j-1)); --j){ swap_tmp = *j; *j = *(j-1); *(j-1) = swap_tmp; }
+}
+static inline void ks_combsort_memflt(size_t n, CChain a[]){
+    const double shrink_factor = 1.2473309501039786540366528676643;
+    int do_swap; size_t gap = n; CChain tmp, *i, *j;
+    do {
+        if (gap > 2){ gap = (size_t)(gap / shrink_factor); if (gap==9||gap==10) gap=11; }
+        do_swap = 0;
+        for (i = a; i < a + n - gap; ++i){ j = i + gap;
+            if (flt_lt(*j, *i)){ tmp = *i; *i = *j; *j = tmp; do_swap = 1; } }
+    } while (do_swap || gap > 2);
+    if (gap != 1) ks_insertsort_memflt(a, a + n);
+}
+static inline void ks_introsort_memflt(size_t n, CChain a[]){
+    int d; ks_isort_stack_t *top, *stack; CChain rp, swap_tmp; CChain *s, *t, *i, *j, *k;
+    if (n < 1) return;
+    else if (n == 2){ if (flt_lt(a[1], a[0])){ swap_tmp=a[0]; a[0]=a[1]; a[1]=swap_tmp; } return; }
+    for (d = 2; (size_t)(1ul<<d) < n; ++d);
+    stack = (ks_isort_stack_t*)malloc(sizeof(ks_isort_stack_t) * ((sizeof(size_t)*d)+2));
+    top = stack; s = a; t = a + (n-1); d <<= 1;
+    while (1){
+        if (s < t){
+            if (--d == 0){ ks_combsort_memflt(t - s + 1, s); t = s; continue; }
+            i = s; j = t; k = i + ((j-i)>>1) + 1;
+            if (flt_lt(*k, *i)){ if (flt_lt(*k, *j)) k = j; }
+            else k = flt_lt(*j, *i)? i : j;
+            rp = *k;
+            if (k != t){ swap_tmp = *k; *k = *t; *t = swap_tmp; }
+            for (;;){
+                do ++i; while (flt_lt(*i, rp));
+                do --j; while (i <= j && flt_lt(rp, *j));
+                if (j <= i) break;
+                swap_tmp = *i; *i = *j; *j = swap_tmp;
+            }
+            swap_tmp = *i; *i = *t; *t = swap_tmp;
+            if (i-s > t-i){
+                if (i-s > 16){ top->left = s; top->right = i-1; top->depth = d; ++top; }
+                s = t-i > 16? i+1 : t;
+            } else {
+                if (t-i > 16){ top->left = i+1; top->right = t; top->depth = d; ++top; }
+                t = i-s > 16? i-1 : s;
+            }
+        } else {
+            if (top == stack){ free(stack); ks_insertsort_memflt(a, a+n); return; }
+            else { --top; s = top->left; t = top->right; d = top->depth; }
+        }
+    }
 }
 
 // bwamem.cpp:mem_chain_flt (per read = one seqid group).
@@ -92,9 +177,9 @@ static inline std::vector<CChain> c_mem_chain_flt(const COpt& o, std::vector<CCh
     for (auto& c : a) { c.first=-1; c.kept=0; c.w=c_chain_weight(c);
         if (c.w >= o.min_chain_weight) b.push_back(c); }
     int n = (int)b.size(); if (n == 0) return b;
-    // sort by weight desc (ks_introsort mem_flt = flt_lt: a.w > b.w). UNSTABLE in
-    // bwa; ties may need a fallback (validate vs capture). stable here for determinism.
-    std::stable_sort(b.begin(), b.end(), [](const CChain&x, const CChain&y){ return x.w > y.w; });
+    // sort by weight desc using the EXACT ks_introsort(mem_flt) port (flt_lt: a.w>b.w),
+    // so equal-weight tie order matches bwa bit-exact (real-data validated 2026-06-19).
+    ks_introsort_memflt((size_t)n, b.data());
     auto cbeg = [](const CChain&c){ return c.seeds[0].qbeg; };
     auto cend = [](const CChain&c){ return c.seeds.back().qbeg + c.seeds.back().len; };
     std::vector<int> keptlist;

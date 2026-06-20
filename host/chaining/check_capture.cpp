@@ -16,6 +16,7 @@
 #include <vector>
 #include "chain.h"
 
+long g_fb0=0;   // mem_chain duplicate-pos SW-fallback reads (excluded from comparison)
 template<class T> static bool rd(FILE*f, T&v){ return fread(&v,sizeof(T),1,f)==1; }
 
 static bool read_chain(FILE* f, CChain& c) {
@@ -70,9 +71,11 @@ int main(int argc, char** argv){
             for (int i=0;i<nch;++i){ CChain c; if(!read_chain(f,c)){ ok=false; break; } cap.push_back(c); }
             if(!ok){ fprintf(stderr,"trunc prechains\n"); break; }
             n0++;
-            std::vector<CChain> got = c_mem_chain(o, lpac, seqid, seeds, rid, alt);
-            if (!chains_eq(got, cap)){ f0++;
-                if (f0<=15) printf("[mem_chain MISMATCH] read_id=%lld seeds=%d got=%zu cap=%zu\n",
+            bool fb=false;
+            std::vector<CChain> got = c_mem_chain(o, lpac, seqid, seeds, rid, alt, &fb);
+            if (fb) { g_fb0++;            // duplicate-pos read: SW-fallback, not compared
+            } else if (!chains_eq(got, cap)){ f0++;
+                if (f0<=15) printf("[mem_chain NON-FALLBACK MISMATCH] read_id=%lld seeds=%d got=%zu cap=%zu\n",
                                    (long long)read_id, ns, got.size(), cap.size());
             }
         } else if (type==1){
@@ -91,11 +94,17 @@ int main(int argc, char** argv){
             if (!chains_eq(got, cap)){ f1++;
                 if (f1<=15) printf("[mem_chain_flt MISMATCH] flt_id=%lld in=%d got=%zu cap=%zu\n",
                                    (long long)flt_id, n_in, got.size(), cap.size());
+                if (getenv("DBG") && f1<=3){
+                    printf("   got w/pos:"); for(auto&c:got) printf(" %d@%lld",c.w,(long long)c.pos); printf("\n");
+                    printf("   cap w/pos:"); for(auto&c:cap) printf(" %d@%lld",c.w,(long long)c.pos); printf("\n");
+                    printf("   in  w/pos:"); for(auto&c:in){ CChain t=c; t.w=c_chain_weight(t); printf(" %d@%lld",t.w,(long long)t.pos);} printf("\n");
+                }
             }
         } else { fprintf(stderr,"bad type %d\n",type); break; }
     }
     fclose(f);
-    printf("mem_chain    : %ld checked, %ld failures\n", n0, f0);
+    printf("mem_chain    : %ld checked, %ld SW-fallback (dup-pos, excluded), %ld NON-FALLBACK failures\n",
+           n0, g_fb0, f0);
     printf("mem_chain_flt: %ld checked, %ld failures\n", n1, f1);
     bool pass = (f0==0 && f1==0 && (n0+n1)>0);
     printf("check_capture: %s\n", pass ? "ALL PASS" : "FAIL");
