@@ -9,7 +9,7 @@
 //   per case:
 //     n_in
 //     n_in * { rb re qb qe rid score cov }
-//     n_out
+//     n_out fb            (fb = dedup sort-key tie -> SW-fallback, mr_dedup's flag)
 //     n_out * { rb re qb qe rid score cov }
 #include <cstdio>
 #include <cstdint>
@@ -58,12 +58,13 @@ int main(int argc, char** argv) {
             a.push_back(m);
         }
         std::vector<MAln> in = a;
-        int m_out = mr_dedup(o, a);                // a now holds survivors [0..m_out)
+        bool fb = false;
+        int m_out = mr_dedup(o, a, &fb);           // a now holds survivors [0..m_out)
         if (m_out != (int)in.size()) touched++;
 
         char hdr[32]; snprintf(hdr, sizeof hdr, "%d\n", (int)in.size()); buf += hdr;
         for (auto& m : in) emit(buf, m);
-        snprintf(hdr, sizeof hdr, "%d\n", m_out); buf += hdr;
+        snprintf(hdr, sizeof hdr, "%d %d\n", m_out, fb?1:0); buf += hdr;
         for (int k = 0; k < m_out; ++k) emit(buf, a[k]);
     }
     FILE* out = fopen(argv[1], "w");

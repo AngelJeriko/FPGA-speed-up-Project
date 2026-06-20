@@ -39,6 +39,9 @@ module matesw_dedup #(parameter int MA_MAX = 64) (
     output logic               busy,
     output logic               done,
     output logic               overflow,
+    output logic               tie,        // dedup sort-key TIE (equal re, or equal score,rb,qb)
+                                           // -> introsort/stable diverge -> host SW fallback
+                                           // (mirrors orch.h::mr_dedup's fb flag)
     output logic [15:0]        n_out,
 
     // ---- result read port ----
@@ -122,12 +125,12 @@ module matesw_dedup #(parameter int MA_MAX = 64) (
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            state <= S_IDLE; done <= 1'b0; overflow <= 1'b0; n_out <= '0;
+            state <= S_IDLE; done <= 1'b0; overflow <= 1'b0; tie <= 1'b0; n_out <= '0;
         end else begin
             done <= 1'b0;
             case (state)
                 S_IDLE: if (start) begin
-                    n <= n_in; overflow <= (n_in > MA_MAX[15:0]);
+                    n <= n_in; overflow <= (n_in > MA_MAX[15:0]); tie <= 1'b0;
                     if (n_in <= 16'd1) begin n_out <= n_in; state <= S_DONE; end
                     else if (n_in > MA_MAX[15:0]) begin n_out <= n_in; state <= S_DONE; end
                     else begin i <= 1; state <= S_R_OUT; end
@@ -153,8 +156,11 @@ module matesw_dedup #(parameter int MA_MAX = 64) (
                 // ---- 2. integer redundancy de-overlap ----
                 S_RED_OUT: begin
                     if (i >= n) begin m <= 0; i <= 0; state <= S_C1; end
-                    else if (rid[i] != rid[i-1] || rb[i] >= re[i-1] + GAP) i <= i + 1;
-                    else begin j <= i - 1; state <= S_RED_IN; end
+                    else begin
+                        if (re[i] == re[i-1]) tie <= 1'b1;   // equal-re in the re-sorted array
+                        if (rid[i] != rid[i-1] || rb[i] >= re[i-1] + GAP) i <= i + 1;
+                        else begin j <= i - 1; state <= S_RED_IN; end
+                    end
                 end
                 S_RED_IN: begin
                     if (!in_window) begin i <= i + 1; state <= S_RED_OUT; end
@@ -201,7 +207,7 @@ module matesw_dedup #(parameter int MA_MAX = 64) (
                 S_ID: begin
                     if (i >= n) begin m <= 1; i <= 1; state <= S_C2; end
                     else begin
-                        if (sc[i]==sc[i-1] && rb[i]==rb[i-1] && qb[i]==qb[i-1]) qe[i] <= qb[i];
+                        if (sc[i]==sc[i-1] && rb[i]==rb[i-1] && qb[i]==qb[i-1]) begin qe[i] <= qb[i]; tie <= 1'b1; end
                         i <= i + 1;
                     end
                 end

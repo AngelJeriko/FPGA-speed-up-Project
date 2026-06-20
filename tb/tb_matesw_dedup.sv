@@ -9,16 +9,16 @@ module tb_matesw_dedup ();
     logic        ld_en; logic [15:0] ld_idx;
     logic signed [63:0] ld_rb, ld_re; logic signed [31:0] ld_qb, ld_qe, ld_rid, ld_score, ld_cov;
     logic        start; logic [15:0] n_in;
-    logic        busy, done, overflow; logic [15:0] n_out;
+    logic        busy, done, overflow, tie; logic [15:0] n_out;
     logic [15:0] rd_idx;
     logic signed [63:0] o_rb, o_re; logic signed [31:0] o_qb, o_qe, o_rid, o_score, o_cov;
 
     matesw_dedup #(.MA_MAX(64)) dut(.clk,.rst_n,.ld_en,.ld_idx,
         .ld_rb,.ld_re,.ld_qb,.ld_qe,.ld_rid,.ld_score,.ld_cov,
-        .start,.n_in,.busy,.done,.overflow,.n_out,
+        .start,.n_in,.busy,.done,.overflow,.tie,.n_out,
         .rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
-    integer fd,got,cnt,ci,k,fails,guard,en,eo;
+    integer fd,got,cnt,ci,k,fails,guard,en,eo,e_fb;
     integer i_rb[0:63],i_re[0:63],i_qb[0:63],i_qe[0:63],i_rid[0:63],i_sc[0:63],i_cov[0:63];
     integer e_rb[0:63],e_re[0:63],e_qb[0:63],e_qe[0:63],e_rid[0:63],e_sc[0:63],e_cov[0:63];
     string path;
@@ -42,7 +42,7 @@ module tb_matesw_dedup ();
             for (k=0;k<en;k=k+1)
                 got=$fscanf(fd,"%d %d %d %d %d %d %d",
                     i_rb[k],i_re[k],i_qb[k],i_qe[k],i_rid[k],i_sc[k],i_cov[k]);
-            got=$fscanf(fd,"%d",eo);
+            got=$fscanf(fd,"%d %d",eo,e_fb);
             for (k=0;k<eo;k=k+1)
                 got=$fscanf(fd,"%d %d %d %d %d %d %d",
                     e_rb[k],e_re[k],e_qb[k],e_qe[k],e_rid[k],e_sc[k],e_cov[k]);
@@ -52,6 +52,10 @@ module tb_matesw_dedup ();
             @(posedge clk); start<=1; @(posedge clk); start<=0;
             guard=0; while (!done && guard<2000000) begin @(posedge clk); guard=guard+1; end
 
+            if (tie !== e_fb[0]) begin
+                fails=fails+1;
+                if (fails<=12) $display("MISMATCH[%0d] tie %0b/%0b (n_in=%0d)", ci, tie, e_fb[0], en);
+            end
             if (n_out !== eo[15:0]) begin
                 fails=fails+1;
                 if (fails<=12) $display("MISMATCH[%0d] n_out %0d/%0d (n_in=%0d)", ci, n_out, eo, en);

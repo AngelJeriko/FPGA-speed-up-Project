@@ -285,8 +285,13 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
   kernel (its only SW is hw_align2). Remote reverted clean.
 - **hw.h direct kernel capture** — still un-run (transitively covered by orch.h above; the
   matesw_capture HOOK-A has a seqPairArray-indexing subtlety to resolve first). Lower priority.
-- **Propagate the dedup-tie fallback to the RTL** matesw_dedup (additive flag, like orch.h);
-  small follow-on, mirrors the chaining dup-pos fallback.
+- ~~**Propagate the dedup-tie fallback to the RTL matesw_dedup**~~ DONE 2026-06-19: added a
+  `tie` output to `matesw_dedup.sv` set on equal-`re` (S_RED_OUT) or equal-(score,rb,qb) (S_ID),
+  mirroring orch.h::mr_dedup's `fb`. gen_dedup_vectors emits the expected fb; `tb_matesw_dedup`
+  checks `tie==fb` → 6000/0 ALL PASS. The output is left unconnected upstream for now (legal).
+- **Thread the `tie` up the matesw stack** (matesw_orch_top -> matesw_pe_top -> accel_pe*),
+  each ORing the inner `tie` into a top-level fallback output (like `overflow`), so the host
+  acts on it. Mechanical follow-on (each level adds gen/tb fb columns, like the dedup level).
 - **hw.h / orch.h real-data validation** — the mate SW kernel + per-call orchestration captures
   (`matesw_/orch_capture.inc`) still un-run. orch.h transitively covers the kernel (its only SW
   is hw_align2). orch.h's hooks need care: bwamem_pair.cpp has near-duplicate mem_matesw /
