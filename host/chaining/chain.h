@@ -133,7 +133,11 @@ static inline void ks_combsort_memflt(size_t n, CChain a[]){
     } while (do_swap || gap > 2);
     if (gap != 1) ks_insertsort_memflt(a, a + n);
 }
-static inline void ks_introsort_memflt(size_t n, CChain a[]){
+// `comb` (optional, additive): set true if the depth limit is ever hit and combsort runs.
+// The RTL chain_introsort treats that as a SW-fallback condition (it can't reproduce the
+// float gap division bit-exact), so the generator emits this to flag expected-fallback cases.
+// Combsort only fires on median-of-3-adversarial input -> ~never for chain-count arrays.
+static inline void ks_introsort_memflt(size_t n, CChain a[], bool* comb=nullptr){
     int d; ks_isort_stack_t *top, *stack; CChain rp, swap_tmp; CChain *s, *t, *i, *j, *k;
     if (n < 1) return;
     else if (n == 2){ if (flt_lt(a[1], a[0])){ swap_tmp=a[0]; a[0]=a[1]; a[1]=swap_tmp; } return; }
@@ -142,7 +146,7 @@ static inline void ks_introsort_memflt(size_t n, CChain a[]){
     top = stack; s = a; t = a + (n-1); d <<= 1;
     while (1){
         if (s < t){
-            if (--d == 0){ ks_combsort_memflt(t - s + 1, s); t = s; continue; }
+            if (--d == 0){ if (comb) *comb = true; ks_combsort_memflt(t - s + 1, s); t = s; continue; }
             i = s; j = t; k = i + ((j-i)>>1) + 1;
             if (flt_lt(*k, *i)){ if (flt_lt(*k, *j)) k = j; }
             else k = flt_lt(*j, *i)? i : j;

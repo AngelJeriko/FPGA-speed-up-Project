@@ -97,6 +97,19 @@ elif [[ "$TB" == tb_chain_weight ]]; then
         ( cd "$CH" && g++ -O2 -std=c++17 -o gen_chain_weight_vectors gen_chain_weight_vectors.cpp \
           && ./gen_chain_weight_vectors vectors/chainweight_vectors.txt 4000 )
     fi
+elif [[ "$TB" == tb_chain_introsort ]]; then
+    RTL_FILES=(
+        "$RTL/chain_introsort.sv"
+    )
+    CH="$ROOT/host/chaining"
+    VEC_TXT="$CH/vectors/chainintro_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$CH/vectors"
+        ( cd "$CH" && g++ -O2 -std=c++17 -o gen_chain_introsort_vectors gen_chain_introsort_vectors.cpp \
+          && ./gen_chain_introsort_vectors vectors/chainintro_vectors.txt 4000 )
+    fi
 else
     RTL_FILES=(
         "$RTL/bsw_pkg.sv"

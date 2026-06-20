@@ -298,8 +298,26 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     w=min(passes) capped at (1<<30)-1. 1 seed/cycle/pass FSM (S_Q/S_R), 64-bit signed math.
     Verified vs chain.h::c_chain_weight: tb_chain_weight 4000/0 (incl. wide-coord cap-path cases).
     gen_chain_weight_vectors + run_sim branch. (gen needed `#include <string>`.)
-  - NEXT: chain_introsort (port ks_introsort(mem_flt) — STABLE merge-sorter can't be reused),
-    then chain_flt (weight+sort+overlap/shadow filter).
+  - **chain_introsort DONE 2026-06-20** (`rtl/chain_introsort.sv`): klib ks_introsort(mem_flt)
+    sorting (w,id) pairs by w DESC, mirroring chain.h::ks_introsort_memflt control flow EXACTLY
+    so the UNSTABLE equal-weight tie order is bit-exact (the merge-sorter is STABLE -> can't
+    reuse; this tie order was the original real-data chaining divergence). Median-of-3 quicksort
+    ({first,last,mid+1}) with an explicit segment stack down to >16 segments, then ONE whole-
+    array insertion sort. id = original index (payload tag the TB checks to pin tie order).
+    Verified vs chain.h: tb_chain_introsort 4000/0 incl. structured patterns (asc/desc/organ-
+    pipe/sawtooth/all-equal). gen_chain_introsort_vectors + run_sim branch. chain.h got an
+    additive `bool* comb` out-param (default null) so the generator can flag combsort cases —
+    sort logic UNCHANGED (still validated).
+    **COMBSORT = SW-FALLBACK:** the depth-limit path runs combsort, whose `gap/=1.2473..` is a
+    float divide we can't reproduce bit-exact -> on d==0 the RTL raises `fallback` (host SW redo),
+    same pattern as dup-pos/overflow. 335/4000 synthetic cases hit it (RTL raised fallback on all,
+    TB verified). **CAVEAT/FOLLOW-UP:** all-equal-weight arrays trip combsort once n>~2*ceil(log2
+    n) (degenerate partition), which is NOT purely adversarial — so the real-data combsort/
+    fallback RATE is unmeasured and could matter. Options if high: measure on real reads (like
+    dup-pos), or implement combsort with VERIFIED fixed-point gap (Rfix=round(2^B/S), prove
+    floor(gap*Rfix>>B)==(size_t)(gap/S) for all gap<=NMAX). Replacing the fallback branch with a
+    combsort FSM is purely additive — no rework. My synthetic 8.4% is inflated (1/7 cases all-equal).
+  - NEXT: chain_flt (weight+sort+overlap/shadow greedy filter) — the last chaining module.
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on

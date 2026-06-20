@@ -7,3 +7,5 @@ gen_chainstore_vectors
 vectors/chainstore_vectors.txt
 gen_chain_weight_vectors
 vectors/chainweight_vectors.txt
+gen_chain_introsort_vectors
+vectors/chainintro_vectors.txt
