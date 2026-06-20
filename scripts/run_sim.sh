@@ -71,6 +71,19 @@ elif [[ "$TB" == tb_matesw_dedup ]]; then
         ( cd "$MR" && g++ -O2 -std=c++17 -msse4.2 -DMR_DEDUP_INT -o gen_dedup_vectors gen_dedup_vectors.cpp ksw_ref.cpp \
           && ./gen_dedup_vectors vectors/dedup_vectors.txt 6000 )
     fi
+elif [[ "$TB" == tb_chain_store ]]; then
+    RTL_FILES=(
+        "$RTL/chain_store.sv"
+    )
+    CH="$ROOT/host/chaining"
+    VEC_TXT="$CH/vectors/chainstore_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$CH/vectors"
+        ( cd "$CH" && g++ -O2 -std=c++17 -o gen_chainstore_vectors gen_chainstore_vectors.cpp \
+          && ./gen_chainstore_vectors vectors/chainstore_vectors.txt 4000 )
+    fi
 else
     RTL_FILES=(
         "$RTL/bsw_pkg.sv"

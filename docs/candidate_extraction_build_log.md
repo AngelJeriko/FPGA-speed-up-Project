@@ -273,9 +273,26 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
 
 ## Remaining / deferred
 
-- **Chaining RTL** — now unblocked: sorted-array chain store + `c_test_and_merge` + dup-pos
-  fallback flag + weight/overlap filter (reuse the merge-sorter for the chain sort; the restart
-  SW core for `mem_flt_chained_seeds`). chain.h is bit-exact validated.
+- **Chaining RTL** — STARTED (chain.h bit-exact validated). Decomposition: (1) chain_store
+  (mem_chain), (2) chain_weight, (3) chain_introsort (ks_introsort(mem_flt) — can't reuse the
+  STABLE merge-sorter; need exact unstable tie order), (4) chain_flt (weight+sort+overlap filter).
+  - **chain_store DONE 2026-06-20** (`rtl/chain_store.sv`): sorted-array chain metadata + an
+    append-only seed POOL (linked list per chain via head/tail/next), so sorted insert shifts
+    only metadata and append is O(1). kb_intervalp predecessor + test_and_merge (contained/
+    colinear/strand) + dup-pos `fallback`. Verified vs chain.h::c_mem_chain: tb_chain_store
+    4000/0 (incl. fallback + full seed lists). gen_chainstore_vectors + run_sim branch.
+    GOTCHA fixed: a `[31:0]` part-select of a signed value is UNSIGNED in SV -> poisoned the
+    colinear diffs; use sign-extended 64-bit signed arithmetic throughout.
+  - **chain_store REVIEW 2026-06-20** (walkthrough + self-review before commit). Findings:
+    F1 (fixed) capacity-overflow was unguarded — `nch>=NCHAIN || pool_n>=NSEED` now raises
+    `fallback` (host SW redo) and skips the write, same pattern as accel n>1024 / mate max_entry.
+    Directed test added (2nd DUT, NCHAIN=8, 16 non-merging seeds): OVF-TEST PASS, guard fires at
+    cap. F2 (fixed) hardened `contained`'s mid comparisons with `$signed(...)` (were unsigned via
+    concat — only worked because coords are non-negative). F3 (logged gap) the predecessor is an
+    O(NCHAIN) combinational chain — fine at TB's 64, but tanks Fmax at NCHAIN=512; future fix =
+    pipelined/binary-search predecessor. F4 done (overflow vector). F5 done (header contract note).
+    Re-ran: tb_chain_store 4000/0 + OVF-TEST PASS.
+  - NEXT: chain_weight, then chain_introsort + chain_flt.
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on

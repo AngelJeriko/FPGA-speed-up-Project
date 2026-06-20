@@ -3,3 +3,5 @@ check_capture
 *.o
 vectors/*.bin
 vectors/*.txt
+gen_chainstore_vectors
+vectors/chainstore_vectors.txt
