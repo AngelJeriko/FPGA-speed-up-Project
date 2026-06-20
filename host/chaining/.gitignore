@@ -5,3 +5,5 @@ vectors/*.bin
 vectors/*.txt
 gen_chainstore_vectors
 vectors/chainstore_vectors.txt
+gen_chain_weight_vectors
+vectors/chainweight_vectors.txt

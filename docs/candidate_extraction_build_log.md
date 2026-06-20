@@ -292,7 +292,14 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     O(NCHAIN) combinational chain — fine at TB's 64, but tanks Fmax at NCHAIN=512; future fix =
     pipelined/binary-search predecessor. F4 done (overflow vector). F5 done (header contract note).
     Re-ran: tb_chain_store 4000/0 + OVF-TEST PASS.
-  - NEXT: chain_weight, then chain_introsort + chain_flt.
+  - **chain_weight DONE 2026-06-20** (`rtl/chain_weight.sv`): mem_chain_weight = two sequential
+    coverage passes (query then ref) over a chain's seeds in stream order, each accumulating a
+    running `end` max (disjoint -> +len, partial -> +overhang, contained -> +0), then
+    w=min(passes) capped at (1<<30)-1. 1 seed/cycle/pass FSM (S_Q/S_R), 64-bit signed math.
+    Verified vs chain.h::c_chain_weight: tb_chain_weight 4000/0 (incl. wide-coord cap-path cases).
+    gen_chain_weight_vectors + run_sim branch. (gen needed `#include <string>`.)
+  - NEXT: chain_introsort (port ks_introsort(mem_flt) — STABLE merge-sorter can't be reused),
+    then chain_flt (weight+sort+overlap/shadow filter).
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on
