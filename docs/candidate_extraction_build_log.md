@@ -206,11 +206,36 @@ edits to `host/mate_rescue/Makefile`, `host/mate_rescue/.gitignore`, `scripts/ru
 > later audit as the sorter oversize gap, logged in `merge_sorter_v2_design.md`): thread
 > `ot_ovf` up through the matesw stack to a `fallback` output; the host redoes that pair in SW.
 
+## Step 6 — selection-predicate validation on REAL data  ✅ 100000/100000 ends, ALL PASS
+
+**What.** Validated `pe.h`'s candidate selection against real bwa-mem2 on the remote
+(ccloud@216.227.218.169, hg38 chr1-5, HG00733 50k read pairs).
+
+**First confirmed by source reading** (`bwamem_pair.cpp`, MATE_SORT=0 build): the selection is
+verbatim `pe.h` — `b[i]` = all `a[i].a[j]` with `score >= a[i].a[0].score - opt->pen_unpaired`
+(line 749), then rescue `min(b[i].n, opt->max_matesw)` (line 781 loop). Since `a[i]` is
+score-sorted desc, that passing set is a contiguous prefix == `pe.h`'s prefix-break + cap.
+
+**Then validated on data.** New minimal capture `host/mate_rescue/capture/sel_capture.inc`
+(one hook after the `b[i]` build, env `ALNREG_SEL_OUT`) records, per read pair, the `a[i]`
+scores + `pen_unpaired`/`max_matesw` + real `b[i].n`. Validator `host/mate_rescue/check_sel.cpp`
+(`make checksel`, self-contained) recomputes `pe.h`'s selection and checks: (1) `b[i].n` ==
+count of `score >= top - pen`; (2) that count is a contiguous prefix (i.e. `a[i]` IS
+score-sorted desc — the one assumption not provable by source reading); (3) `min(b[i].n,
+max_matesw)` matches. Round-trip self-tested first (deliberate unsorted end trips the prefix
+check). Remote run: `check_sel: 50000 pairs, 100000 ends (14 empty) | predicate_fail=0
+prefix_fail=0 cap_fail=0 | b_total=848568 pe_selected=594747 -> ALL PASS`. The cap fires
+meaningfully (848568 gated, 594747 rescued). Remote source reverted to clean `.orig` + rebuilt.
+
+**pe.h selection is now real-data validated** (it had none before — this session's transcription).
+`scripts/remote_batched_capture.sh` updated to arm `ALNREG_SEL_OUT` as a 4th capture.
+
 ## Remaining / deferred
 
-- **Selection-predicate validation on real data** — confirm `score >= top - pen_unpaired`
-  + `max_matesw` cap (and the defaults) against the BATCHED `mem_sam_pe_batch` source at the
-  next remote capture (extend the prepped capture set).
+- **hw.h / orch.h / chain.h real-data validation** — the OTHER three prepped captures (mate SW
+  kernel, per-call orchestration, chaining) still un-run; a follow-on remote session pastes
+  `matesw_/orch_/chain_capture.inc` + runs `remote_batched_capture.sh` + `checkcap`/`checkorch`/
+  `checkcap`. (This session did only the new selection capture.)
 - ~~**Both directions**~~ — DONE (Step 5, `accel_pe_pair_top`, 91/91).
 - **matesw ma-overflow → fallback** — thread `ot_ovf` up to a `fallback` output (KNOWN GAP
   above); deferred to the same later audit as the sorter oversize gap.

@@ -27,3 +27,4 @@ qdb/
 .DS_Store
 Thumbs.db
 host/loopback_test
+_remote_src/

@@ -47,19 +47,21 @@ BIN="$REPO/bwa-mem2"
 # --- single paired-end run with BOTH captures armed ---
 #   chaining capture fires in mem_chain / mem_chain_flt (always reached);
 #   mate-rescue capture fires in mem_sam_pe_batch (PE rescue path) — needs -p/PE.
-echo "=== running batched capture (mate-rescue kernel + orchestration + chaining) ==="
+echo "=== running batched capture (mate-rescue kernel + orchestration + selection + chaining) ==="
 ALNREG_MATE_OUT="$OUT/mate_vec.bin"   ALNREG_MATE_MAX=200000 \
 ALNREG_ORCH_OUT="$OUT/orch_vec.bin"   ALNREG_ORCH_MAX=100000 \
+ALNREG_SEL_OUT="$OUT/sel_vec.bin"     ALNREG_SEL_MAX=200000 \
 ALNREG_CHAIN_OUT="$OUT/chain_vec.bin" ALNREG_CHAIN_MAX=30000 \
   "$BIN" mem -t 16 "$REF" "$C1" "$C2" > /dev/null 2> "$OUT/cap.log"
 
 echo "=== capture done ==="
-ls -l "$OUT/mate_vec.bin" "$OUT/orch_vec.bin" "$OUT/chain_vec.bin"
+ls -l "$OUT/mate_vec.bin" "$OUT/orch_vec.bin" "$OUT/sel_vec.bin" "$OUT/chain_vec.bin"
 echo "--- last 3 log lines ---"; tail -3 "$OUT/cap.log"
 echo
-echo "NEXT (local): scp all three .bin back, then:"
+echo "NEXT (local): scp all four .bin back, then:"
 echo "  host/mate_rescue:  make checkcap  && ./check_capture <mate_vec.bin>   # kswv == hw.h"
 echo "  host/mate_rescue:  make checkorch && ./check_orch    <orch_vec.bin>   # orch.h bit-exact"
+echo "  host/mate_rescue:  make checksel  && ./check_sel     <sel_vec.bin>    # pe.h selection"
 echo "  host/chaining:     make checkcap  && ./check_capture <chain_vec.bin>  # chain.h bit-exact"
 echo "THEN revert: cp src/bwamem.cpp.orig src/bwamem.cpp;"
 echo "             cp src/bwamem_pair.cpp.orig src/bwamem_pair.cpp; make ... all"

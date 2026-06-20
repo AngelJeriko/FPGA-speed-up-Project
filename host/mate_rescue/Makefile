@@ -85,6 +85,12 @@ check_orch: check_orch.cpp orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
 	$(CXX) $(CXXFLAGS) -o $@ check_orch.cpp ksw_ref.cpp
 checkorch: check_orch
 
+# Validate the pe.h SELECTION model vs REAL captured b[i] (capture/sel_capture.inc).
+# Usage: make checksel && ./check_sel vectors/sel_vec.bin   (self-contained, no deps)
+check_sel: check_sel.cpp
+	$(CXX) $(CXXFLAGS) -o $@ check_sel.cpp
+checksel: check_sel
+
 clean:
 	rm -f ref_test cross_check gen_matesw_vectors check_capture matesw_orch_test check_orch
 
