@@ -344,10 +344,22 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     `bool* comb` out-param. FINDING: combsort needs descending-weight input n>=30 (NOT all-equal —
     those partition balanced); realistic varied-weight reads produced 0 combsort over 3499 cases,
     so the real combsort/fallback rate looks LOW (still warrants a real-data measurement).
-  - **CHAINING RTL COMPLETE end-to-end** (mem_chain via chain_store + mem_chain_flt via
-    chain_flt_top). NEXT options: (a) real-data validation of the chaining pipeline (measure true
-    fallback rate, like dup-pos); (b) wire chain_store -> chain_flt_top into one chaining top;
-    (c) fixed-point combsort only if real rate proves high (additive).
+  - **chaining_top DONE 2026-06-20** (`rtl/chaining_top.sv`): the COMPLETE chaining stage on chip
+    = chain_store (mem_chain) -> chain_flt_top (mem_chain_flt). ADAPTER phase bridges the two: it
+    walks chain_store's linked-list seed POOL (per-chain head->next) into chain_flt_top's FLAT
+    (offset,count) seed buffer, latching (n_seeds,is_alt,head) per chain. Both sub-blocks reused
+    UNMODIFIED. FSM: G_CS_RUN/WAIT -> G_AD_CMETA/G_AD_SEED (adapter walk) -> G_FLT_RUN/WAIT.
+    chain_store readback is muxed (adapter during the walk, host otherwise) + passed through so
+    the host can fetch surviving chains' data. fallback = chain_store dup-pos OR introsort
+    combsort -> whole-read SW redo. Output = surviving chains' chain_store indices (pos-sorted),
+    in weight-sorted order. Verified vs chain.h::c_mem_chain_flt(c_mem_chain(...)): tb_chaining_top
+    4000/0 (surviving index sequence bit-exact), incl. 1071 combined-fallback cases (dup-pos +
+    combsort). gen_chaining_top_vectors (clustered seeds -> dup-pos) + run_sim branch.
+  - **CHAINING RTL FULLY COMPLETE end-to-end** (raw seeds -> filtered chains, one block, bit-exact
+    vs chain.h). NEXT: (a) REAL-DATA validation of chaining_top on the ccloud server (measure the
+    TRUE combined fallback rate dup-pos+combsort on real reads; synthetic 27% is inflated by
+    forced dup-pos clustering, real dup-pos was ~2.79%). (b) fixed-point combsort only if the real
+    combsort component proves non-trivial (additive, no rework).
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on

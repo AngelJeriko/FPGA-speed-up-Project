@@ -13,3 +13,5 @@ gen_chain_flt_vectors
 vectors/chainflt_vectors.txt
 gen_chain_flt_top_vectors
 vectors/chainflttop_vectors.txt
+gen_chaining_top_vectors
+vectors/chainingtop_vectors.txt
