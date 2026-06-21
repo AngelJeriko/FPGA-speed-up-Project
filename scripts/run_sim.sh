@@ -139,6 +139,19 @@ elif [[ "$TB" == tb_chain_flt_top ]]; then
         ( cd "$CH" && g++ -O2 -std=c++17 -o gen_chain_flt_top_vectors gen_chain_flt_top_vectors.cpp \
           && ./gen_chain_flt_top_vectors vectors/chainflttop_vectors.txt 4000 )
     fi
+elif [[ "$TB" == tb_chain2aln_setup ]]; then
+    RTL_FILES=(
+        "$RTL/chain2aln_setup.sv"
+    )
+    EO="$ROOT/host/extend_orchestrator"
+    VEC_TXT="$EO/vectors/chain2aln_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$EO/vectors"
+        ( cd "$EO" && g++ -O2 -std=c++17 -o gen_chain2aln_vectors gen_chain2aln_vectors.cpp \
+          && ./gen_chain2aln_vectors vectors/chain2aln_vectors.txt 4000 )
+    fi
 elif [[ "$TB" == tb_chaining_top ]]; then
     RTL_FILES=(
         "$RTL/chain_store.sv"

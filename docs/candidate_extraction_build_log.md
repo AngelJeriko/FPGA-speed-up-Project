@@ -367,6 +367,20 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     descending-weight n>=30, which doesn't occur) -> the fixed-point-combsort option is NOT needed;
     the combsort fallback path costs ~nothing. Only real chaining fallback is dup-pos (~3.9%).
     **CHAINING STAGE FULLY DONE + REAL-DATA-VALIDATED.**
+- **CHAINING -> EXTENSION wiring** (STARTED 2026-06-20). The two stages don't connect directly:
+  the extension (orch_read_top) needs per chain {seeds, rid} (from chaining) PLUS rmax0/rmax1 (ref-
+  window bounds) + the ref bytes + query. The ref-byte FETCH (bns_fetch_seq over the packed genome)
+  is a separate memory subsystem — DEFERRED (user choice); orch_read_top already takes ref bytes as
+  an input. The buildable glue is the rmax computation (mem_chain2aln setup).
+  - **chain2aln_setup DONE 2026-06-20** (`rtl/chain2aln_setup.sv`, model `host/extend_orchestrator/
+    chain2aln.h::c_compute_rmax`): per chain, rmax0=min over seeds of rbeg-(qbeg+cal_max_gap(qbeg)),
+    rmax1=max of rbeg+len+(tail+cal_max_gap(tail)), then clamp [0, l_pac<<1] + fwd/rev boundary fix.
+    cal_max_gap = integer-exact (ksw.h cal_max_gap_int; 2 signed divisions — needs a divider in a
+    real build, fine for sim). MODEL REAL-DATA VALIDATED: check_rmax vs captured rmax in
+    ext_vec.bin = **241018 chains / 0 mismatch** (l_pac edge clamps never fired — interior reads).
+    RTL vs model: tb_chain2aln_setup 4000/0 incl. small-l_pac clamp+boundary coverage.
+  - NEXT: chaining_extend_top wiring chaining_top -> chain2aln_setup -> orch_read_top (ref bytes +
+    query supplied externally), end-to-end vs orchestrate(c_mem_chain_flt(c_mem_chain(...))).
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on
