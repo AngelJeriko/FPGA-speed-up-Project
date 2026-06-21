@@ -14,6 +14,7 @@ gen_purge_vectors
 gen_read_vectors
 gen_accel_vectors
 gen_chain2aln_vectors
+gen_chaining_extend_vectors
 check_rmax
 measure_dims
 check_band

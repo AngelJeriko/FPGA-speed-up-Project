@@ -379,8 +379,25 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     real build, fine for sim). MODEL REAL-DATA VALIDATED: check_rmax vs captured rmax in
     ext_vec.bin = **241018 chains / 0 mismatch** (l_pac edge clamps never fired — interior reads).
     RTL vs model: tb_chain2aln_setup 4000/0 incl. small-l_pac clamp+boundary coverage.
-  - NEXT: chaining_extend_top wiring chaining_top -> chain2aln_setup -> orch_read_top (ref bytes +
-    query supplied externally), end-to-end vs orchestrate(c_mem_chain_flt(c_mem_chain(...))).
+  - **chaining_extend_top DONE 2026-06-20** (`rtl/chaining_extend_top.sv`): wires the COMPLETE
+    chaining stage into the FULL extend pipeline = chaining_top -> chain2aln_setup -> accel_top
+    (extension + compaction + merge-sort). Per surviving chain (weight-sorted): read its
+    chain_store index, walk its seed pool (head->next) into a buffer, compute rmax, fetch the ref
+    window (DEFERRED genome fetch: top raises ref_req{rbeg,len}, host streams bytes -> forwarded to
+    accel r_ld), then drive accel_top (r_ld ref, s_ld seeds, ch_go{n,rid,rmax0,rmax1}). Query
+    buffered + replayed. fallback = chaining dup-pos/combsort OR accel equal-re tie/n>1024. Output =
+    sorted alnregs via AXI-Stream. All 3 sub-blocks reused UNMODIFIED. Decision record +
+    speed/accuracy options for external review: docs/chaining_extension_wiring_options.md.
+    END-TO-END verified vs the full software pipeline orchestrate(c_mem_chain_flt(c_mem_chain(seeds)))
+    with synthetic genome g(pos)=pos&3 (TB serves the same g on demand from the RTL-provided rmax;
+    query built on the primary chain's diagonal so seeds really match -> non-trivial extensions):
+    **tb_chaining_extend_top 2000/0 ALL PASS** (incl. 537 fallback + ~1463 non-fallback reads with
+    full alnreg records checked). gen_chaining_extend_vectors (chain.h + chain2aln.h + orch.h
+    HWMODEL + v2_dedup) + run_sim branch (28 modules). Built on branch accel-wiring (safe revert
+    tag pre-accel-wiring-safe); merged to main on success. **CHAINING NOW WIRED INTO THE ACCEL
+    EXTEND PIPELINE — raw seeds -> sorted alignment regions, one on-chip block, bit-exact.**
+    Remaining for a self-contained pipeline: the on-chip genome-memory subsystem (bns_fetch_seq)
+    to replace the deferred ref fetch (see the options doc, Decision B2).
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on
