@@ -17,6 +17,7 @@
 #include "chain.h"
 
 long g_fb0=0;   // mem_chain duplicate-pos SW-fallback reads (excluded from comparison)
+long g_comb=0;  // mem_chain_flt combsort SW-fallback (introsort depth-limit -> RTL host redo)
 template<class T> static bool rd(FILE*f, T&v){ return fread(&v,sizeof(T),1,f)==1; }
 
 static bool read_chain(FILE* f, CChain& c) {
@@ -90,7 +91,9 @@ int main(int argc, char** argv){
             for (int i=0;i<n_out;++i){ CChain c; if(!read_chain(f,c)){ ok=false; break; } cap.push_back(c); }
             if(!ok){ fprintf(stderr,"trunc flt out\n"); break; }
             n1++;
-            std::vector<CChain> got = c_mem_chain_flt(o, in);
+            bool comb=false;
+            std::vector<CChain> got = c_mem_chain_flt(o, in, &comb);
+            if (comb) g_comb++;   // combsort fired -> RTL chain_introsort would SW-fallback
             if (!chains_eq(got, cap)){ f1++;
                 if (f1<=15) printf("[mem_chain_flt MISMATCH] flt_id=%lld in=%d got=%zu cap=%zu\n",
                                    (long long)flt_id, n_in, got.size(), cap.size());
@@ -105,7 +108,11 @@ int main(int argc, char** argv){
     fclose(f);
     printf("mem_chain    : %ld checked, %ld SW-fallback (dup-pos, excluded), %ld NON-FALLBACK failures\n",
            n0, g_fb0, f0);
-    printf("mem_chain_flt: %ld checked, %ld failures\n", n1, f1);
+    printf("mem_chain_flt: %ld checked, %ld failures, %ld combsort SW-fallback\n", n1, f1, g_comb);
+    // RTL chaining_top whole-read fallback = mem_chain dup-pos OR mem_chain_flt combsort.
+    if (n0>0 && n1>0)
+        printf("RTL fallback : dup-pos %.3f%% (%ld/%ld) + combsort %.3f%% (%ld/%ld) of reads\n",
+               100.0*g_fb0/n0, g_fb0, n0, 100.0*g_comb/n1, g_comb, n1);
     bool pass = (f0==0 && f1==0 && (n0+n1)>0);
     printf("check_capture: %s\n", pass ? "ALL PASS" : "FAIL");
     return pass ? 0 : 1;

@@ -356,10 +356,17 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     4000/0 (surviving index sequence bit-exact), incl. 1071 combined-fallback cases (dup-pos +
     combsort). gen_chaining_top_vectors (clustered seeds -> dup-pos) + run_sim branch.
   - **CHAINING RTL FULLY COMPLETE end-to-end** (raw seeds -> filtered chains, one block, bit-exact
-    vs chain.h). NEXT: (a) REAL-DATA validation of chaining_top on the ccloud server (measure the
-    TRUE combined fallback rate dup-pos+combsort on real reads; synthetic 27% is inflated by
-    forced dup-pos clustering, real dup-pos was ~2.79%). (b) fixed-point combsort only if the real
-    combsort component proves non-trivial (additive, no rework).
+    vs chain.h).
+  - **REAL-DATA VALIDATION DONE 2026-06-20** (on the EXISTING capture vectors/chain_vec.bin = 30000
+    real reads, HG00733; no new remote capture needed). check_capture rebuilt against the refactored
+    chain.h: **mem_chain 30000 / 0 non-fallback failures, mem_chain_flt 30000 / 0 failures -> ALL
+    PASS** — confirms this session's chain.h refactor (c_chain_flt_post extraction + comb params) is
+    behaviour-preserving on real data. Added a combsort counter (pass &comb to c_mem_chain_flt).
+    **TRUE RTL chaining fallback rate: dup-pos 3.943% (1183/30000) + combsort 0.000% (0/30000).**
+    => COMBSORT NEVER FIRES ON REAL DATA (real chain weights are spread; the depth limit needs
+    descending-weight n>=30, which doesn't occur) -> the fixed-point-combsort option is NOT needed;
+    the combsort fallback path costs ~nothing. Only real chaining fallback is dup-pos (~3.9%).
+    **CHAINING STAGE FULLY DONE + REAL-DATA-VALIDATED.**
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on
