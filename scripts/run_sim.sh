@@ -123,6 +123,22 @@ elif [[ "$TB" == tb_chain_flt ]]; then
         ( cd "$CH" && g++ -O2 -std=c++17 -o gen_chain_flt_vectors gen_chain_flt_vectors.cpp \
           && ./gen_chain_flt_vectors vectors/chainflt_vectors.txt 4000 )
     fi
+elif [[ "$TB" == tb_chain_flt_top ]]; then
+    RTL_FILES=(
+        "$RTL/chain_weight.sv"
+        "$RTL/chain_introsort.sv"
+        "$RTL/chain_flt.sv"
+        "$RTL/chain_flt_top.sv"
+    )
+    CH="$ROOT/host/chaining"
+    VEC_TXT="$CH/vectors/chainflttop_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$CH/vectors"
+        ( cd "$CH" && g++ -O2 -std=c++17 -o gen_chain_flt_top_vectors gen_chain_flt_top_vectors.cpp \
+          && ./gen_chain_flt_top_vectors vectors/chainflttop_vectors.txt 4000 )
+    fi
 else
     RTL_FILES=(
         "$RTL/bsw_pkg.sv"

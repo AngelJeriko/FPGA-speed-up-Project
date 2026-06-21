@@ -218,7 +218,9 @@ static inline std::vector<CChain> c_chain_flt_post(const COpt& o, std::vector<CC
 }
 
 // bwamem.cpp:mem_chain_flt (per read = one seqid group) = weight + drop + sort + post-filter.
-static inline std::vector<CChain> c_mem_chain_flt(const COpt& o, std::vector<CChain> a) {
+// `comb` (optional, additive) forwards the sort's combsort flag so the end-to-end RTL top can
+// flag expected-fallback reads (the only fallback source in the weight+sort+filter pipeline).
+static inline std::vector<CChain> c_mem_chain_flt(const COpt& o, std::vector<CChain> a, bool* comb=nullptr) {
     if (a.empty()) return a;
     // weight + drop (min_chain_weight default 0 -> nothing dropped)
     std::vector<CChain> b;
@@ -227,6 +229,6 @@ static inline std::vector<CChain> c_mem_chain_flt(const COpt& o, std::vector<CCh
     int n = (int)b.size(); if (n == 0) return b;
     // sort by weight desc using the EXACT ks_introsort(mem_flt) port (flt_lt: a.w>b.w),
     // so equal-weight tie order matches bwa bit-exact (real-data validated 2026-06-19).
-    ks_introsort_memflt((size_t)n, b.data());
+    ks_introsort_memflt((size_t)n, b.data(), comb);
     return c_chain_flt_post(o, b);
 }

@@ -330,9 +330,24 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
     seed carries span). chain.h refactor: extracted c_chain_flt_post (behaviour-identical) so RTL
     + generator share one reference; c_mem_chain_flt now = weight+drop+sort+c_chain_flt_post.
   - **CHAINING RTL UNITS COMPLETE** (4/4): chain_store, chain_weight, chain_introsort, chain_flt
-    all bit-exact. NEXT: a thin chaining top wiring chain_weight (xN) + chain_introsort + chain_flt
-    for an END-TO-END check vs c_mem_chain_flt on real reads (also measures the true combined
-    fallback rate: dup-pos + combsort). Optional: fixed-point combsort if that rate is high.
+    all bit-exact.
+  - **chain_flt_top DONE 2026-06-20** (`rtl/chain_flt_top.sv`): the FULL mem_chain_flt pipeline,
+    wiring chain_weight(xN) + chain_introsort + chain_flt into one engine. FSM: WEIGH (stream each
+    chain's seeds through chain_weight -> w[ci]; grab cbeg/cend) -> SORT (introsort (w,id) pairs;
+    perm[p]=sorted original index) -> GATHER (load sorted metadata into chain_flt) -> FILTER ->
+    COMPACT (emit perm[p] for kept[p]!=0). combsort fallback from introsort propagates to the top.
+    Sub-units driven combinationally (same-cycle load, no pipeline hazard). Assumes
+    min_chain_weight==0 (only value bwa uses) so no pre-sort drop. Verified vs chain.h::
+    c_mem_chain_flt: tb_chain_flt_top 4000/0 (surviving chain-id sequence bit-exact), incl. 501
+    degenerate combsort cases (descending-weight input, n>=30) where the top correctly raised
+    fallback. gen_chain_flt_top_vectors + run_sim branch; chain.h c_mem_chain_flt got an additive
+    `bool* comb` out-param. FINDING: combsort needs descending-weight input n>=30 (NOT all-equal —
+    those partition balanced); realistic varied-weight reads produced 0 combsort over 3499 cases,
+    so the real combsort/fallback rate looks LOW (still warrants a real-data measurement).
+  - **CHAINING RTL COMPLETE end-to-end** (mem_chain via chain_store + mem_chain_flt via
+    chain_flt_top). NEXT options: (a) real-data validation of the chaining pipeline (measure true
+    fallback rate, like dup-pos); (b) wire chain_store -> chain_flt_top into one chaining top;
+    (c) fixed-point combsort only if real rate proves high (additive).
 - ~~**orch.h real-data validation**~~ DONE 2026-06-19: orch_capture.inc, 100000 mem_matesw
   calls, `check_orch` ALL PASS (0 non-fallback failures). Found the SAME ks_introsort tie-order
   issue as chaining: `mr_dedup` uses std::stable_sort, real uses unstable ks_introsort → on
