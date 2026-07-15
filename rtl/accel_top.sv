@@ -45,13 +45,14 @@ module accel_top
     input  logic               m_axis_tready,
 
     // ---- status ----
-    output logic               fallback,    // read needs SW redo (sorter tie / n>1024)
+    output logic               fallback,    // read needs SW redo (sorter tie / oversize)
     output logic               busy,
     output logic               done         // pulse: this read fully processed
 );
     // ---- orch_read_top ----
     logic        rt_read_done, rt_busy;
     logic [15:0] rt_nav, rt_rd_idx;
+    logic        rt_ovf;                 // orchestrator buffers overflowed (earliest point)
     logic signed [63:0] rt_rb, rt_re; logic signed [31:0] rt_qb,rt_qe,rt_score,rt_truesc,rt_w,rt_scov,rt_sl0,rt_rid;
 
     orch_read_top u_rt (
@@ -65,7 +66,7 @@ module accel_top
         .s_ld_qbeg(s_ld_qbeg), .s_ld_len(s_ld_len), .s_ld_score(s_ld_score),
         .ch_go(ch_go), .ch_n(ch_n), .ch_rid(ch_rid), .ch_rmax0(ch_rmax0), .ch_rmax1(ch_rmax1),
         .ch_ready(ch_ready), .read_finish(read_finish),
-        .read_done(rt_read_done), .busy(rt_busy), .o_nav(rt_nav),
+        .read_done(rt_read_done), .busy(rt_busy), .o_nav(rt_nav), .overflow(rt_ovf),
         .rd_idx(rt_rd_idx),
         .o_rb(rt_rb), .o_re(rt_re), .o_qb(rt_qb), .o_qe(rt_qe), .o_score(rt_score),
         .o_truesc(rt_truesc), .o_w(rt_w), .o_seedcov(rt_scov), .o_seedlen0(rt_sl0), .o_rid(rt_rid)
@@ -140,7 +141,14 @@ module accel_top
                 end
                 // ---- decide path by survivor count (surv_cnt now final) ----
                 C_DECIDE: begin
-                    if      (surv_cnt == 16'd0) cstate <= C_DONE;            // nothing
+                    // surv_cnt is already computed by pass A, so bounding it against the
+                    // sorter's capacity is free. Combined with rt_ovf (the orchestrator's
+                    // own buffers), an oversize read now ends cleanly in fallback and never
+                    // streams -- instead of silently aliasing. See merge_sorter_v2_design.md.
+                    if (rt_ovf || surv_cnt > 16'(N_MAX)) begin
+                        fb_latch <= 1'b1; cstate <= C_DONE;
+                    end
+                    else if (surv_cnt == 16'd0) cstate <= C_DONE;            // nothing
                     else if (surv_cnt == 16'd1) begin scan_idx <= last_surv; cstate <= C_EMIT1; end
                     else    begin scan_idx <= 16'd0; cstate <= C_STREAM_SET; end
                 end

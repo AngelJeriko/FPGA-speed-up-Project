@@ -31,7 +31,7 @@ module msort_v2_top
     output logic out_last,
     input  logic out_ready,
 
-    output logic fallback,    // array had an equal-re tie (or n>N_MAX) -> redo in SW
+    output logic fallback,    // equal-re tie, or n>N_MAX (load overflow) -> redo in SW
     output logic busy,
     output logic done
 );
@@ -75,6 +75,7 @@ module msort_v2_top
     st_t state;
 
     cnt_t n, wptr;
+    logic ovf;                 // load exceeded N_MAX -> array not representable, SW redo
     logic data_in_b, cur_b, second_sort;
     // merge-sort regs
     logic [CNT_W:0] width;
@@ -152,7 +153,7 @@ module msort_v2_top
     // ---- combinational write port ----
     always_comb begin
         wr_en = 1'b0; wr_addr = '0; wr_bank = 1'b0; wr_data = in_rec;
-        if ((state == T_IDLE || state == T_LOAD) && in_valid) begin
+        if ((state == T_IDLE || state == T_LOAD) && in_valid && (wptr < cnt_t'(N_MAX))) begin
             wr_en = 1'b1; wr_addr = wptr[IDX_W-1:0]; wr_bank = 1'b0; wr_data = in_rec;   // load->A
         end else if (state == T_MERGE_STEP) begin
             wr_en = 1'b1; wr_addr = k[IDX_W-1:0]; wr_bank = ~data_in_b; wr_data = emit;  // sort dst
@@ -175,23 +176,34 @@ module msort_v2_top
         if (!rst_n) begin
             state <= T_IDLE; wptr <= '0; n <= '0; data_in_b <= 1'b0; cur_b <= 1'b0;
             second_sort <= 1'b0; fallback <= 1'b0; done <= 1'b0; prev_valid <= 1'b0;
+            ovf <= 1'b0;
         end else begin
             done <= 1'b0;
             case (state)
                 // ===== load (into bank A) =====
                 T_IDLE: begin
                     fallback <= 1'b0; wptr <= '0; data_in_b <= 1'b0; cur_b <= 1'b0;
-                    second_sort <= 1'b0; prev_valid <= 1'b0;
+                    second_sort <= 1'b0; prev_valid <= 1'b0; ovf <= 1'b0;
                     if (in_valid) begin
                         wptr <= 'd1;
                         if (in_last) begin n <= 'd1; width <= 'd1; state <= T_PASS_CHECK; end
                         else state <= T_LOAD;
                     end
                 end
+                // Beats past N_MAX are dropped (the write port is gated on wptr<N_MAX) and
+                // wptr saturates so it cannot wrap; the array is then unrepresentable, so the
+                // run ends in `fallback` with no output beats and the host redoes it in SW.
                 T_LOAD: begin
                     if (in_valid) begin
-                        wptr <= wptr + 1'b1;
-                        if (in_last) begin n <= wptr + 1'b1; width <= 'd1; state <= T_PASS_CHECK; end
+                        if (wptr >= cnt_t'(N_MAX)) ovf <= 1'b1;
+                        else                       wptr <= wptr + 1'b1;
+                        if (in_last) begin
+                            if (ovf || wptr >= cnt_t'(N_MAX)) begin
+                                fallback <= 1'b1; n <= '0; state <= T_DONE;
+                            end else begin
+                                n <= wptr + 1'b1; width <= 'd1; state <= T_PASS_CHECK;
+                            end
+                        end
                     end
                 end
 

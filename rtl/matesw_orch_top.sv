@@ -26,7 +26,7 @@
 module matesw_orch_top
     import bsw_pkg::*;
 #(
-    parameter int MA_MAX = 64
+    parameter int MA_MAX = 256
 )(
     input  logic               clk,
     input  logic               rst_n,

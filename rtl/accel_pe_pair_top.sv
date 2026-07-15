@@ -21,7 +21,7 @@ module accel_pe_pair_top
     import bsw_pkg::*;
     import msort_v2_pkg::*;
 #(
-    parameter int MA_MAX = 64,
+    parameter int MA_MAX = 256,
     parameter int NSRC   = 64
 )(
     input  logic               clk,
@@ -65,6 +65,7 @@ module accel_pe_pair_top
     output logic               rescue_busy,
     output logic               sel_done,
     output logic               tie,        // current direction's rescue dedup tie -> SW fallback
+    output logic               overflow,   // current direction's rescue ma overflow -> SW fallback
 
     // ======== result-A snapshot (direction 0 = a[1]') ========
     input  logic               snap_a_start,    // pulse after dir-0 rescue: latch a[1]' to buffer
@@ -156,7 +157,7 @@ module accel_pe_pair_top
         .cand_req(cand_req), .cur_cand(cur_cand), .cand_wins_ready(cand_wins_ready),
         .src_rd_idx(16'd0), .src_o_rb(unused_src_rb), .src_o_rid(unused_src_rid),
         .src_o_alt(unused_src_alt), .src_o_sc(unused_src_sc),
-        .rescue_busy(rescue_busy), .sel_done(sel_done), .tie(tie), .n_ma(in_n_ma),
+        .rescue_busy(rescue_busy), .sel_done(sel_done), .tie(tie), .overflow(overflow), .n_ma(in_n_ma),
         .rd_idx(in_rd_idx), .o_rb(in_o_rb), .o_re(in_o_re), .o_qb(in_o_qb), .o_qe(in_o_qe),
         .o_rid(in_o_rid), .o_score(in_o_score), .o_cov(in_o_cov)
     );

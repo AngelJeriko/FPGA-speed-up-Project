@@ -13,7 +13,7 @@ module tb_matesw_dedup ();
     logic [15:0] rd_idx;
     logic signed [63:0] o_rb, o_re; logic signed [31:0] o_qb, o_qe, o_rid, o_score, o_cov;
 
-    matesw_dedup #(.MA_MAX(64)) dut(.clk,.rst_n,.ld_en,.ld_idx,
+    matesw_dedup #(.MA_MAX(256)) dut(.clk,.rst_n,.ld_en,.ld_idx,
         .ld_rb,.ld_re,.ld_qb,.ld_qe,.ld_rid,.ld_score,.ld_cov,
         .start,.n_in,.busy,.done,.overflow,.tie,.n_out,
         .rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);

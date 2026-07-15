@@ -123,5 +123,5 @@ module tb_accel_top
                  nreads, fails, (fails==0)?"ALL PASS":"FAIL");
         $finish;
     end
-    initial begin #20000000000; $display("[FATAL] timeout"); $finish; end
+    initial begin #(64'd20000000000); $display("[FATAL] timeout"); $finish; end
 endmodule

@@ -28,7 +28,10 @@
 #include "pe.h"
 
 uint64_t tprof[LIM_R][LIM_C];
-static const int BUF = 64;          // RTL NSRC / MA_MAX
+static const int NSRC   = 64;   // RTL candidate-source buffer. Safe for any n_src:
+                                // only the first max_matesw (<=50) entries are ever read,
+                                // and the accel output is already score-sorted desc.
+static const int MA_MAX = 256;  // RTL ma regfile -- sized in docs/ma_max_sizing_analysis.md
 
 static uint64_t st = 0x9e3779b97f4a7c15ull;
 static inline uint32_t rnd() { st = st*6364136223846793005ull + 1442695040888963407ull; return (uint32_t)(st>>33); }
@@ -102,7 +105,8 @@ int main(int argc, char** argv) {
         const ARead& ri = reads[p];
         const ARead& rj = reads[p+1];
         if (ri.fb || rj.fb) { ++skipped; continue; }
-        if (ri.nout==0 || ri.nout>BUF || rj.nout>BUF) { ++skipped; continue; }
+        // ri = candidate source (NSRC), rj = entry ma (MA_MAX, with orch_top's 4-insert headroom)
+        if (ri.nout==0 || ri.nout>NSRC || rj.nout>MA_MAX-4) { ++skipped; continue; }
 
         MOpt o; o.min_seed_len = 19;
         MPeOpt po; po.pen_unpaired = 10 + (int)(rnd()%16); po.max_matesw = (rnd()%100)<20 ? (1+(int)(rnd()%3)) : 50;

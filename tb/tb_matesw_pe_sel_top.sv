@@ -32,13 +32,13 @@ module tb_matesw_pe_sel_top
     logic signed [31:0] win_rid[4];
     // handshake + result
     logic cand_req; logic [15:0] cur_cand; logic cand_wins_ready;
-    logic busy, done, tie; logic [15:0] n_ma, rd_idx;
+    logic busy, done, tie, overflow; logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
     // debug source readback (unused here; exercised by tb_accel_pe2_top)
     logic [15:0] src_rd_idx = '0;
     logic signed [63:0] src_o_rb; logic signed [31:0] src_o_rid, src_o_alt, src_o_sc;
 
-    matesw_pe_sel_top #(.MA_MAX(64), .NSRC(64)) dut(.clk,.rst_n,
+    matesw_pe_sel_top #(.MA_MAX(256), .NSRC(64)) dut(.clk,.rst_n,
         .src_ld_en,.src_ld_idx,.src_ld_rb,.src_ld_rid,.src_ld_alt,.src_ld_score,
         .n_src,.pen_unpaired,.max_matesw,
         .ld_ms_en,.ld_ms_addr,.ld_ms_data,.ld_ref_en,.ld_ref_win,.ld_ref_addr,.ld_ref_data,
@@ -47,7 +47,7 @@ module tb_matesw_pe_sel_top
         .win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
         .cand_req,.cur_cand,.cand_wins_ready,
         .src_rd_idx,.src_o_rb,.src_o_rid,.src_o_alt,.src_o_sc,
-        .busy,.done,.tie,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
+        .busy,.done,.tie,.overflow,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
     integer fd,got,cnt,ci,k,r,c,fails,guard,nsrc,ninit,nfin,rl,e_fb;
     integer t_lms,t_lpac,t_msl,t_a,t_od,t_ed,t_oi,t_ei,t_pen,t_maxm;
@@ -159,5 +159,5 @@ module tb_matesw_pe_sel_top
         $display("tb_matesw_pe_sel_top: %0d cases, %0d failures -> %s", cnt, fails, (fails==0)?"ALL PASS":"FAIL");
         $finish;
     end
-    initial begin #6000000000; $display("[FATAL] timeout"); $finish; end
+    initial begin #(64'd6000000000); $display("[FATAL] timeout"); $finish; end
 endmodule

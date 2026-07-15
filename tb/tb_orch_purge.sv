@@ -91,5 +91,5 @@ module tb_orch_purge;
                  nreads, fails, (fails==0)?"ALL PASS":"FAIL");
         $finish;
     end
-    initial begin #8000000000; $display("[FATAL] timeout"); $finish; end
+    initial begin #(64'd8000000000); $display("[FATAL] timeout"); $finish; end
 endmodule

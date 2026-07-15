@@ -24,7 +24,7 @@ module accel_pe_top
     import bsw_pkg::*;
     import msort_v2_pkg::*;
 #(
-    parameter int MA_MAX = 64
+    parameter int MA_MAX = 256
 )(
     input  logic               clk,
     input  logic               rst_n,
@@ -63,6 +63,7 @@ module accel_pe_top
     output logic               rescue_busy,
     output logic               cand_done,
     output logic               tie,        // rescue dedup tie -> SW fallback
+    output logic               overflow,   // rescue ma list outgrew MA_MAX -> SW fallback
     output logic [15:0]        n_ma,
     input  logic [15:0]        rd_idx,
     output logic signed [63:0] o_rb,
@@ -136,7 +137,7 @@ module accel_pe_top
         .a_rb(a_rb), .l_pac(l_pac), .a_rid(a_rid), .a_is_alt(a_is_alt),
         .win_used(win_used), .win_rb(win_rb), .win_re(win_re), .win_rid(win_rid),
         .pes_low(pes_low), .pes_high(pes_high), .pes_failed(pes_failed),
-        .busy(rescue_busy), .cand_done(cand_done), .tie(tie), .n_ma(n_ma),
+        .busy(rescue_busy), .cand_done(cand_done), .tie(tie), .overflow(overflow), .n_ma(n_ma),
         .rd_idx(rd_idx), .o_rb(o_rb), .o_re(o_re), .o_qb(o_qb), .o_qe(o_qe),
         .o_rid(o_rid), .o_score(o_score), .o_cov(o_cov)
     );

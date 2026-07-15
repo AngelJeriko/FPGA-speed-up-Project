@@ -26,7 +26,8 @@
 #include "pe.h"
 
 uint64_t tprof[LIM_R][LIM_C];
-static const int BUF = 64;
+static const int NSRC   = 64;   // RTL candidate-source buffer (see gen_pe2_vectors.cpp)
+static const int MA_MAX = 256;  // RTL ma regfile -- sized in docs/ma_max_sizing_analysis.md
 static uint64_t st = 0x243f6a8885a308d3ull;
 static inline uint32_t rnd() { st = st*6364136223846793005ull + 1442695040888963407ull; return (uint32_t)(st>>33); }
 static inline bool is_rev_r(int r) { return r==1 || r==2; }
@@ -145,7 +146,8 @@ int main(int argc, char** argv) {
     for (int p=0; p+1<nreads && npairs<max_pairs; p+=2) {
         const ARead& r0 = reads[p];
         const ARead& r1 = reads[p+1];
-        if (r0.fb || r1.fb || r0.nout==0 || r1.nout==0 || r0.nout>BUF || r1.nout>BUF) { ++skipped; continue; }
+        // both reads serve as source in one direction, so both are bounded by NSRC
+        if (r0.fb || r1.fb || r0.nout==0 || r1.nout==0 || r0.nout>NSRC || r1.nout>NSRC) { ++skipped; continue; }
 
         MOpt o; o.min_seed_len=19;
         MPeOpt po; po.pen_unpaired=10+(int)(rnd()%16); po.max_matesw=(rnd()%100)<20?(1+(int)(rnd()%3)):50;
@@ -168,7 +170,7 @@ int main(int argc, char** argv) {
 
         // either direction overflowing the on-chip ma buffer (entry count > MA_MAX-4) is a
         // host SW-fallback case the matesw stack can't hold -> exclude (cf. sorter n>1024).
-        if (peakA > BUF-4 || peakB > BUF-4) { ++skipped; continue; }
+        if (peakA > MA_MAX-4 || peakB > MA_MAX-4) { ++skipped; continue; }
 
         emit_dir(buf, r0, r1, ms0, o, po, l_pac, pes, winA, maA);   // -> a1'
         emit_dir(buf, r1, r0, ms1, o, po, l_pac, pes, winB, maB);   // -> a0'

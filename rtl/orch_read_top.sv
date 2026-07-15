@@ -65,6 +65,7 @@ module orch_read_top
     output logic               read_done,
     output logic               busy,
     output logic [15:0]        o_nav,        // # collected alnregs (valid after read_done)
+    output logic               overflow,     // alnregs exceeded NAV (or chains NCH) -> SW redo
 
     // ---- post-purge readback (full alnreg) ----
     input  logic [15:0]        rd_idx,
@@ -163,13 +164,14 @@ module orch_read_top
     assign ch_ready = (state == S_RDY);
     assign o_nav    = av_wptr;
 
-    // purge av-buffer write: mirror the local buffer write (same cycle + index)
-    assign pg_av_ld  = (state == S_CH_WAIT) && cu_ovalid;
+    // purge av-buffer write: mirror the local buffer write (same cycle + index).
+    // Gated on capacity so the purge buffer never aliases either.
+    assign pg_av_ld  = (state == S_CH_WAIT) && cu_ovalid && (av_wptr < NAV[15:0]);
     assign pg_av_idx = av_wptr;
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            state <= S_IDLE; read_done <= 1'b0;
+            state <= S_IDLE; read_done <= 1'b0; overflow <= 1'b0;
             cu_start <= 1'b0; pg_start <= 1'b0; pg_ch_ld <= 1'b0;
         end else begin
             read_done <= 1'b0; cu_start <= 1'b0; pg_start <= 1'b0;
@@ -178,7 +180,7 @@ module orch_read_top
                 S_IDLE: if (read_start) begin
                     lq_r<=l_query; a_r<=a; od_r<=o_del; ed_r<=e_del; oi_r<=o_ins; ei_r<=e_ins;
                     zd_r<=zdrop; w_r<=wcfg; p5_r<=pen5; p3_r<=pen3;
-                    av_wptr<=16'd0; cj<=16'd0;
+                    av_wptr<=16'd0; cj<=16'd0; overflow<=1'b0;
                     state <= S_RDY;
                 end
                 S_RDY: begin
@@ -192,21 +194,33 @@ module orch_read_top
                 end
                 S_CH_RUN: begin cu_start <= 1'b1; state <= S_CH_WAIT; end
                 S_CH_WAIT: begin
+                    // This is the EARLIEST overflow point in the accel: av_wptr is 16-bit
+                    // and the av_* arrays are NAV deep, so without this gate an oversize
+                    // read aliases on write here -- before the sorter ever counts it.
+                    // Real data reaches n=1060 vs NAV=1024. On overflow: stop writing,
+                    // hold av_wptr at NAV so o_nav stays truthful, raise `overflow`; the
+                    // read still runs to completion and the host redoes it in SW.
                     if (cu_ovalid) begin
-                        // write the full record locally; the purge av buffer is
-                        // written combinationally this same cycle (pg_av_ld above)
-                        av_rb[av_wptr]<=cu_rb; av_re[av_wptr]<=cu_re;
-                        av_score[av_wptr]<=cu_score; av_truesc[av_wptr]<=cu_truesc;
-                        av_w[av_wptr]<=cu_w; av_seedcov[av_wptr]<=cu_scov;
-                        av_seedlen0[av_wptr]<=cu_sl0; av_rid[av_wptr]<=cu_rid;
-                        av_wptr  <= av_wptr + 16'd1;
+                        if (av_wptr >= NAV[15:0]) overflow <= 1'b1;
+                        else begin
+                            // write the full record locally; the purge av buffer is
+                            // written combinationally this same cycle (pg_av_ld above)
+                            av_rb[av_wptr]<=cu_rb; av_re[av_wptr]<=cu_re;
+                            av_score[av_wptr]<=cu_score; av_truesc[av_wptr]<=cu_truesc;
+                            av_w[av_wptr]<=cu_w; av_seedcov[av_wptr]<=cu_scov;
+                            av_seedlen0[av_wptr]<=cu_sl0; av_rid[av_wptr]<=cu_rid;
+                            av_wptr  <= av_wptr + 16'd1;
+                        end
                     end
                     if (cu_done) begin
-                        // record this chain in the purge chain table
-                        pg_ch_ld <= 1'b1; pg_ch_idx <= cj;
-                        pg_ch_sbase <= base_cur; pg_ch_abase <= base_cur;
-                        pg_ch_n <= {8'd0, ch_n_r};
-                        cj <= cj + 16'd1;
+                        // record this chain in the purge chain table (NCH deep)
+                        if (cj >= NCH[15:0]) overflow <= 1'b1;
+                        else begin
+                            pg_ch_ld <= 1'b1; pg_ch_idx <= cj;
+                            pg_ch_sbase <= base_cur; pg_ch_abase <= base_cur;
+                            pg_ch_n <= {8'd0, ch_n_r};
+                            cj <= cj + 16'd1;
+                        end
                         state <= S_RDY;
                     end
                 end

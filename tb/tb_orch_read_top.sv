@@ -11,6 +11,7 @@ module tb_orch_read_top
     logic clk=0, rst_n=0; always #5 clk=~clk;
 
     logic        read_start, read_finish, read_done, busy, ch_ready, ch_go;
+    logic        dut_overflow;   // no vector read overflows NAV; must stay low
     logic signed [31:0] l_query,a,o_del,e_del,o_ins,e_ins,zdrop,wcfg,pen5,pen3;
     logic        q_ld_en, r_ld_en, s_ld_en; logic [15:0] q_ld_addr, r_ld_addr;
     base_t       q_ld_data, r_ld_data;
@@ -24,7 +25,7 @@ module tb_orch_read_top
         .q_ld_en,.q_ld_addr,.q_ld_data,.r_ld_en,.r_ld_addr,.r_ld_data,
         .s_ld_en,.s_ld_idx,.s_ld_rbeg,.s_ld_qbeg,.s_ld_len,.s_ld_score,
         .ch_go,.ch_n,.ch_rid,.ch_rmax0,.ch_rmax1,.ch_ready,
-        .read_finish,.read_done,.busy,
+        .read_finish,.read_done,.busy,.o_nav(),.overflow(dut_overflow),
         .rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_score,.o_truesc,.o_w,.o_seedcov,.o_seedlen0,.o_rid);
 
     integer fd,got,nreads,ri,cj,i,b,fails,guard;
@@ -109,11 +110,16 @@ module tb_orch_read_top
                     end
                 end
             end
+            // real-data reads here stay well under NAV: the capacity guard must not fire
+            if (dut_overflow !== 1'b0) begin
+                fails=fails+1;
+                if (fails<=12) $display("MISMATCH read=%0d overflow raised (nav<NAV expected)", ri);
+            end
         end
         $fclose(fd);
         $display("tb_orch_read_top: %0d reads, %0d failures -> %s",
                  nreads, fails, (fails==0)?"ALL PASS":"FAIL");
         $finish;
     end
-    initial begin #20000000000; $display("[FATAL] timeout"); $finish; end
+    initial begin #(64'd20000000000); $display("[FATAL] timeout"); $finish; end
 endmodule

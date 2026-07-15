@@ -62,7 +62,7 @@ the RTL (`msort_v2_pkg.sv`, `RED_NUM/RED_DEN = 20/19`) uses the surrogate.
 2. array contains an equal-`re` tie — 1.25% of arrays, 1.21% of cost.
 3. branch B would fire (a patch/merge) — ~0% on short reads.
 
-> **KNOWN GAP (logged 2026-06-19, not yet fixed): trigger #1 is specified but NOT
+> **~~KNOWN GAP (logged 2026-06-19)~~ FIXED 2026-07-15: trigger #1 is specified but NOT
 > implemented in RTL.** No module actually checks the element count against `N_MAX`:
 > - `msort_v2_top` raises `fallback` only on the adjacent-equal-`re` tie; load uses
 >   `wr_addr = wptr[IDX_W-1:0]` (low 10 bits), so element 1024 aliases to address 0 and
@@ -76,11 +76,27 @@ the RTL (`msort_v2_pkg.sv`, `RED_NUM/RED_DEN = 20/19`) uses the surrogate.
 > Effect: an oversize read (`n > 1024`) produces **silently wrong output with `fallback`
 > stuck low**, instead of the intended clean SW handoff. It is currently masked because
 > oversize arrays are rare (~0.03% of cost) and none appear in the sampled `tb_accel_top`
-> vectors, so all tests pass. Fix (deferred to a later audit): guard at the earliest point
-> — `orch_read_top` latches an `overflow` output when `av_wptr` would reach `NAV`; `accel_top`
-> ORs it into `fb_latch` and adds the cheap `surv_cnt > N_MAX` check in `C_DECIDE` (→ `C_DONE`,
-> never streaming); optional defensive self-guard in `msort_v2_top` load. Exercise it with a
-> directed small-`N_MAX` test build rather than synthesizing a >1024-alnreg read.
+> vectors, so all tests pass.
+>
+> **FIXED 2026-07-15, exactly as prescribed above — guarded at all three layers:**
+>
+> | layer | guard | role |
+> |---|---|---|
+> | `orch_read_top` | `av_wptr >= NAV` (and `cj >= NCH`) -> `overflow` output | **earliest**: stops the aliasing write before it happens; `av_wptr` holds at `NAV` so `o_nav` stays truthful; the read still completes |
+> | `accel_top` | `rt_ovf \|\| surv_cnt > N_MAX` in `C_DECIDE` -> `fb_latch`, `C_DONE` | never streams an oversize array; `surv_cnt` was already computed by pass A, so the check is free |
+> | `msort_v2_top` | load gated on `wptr < N_MAX`, `wptr` saturates, run ends in `fallback` with no beats | self-guard: the module is independently verified and directly drivable (`tb_msort_v2`), so it must honour its own port contract regardless of who drives it |
+>
+> The purge av-buffer write (`pg_av_ld`) is gated on the same capacity so it cannot alias
+> either.
+>
+> Verified: tb_msort_v2 2480 arrays unchanged + **OVF-TEST** (n=1029, strictly increasing
+> `re` so the tie path cannot be the cause -> `fallback=1`, 0 beats) + **RECOVERY** (a clean
+> array immediately after an overflow is still bit-exact, proving no stuck state);
+> tb_orch_read_top 200/0 with `overflow` asserted low on every real-data read;
+> tb_accel_top 200/0. The directed test feeds a real >`N_MAX` array rather than a
+> small-`N_MAX` build, because `N_MAX` is a package parameter (`msort_v2_pkg`), not a module
+> parameter, so a second shrunken DUT is not instantiable the way `chain_store`'s
+> `NCHAIN=8` OVF-TEST is.
 
 ## Microarchitecture notes
 

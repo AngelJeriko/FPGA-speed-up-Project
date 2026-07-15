@@ -26,7 +26,7 @@
 module matesw_pe_sel_top
     import bsw_pkg::*;
 #(
-    parameter int MA_MAX = 64,        // ma list bound (== matesw_pe_top)
+    parameter int MA_MAX = 256,        // ma list bound (== matesw_pe_top)
     parameter int NSRC   = 64         // candidate-source bound
 )(
     input  logic               clk,
@@ -92,6 +92,7 @@ module matesw_pe_sel_top
     output logic               busy,
     output logic               done,
     output logic               tie,        // rescue dedup tie (from pe_top) -> SW fallback
+    output logic               overflow,   // ma list outgrew MA_MAX (from pe_top) -> SW fallback
     output logic [15:0]        n_ma,
     input  logic [15:0]        rd_idx,
     output logic signed [63:0] o_rb,
@@ -134,7 +135,7 @@ module matesw_pe_sel_top
         .a_rb(s_rb[j]), .l_pac(l_pac), .a_rid(s_rid[j]), .a_is_alt(s_alt[j]),
         .win_used(win_used), .win_rb(win_rb), .win_re(win_re), .win_rid(win_rid),
         .pes_low(pes_low), .pes_high(pes_high), .pes_failed(pes_failed),
-        .busy(pe_busy), .cand_done(pe_cand_done), .tie(tie), .n_ma(pe_n_ma),
+        .busy(pe_busy), .cand_done(pe_cand_done), .tie(tie), .overflow(overflow), .n_ma(pe_n_ma),
         .rd_idx(rd_idx), .o_rb(o_rb), .o_re(o_re), .o_qb(o_qb), .o_qe(o_qe),
         .o_rid(o_rid), .o_score(o_score), .o_cov(o_cov)
     );

@@ -464,8 +464,11 @@ if command -v verilator >/dev/null 2>&1; then
     OBJ="${BSW_BUILD_DIR:-/tmp/bsw}/obj_${TB}"
     rm -rf "$OBJ"
     mkdir -p "$OBJ"
+    # --unroll-count/--unroll-stmts: the per-PE loops (N_PE=160) blow both of
+    # Verilator's default unroll budgets, and an un-unrolled loop with a delayed
+    # array assignment is unsupported (BLKLOOPINIT). Raise both so they unroll.
     verilator --binary --timing --top-module "$TB" \
-              --timescale 1ns/1ps \
+              --timescale 1ns/1ps --unroll-count 4096 --unroll-stmts 200000 \
               -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Wno-INITIALDLY \
               -I"$RTL" -Mdir "$OBJ" \
               "${RTL_FILES[@]}" "$TB_FILE"

@@ -16,7 +16,7 @@
 // Load the n_in records via ld_* (idx 0..n_in-1), pulse start; when done, read the
 // n_out survivors via rd_idx. Sets `overflow` if n_in > MA_MAX (host SW fallback).
 
-module matesw_dedup #(parameter int MA_MAX = 64) (
+module matesw_dedup #(parameter int MA_MAX = 256) (
     input  logic               clk,
     input  logic               rst_n,
 

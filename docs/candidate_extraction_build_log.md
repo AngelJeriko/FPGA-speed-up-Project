@@ -197,14 +197,23 @@ bit-exact comparison exactly like the sorter's `n>1024`. Result: 91 pairs (3 exc
 `host/mate_rescue/gen_pe2pair_vectors.cpp` (new), `host/mate_rescue/pe.h` (+`max_entry_ma`),
 edits to `host/mate_rescue/Makefile`, `host/mate_rescue/.gitignore`, `scripts/run_sim.sh`.
 
-> **KNOWN GAP (logged 2026-06-19, not yet fixed): matesw ma-overflow is not surfaced as a
-> fallback.** `matesw_orch_top` raises `overflow` (entry ma count > `MA_MAX-4`) and no-ops
-> that `mem_matesw` call, but `matesw_pe_top` / `matesw_pe_sel_top` / `accel_pe2_top` /
+> **~~KNOWN GAP (logged 2026-06-19)~~ FIXED 2026-07-15: matesw ma-overflow is not surfaced
+> as a fallback.** `matesw_orch_top` raises `overflow` (entry ma count > `MA_MAX-4`) and
+> no-ops that `mem_matesw` call, but `matesw_pe_top` / `matesw_pe_sel_top` / `accel_pe2_top` /
 > `accel_pe_pair_top` neither check `ot_ovf` nor expose an `overflow`/`fallback` output — so an
 > oversize rescue is **silently truncated** instead of triggering a host SW redo. Currently
-> masked because the closed-loop goldens skip such cases (rare). Fix (deferred to the same
-> later audit as the sorter oversize gap, logged in `merge_sorter_v2_design.md`): thread
-> `ot_ovf` up through the matesw stack to a `fallback` output; the host redoes that pair in SW.
+> masked because the closed-loop goldens skip such cases (rare).
+>
+> **Fixed:** `overflow` is now threaded up the whole stack (mirroring `tie`). The check was
+> also **too late** to be correct: `n_ma_init` is an unbounded upstream count (in
+> `accel_pe2_top` it is the accel beat count, up to the sorter's 1024), so `P_LDMA` read
+> `w_*[k]` past the regfile before `orch_top` ever saw `n_ma_in`. `matesw_pe_top` now checks
+> capacity at `cand_start` with `orch_top`'s own predicate. Verified: tb_matesw_pe_top
+> 2000/0 + OVF-TEST, and `overflow` asserted low across all 2000 golden cases.
+>
+> The rate was **not** rare: at the then-current `MA_MAX=64` it was **4.72% of reads** —
+> the largest single fallback in the design. `MA_MAX` is now **256** (0.84%). Measurement,
+> alternatives, and the deferred block-RAM conversion: `docs/ma_max_sizing_analysis.md`.
 
 ## Step 6 — selection-predicate validation on REAL data  ✅ 100000/100000 ends, ALL PASS
 
@@ -425,7 +434,15 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
   is hw_align2). orch.h's hooks need care: bwamem_pair.cpp has near-duplicate mem_matesw /
   mem_matesw_batch_post, so anchor uniqueness matters. (This session validated selection + chaining.)
 - ~~**Both directions**~~ — DONE (Step 5, `accel_pe_pair_top`, 91/91).
-- **matesw ma-overflow → fallback** — thread `ot_ovf` up to a `fallback` output (KNOWN GAP
-  above); deferred to the same later audit as the sorter oversize gap.
-- Oversize-fallback gap (logged in `merge_sorter_v2_design.md`) still applies to the accel
-  runs feeding this fold.
+- ~~**matesw ma-overflow → fallback**~~ DONE 2026-07-15 (KNOWN GAP above): `overflow`
+  threaded up the stack, capacity checked at `cand_start`, `MA_MAX` resized 64 → 256 on
+  measured data. See `docs/ma_max_sizing_analysis.md`.
+- ~~Oversize-fallback gap (logged in `merge_sorter_v2_design.md`)~~ DONE 2026-07-15:
+  `msort_v2_top` now gates its load on `wptr < N_MAX`, saturates instead of wrapping, and
+  ends the run in `fallback` with no output beats. (The port comment had always claimed
+  `n>N_MAX` was covered; no code implemented it, and `wr_addr = wptr[IDX_W-1:0]` truncated
+  11 bits to 10, so record 1024 silently overwrote slot 0. Real data reaches n=1060.)
+- **NEW (open): `max_matesw <= NSRC` is an unchecked invariant.** Safe at bwa defaults
+  (50 <= 64) and the selection only reads the first `min(n_src, max_matesw)` candidates, so
+  `NSRC` needs no fallback — but nothing enforces it. See the "Related: NSRC" section of
+  `docs/ma_max_sizing_analysis.md`.

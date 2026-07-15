@@ -22,7 +22,7 @@
 module matesw_pe_top
     import bsw_pkg::*;
 #(
-    parameter int MA_MAX = 64
+    parameter int MA_MAX = 256
 )(
     input  logic               clk,
     input  logic               rst_n,
@@ -71,6 +71,7 @@ module matesw_pe_top
     output logic               busy,
     output logic               cand_done,
     output logic               tie,        // any candidate's dedup tie -> SW fallback
+    output logic               overflow,   // ma list outgrew MA_MAX -> SW fallback
     output logic [15:0]        n_ma,
     input  logic [15:0]        rd_idx,
     output logic signed [63:0] o_rb,
@@ -145,7 +146,7 @@ module matesw_pe_top
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            state<=P_IDLE; cand_done<=1'b0; ot_start<=1'b0; n_r<='0; tie<=1'b0;
+            state<=P_IDLE; cand_done<=1'b0; ot_start<=1'b0; n_r<='0; tie<=1'b0; overflow<=1'b0;
         end else begin
             cand_done<=1'b0; ot_start<=1'b0;
 
@@ -155,10 +156,17 @@ module matesw_pe_top
                 w_qe[ld_ma_idx]<=ld_ma_qe; w_rid[ld_ma_idx]<=ld_ma_rid; w_sc[ld_ma_idx]<=ld_ma_score;
                 w_cov[ld_ma_idx]<=ld_ma_cov;
             end
-            if (init) begin n_r <= n_ma_init; tie <= 1'b0; end   // new direction: reset tie
+            if (init) begin n_r <= n_ma_init; tie <= 1'b0; overflow <= 1'b0; end  // new direction
 
             case (state)
+                // n_ma_init is an unbounded upstream count (in accel_pe2_top it is the accel
+                // beat count, which can reach the sorter's 1024 while MA_MAX is 64), so the
+                // capacity check must happen HERE: P_LDMA would otherwise read w_*[k] past the
+                // regfile before matesw_orch_top ever sees n_ma_in. Same predicate it uses.
                 P_IDLE: if (cand_start) begin
+                  if (n_r > MA_MAX[15:0]-16'd4) begin
+                    overflow <= 1'b1; state <= P_DONE;      // host redoes this read in SW
+                  end else begin
                     lms_r<=l_ms; msl_r<=min_seed_len; a_r<=a;
                     od_r<=o_del; ed_r<=e_del; oi_r<=o_ins; ei_r<=e_ins;
                     arb_r<=a_rb; lpac_r<=l_pac; arid_r<=a_rid; aalt_r<=a_is_alt;
@@ -168,6 +176,7 @@ module matesw_pe_top
                         plo_r[r]<=pes_low[r]; phi_r[r]<=pes_high[r];
                     end
                     k<=0; state<=P_LDMA;
+                  end
                 end
                 P_LDMA: begin                       // stream w_* -> orch_top.ld_ma
                     if (k+1 >= n_r || n_r==0) state<=P_RUN;
@@ -175,8 +184,15 @@ module matesw_pe_top
                 end
                 P_RUN: begin ot_start<=1'b1; state<=P_WAIT; end
                 P_WAIT: if (ot_done) begin
-                    n_r <= ot_nout; k<=0; tie <= tie | ot_tie;
-                    if (ot_nout==0) state<=P_DONE; else state<=P_RD0;
+                    tie <= tie | ot_tie;
+                    if (ot_ovf) begin
+                        // n_out carries the oversize count, not a real list: skip the readback
+                        // (it would write w_*[k] past MA_MAX) and leave n_r alone.
+                        overflow <= 1'b1; state <= P_DONE;
+                    end else begin
+                        n_r <= ot_nout; k<=0;
+                        if (ot_nout==0) state<=P_DONE; else state<=P_RD0;
+                    end
                 end
                 P_RD0: state<=P_RD1;                // ot_rd_idx=k registered into orch_top read
                 P_RD1: begin

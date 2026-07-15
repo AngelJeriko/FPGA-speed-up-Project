@@ -30,12 +30,12 @@ module tb_accel_pe_pair_top
     logic signed [63:0] win_rb[4],win_re[4],pes_low[4],pes_high[4];
     logic signed [31:0] win_rid[4];
     logic cand_req; logic [15:0] cur_cand; logic cand_wins_ready;
-    logic rescue_busy,sel_done,tie;
+    logic rescue_busy,sel_done,tie,overflow;
     logic snap_a_start, snap_busy, snap_done, res_from_a;
     logic [15:0] rd_idx, n_ma;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
 
-    accel_pe_pair_top #(.MA_MAX(64), .NSRC(64)) dut(.clk,.rst_n,
+    accel_pe_pair_top #(.MA_MAX(256), .NSRC(64)) dut(.clk,.rst_n,
         .run_is_cand,.read_start,.l_query,.a,.o_del,.e_del,.o_ins,.e_ins,.zdrop,.wcfg(wcfg),.pen5,.pen3,
         .q_ld_en,.q_ld_addr,.q_ld_data,.r_ld_en,.r_ld_addr,.r_ld_data,
         .s_ld_en,.s_ld_idx,.s_ld_rbeg,.s_ld_qbeg,.s_ld_len,.s_ld_score,
@@ -45,7 +45,7 @@ module tb_accel_pe_pair_top
         .sel_start,.l_ms,.min_seed_len,.a_sc,.mo_del,.me_del,.mo_ins,.me_ins,.l_pac,
         .pen_unpaired,.max_matesw,
         .win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
-        .cand_req,.cur_cand,.cand_wins_ready,.rescue_busy,.sel_done,.tie,
+        .cand_req,.cur_cand,.cand_wins_ready,.rescue_busy,.sel_done,.tie,.overflow,
         .snap_a_start,.snap_busy,.snap_done,.res_from_a,
         .rd_idx,.n_ma,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
@@ -195,5 +195,5 @@ module tb_accel_pe_pair_top
         $display("tb_accel_pe_pair_top: %0d pairs, %0d failures -> %s", cnt, fails, (fails==0)?"ALL PASS":"FAIL");
         $finish;
     end
-    initial begin #80000000000; $display("[FATAL] timeout"); $finish; end
+    initial begin #(64'd80000000000); $display("[FATAL] timeout"); $finish; end
 endmodule

@@ -36,6 +36,7 @@ module tb_bsw_pe
         .load_q_i     (load_q_i),
         .query_base_i (query_base_i),
         .init_h_curr_i(score_t'(0)),   // PE tests don't exercise the seed init
+        .restart_mode (1'b0),          // extension semantics (mate-rescue restart is tb_matesw_*)
         .o_del_i      (o_del_i),
         .e_del_i      (e_del_i),
         .o_ins_i      (o_ins_i),

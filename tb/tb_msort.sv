@@ -125,7 +125,7 @@ module tb_msort
 
     // safety timeout
     initial begin
-        #30_000_000_000;  // watchdog (full-coverage runs need ~1 s sim)
+        #(64'd30_000_000_000);  // watchdog (full-coverage runs need ~1 s sim)
         $display("RESULT    : TIMEOUT");
         $finish;
     end

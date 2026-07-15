@@ -23,7 +23,7 @@ module tb_matesw_orch_top
     logic busy, done, overflow, tie; logic [15:0] n_out, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
 
-    matesw_orch_top #(.MA_MAX(64)) dut(.clk,.rst_n,
+    matesw_orch_top #(.MA_MAX(256)) dut(.clk,.rst_n,
         .ld_ms_en,.ld_ms_addr,.ld_ms_data,.ld_ref_en,.ld_ref_win,.ld_ref_addr,.ld_ref_data,
         .ld_ma_en,.ld_ma_idx,.ld_ma_rb,.ld_ma_re,.ld_ma_qb,.ld_ma_qe,.ld_ma_rid,.ld_ma_score,.ld_ma_cov,
         .start,.l_ms,.min_seed_len,.a,.o_del,.e_del,.o_ins,.e_ins,.a_rb,.l_pac,.a_rid,.a_is_alt,

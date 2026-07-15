@@ -20,15 +20,17 @@ module tb_matesw_pe_top
     logic [3:0] win_used, pes_failed;
     logic signed [63:0] win_rb[4], win_re[4], pes_low[4], pes_high[4];
     logic signed [31:0] win_rid[4];
-    logic busy, cand_done, tie; logic [15:0] n_ma, rd_idx;
+    logic busy, cand_done, tie, overflow; logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
 
-    matesw_pe_top #(.MA_MAX(64)) dut(.clk,.rst_n,
+    localparam int MA_MAX = 256;   // sized by docs/ma_max_sizing_analysis.md
+
+    matesw_pe_top #(.MA_MAX(MA_MAX)) dut(.clk,.rst_n,
         .ld_ms_en,.ld_ms_addr,.ld_ms_data,.ld_ref_en,.ld_ref_win,.ld_ref_addr,.ld_ref_data,
         .ld_ma_en,.ld_ma_idx,.ld_ma_rb,.ld_ma_re,.ld_ma_qb,.ld_ma_qe,.ld_ma_rid,.ld_ma_score,.ld_ma_cov,
         .init,.n_ma_init,.cand_start,.l_ms,.min_seed_len,.a,.o_del,.e_del,.o_ins,.e_ins,
         .a_rb,.l_pac,.a_rid,.a_is_alt,.win_used,.win_rb,.win_re,.win_rid,.pes_low,.pes_high,.pes_failed,
-        .busy,.cand_done,.tie,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
+        .busy,.cand_done,.tie,.overflow,.n_ma,.rd_idx,.o_rb,.o_re,.o_qb,.o_qe,.o_rid,.o_score,.o_cov);
 
     integer fd,got,cnt,ci,k,r,c,fails,guard,ncand,ninit,nfin,rl,e_fb;
     integer t_lms,t_lpac,t_msl,t_a,t_od,t_ed,t_oi,t_ei;
@@ -100,6 +102,11 @@ module tb_matesw_pe_top
                 fails=fails+1;
                 if (fails<=15) $display("MISMATCH[%0d] tie %0b/%0b (ncand=%0d)", ci, tie, e_fb[0], ncand);
             end
+            // the golden set excludes ma-overflow cases, so overflow must stay low here
+            if (overflow !== 1'b0) begin
+                fails=fails+1;
+                if (fails<=15) $display("MISMATCH[%0d] overflow raised on a non-overflow case (ninit=%0d ncand=%0d)", ci, ninit, ncand);
+            end
             if (n_ma !== nfin[15:0]) begin
                 fails=fails+1;
                 if (fails<=15) $display("MISMATCH[%0d] n_ma %0d/%0d (ninit=%0d ncand=%0d)", ci, n_ma, nfin, ninit, ncand);
@@ -117,6 +124,25 @@ module tb_matesw_pe_top
             end
         end
         $fclose(fd);
+
+        // ---- directed ma-overflow test ----
+        // accel_pe2_top feeds n_ma_init from the captured accel beat count, which can reach
+        // the sorter's 1024 while MA_MAX is 256 (real data: 0.84% of reads exceed it --
+        // docs/ma_max_sizing_analysis.md). Before the guard, P_LDMA would stream w_*[k]
+        // past the regfile and only then would orch_top notice. Expected now: overflow
+        // raises at cand_start, no run, cand_done still pulses. Derived from MA_MAX so
+        // this stays a real overflow if the array is ever resized.
+        @(posedge clk); init<=1; n_ma_init<=16'(MA_MAX+36); @(posedge clk); init<=0;
+        a_rb<=0; a_rid<=0; a_is_alt<=0;
+        for (r=0;r<4;r=r+1) begin win_used[r]<=1'b0; win_rb[r]<=0; win_re[r]<=0; win_rid[r]<=0; end
+        @(posedge clk); cand_start<=1; @(posedge clk); cand_start<=0;
+        guard=0; while (!cand_done && guard<4000000) begin @(posedge clk); guard=guard+1; end
+        if (overflow !== 1'b1 || guard >= 4000000) begin
+            fails=fails+1;
+            $display("  OVF-TEST FAIL: n_ma_init=%0d > MA_MAX=%0d -> overflow=%0b guard=%0d (expected 1, done)", MA_MAX+36, MA_MAX, overflow, guard);
+        end else
+            $display("  OVF-TEST PASS: n_ma_init=%0d > MA_MAX=%0d -> overflow=1, cand_done reached without a run", MA_MAX+36, MA_MAX);
+
         $display("tb_matesw_pe_top: %0d cases, %0d failures -> %s", cnt, fails, (fails==0)?"ALL PASS":"FAIL");
         $finish;
     end

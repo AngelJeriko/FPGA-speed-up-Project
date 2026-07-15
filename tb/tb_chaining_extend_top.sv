@@ -129,5 +129,5 @@ module tb_chaining_extend_top
         $display("tb_chaining_extend_top: %0d cases, %0d failures -> %s", cnt, fails, (fails==0)?"ALL PASS":"FAIL");
         $finish;
     end
-    initial begin #8000000000; $display("[FATAL] timeout"); $finish; end
+    initial begin #(64'd8000000000); $display("[FATAL] timeout"); $finish; end
 endmodule

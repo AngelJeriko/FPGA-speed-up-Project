@@ -33,6 +33,8 @@ module tb_msort_v2
     rec_t   got_a[0:N_MAX-1];
     integer got_cnt, pass_cnt, fail_cnt, first_fail;
     integer has_tie, tie_pass, tie_fail;
+    integer ovf_n, ovf_pass, rec_pass;
+    rec_t   mk;
     string  vecpath;
 
     // optional output-backpressure stress: +BP makes out_ready stall ~1/8 cycles
@@ -107,12 +109,56 @@ module tb_msort_v2
             @(posedge clk);
         end
         $fclose(fd);
-        $display("=== results ===  records=%0d  tie-free PASS=%0d FAIL=%0d  |  tie(fallback) PASS=%0d FAIL=%0d",
-                 num_recs, pass_cnt, fail_cnt, tie_pass, tie_fail);
-        if (fail_cnt || tie_fail) $display("RESULT: FAIL (first tie-free fail %0d)", first_fail);
-        else          $display("RESULT: ALL PASS");
+
+        // ---- directed oversize test: n > N_MAX must raise fallback and emit nothing ----
+        // `re` is strictly increasing, so the equal-re tie path cannot be what raises it.
+        ovf_pass = 0;
+        ovf_n    = N_MAX + 5;
+        got_cnt  = 0;
+        @(negedge clk);
+        for (idx = 0; idx < ovf_n; idx = idx + 1) begin
+            mk = '0;
+            mk.rb = 64'(idx) * 64'd100;  mk.re = 64'(idx) * 64'd100 + 64'd50;
+            mk.qb = 32'd0;  mk.qe = 32'd50;  mk.rid = 32'd1;  mk.score = 32'd60;
+            in_valid = 1; in_rec = mk; in_last = (idx == ovf_n - 1); @(negedge clk);
+        end
+        in_valid = 0; in_last = 0;
+        wait (done == 1'b1);
+        @(posedge clk);
+        if (fallback && got_cnt == 0) begin
+            ovf_pass = 1;
+            $display("  OVF-TEST PASS: n=%0d > N_MAX=%0d -> fallback=1, beats=0", ovf_n, N_MAX);
+        end else
+            $display("  OVF-TEST FAIL: n=%0d -> fallback=%0b beats=%0d (expected 1, 0)",
+                     ovf_n, fallback, got_cnt);
+
+        // ---- recovery: a normal array right after an overflow must still be correct ----
+        // (two records, different rid -> dedup skips the pair; expect both out, no fallback)
+        rec_pass = 0;
+        got_cnt  = 0;
+        @(negedge clk);
+        for (idx = 0; idx < 2; idx = idx + 1) begin
+            mk = '0;
+            mk.rb = 64'(idx) * 64'd1000;  mk.re = 64'(idx) * 64'd1000 + 64'd50;
+            mk.qb = 32'd0;  mk.qe = 32'd50;  mk.rid = 32'(idx);  mk.score = 32'd70 - 32'(idx);
+            in_valid = 1; in_rec = mk; in_last = (idx == 1); @(negedge clk);
+        end
+        in_valid = 0; in_last = 0;
+        wait (done == 1'b1);
+        @(posedge clk);
+        if (!fallback && got_cnt == 2) begin
+            rec_pass = 1;
+            $display("  RECOVERY PASS: clean array after overflow -> fallback=0, beats=2");
+        end else
+            $display("  RECOVERY FAIL: fallback=%0b beats=%0d (expected 0, 2)", fallback, got_cnt);
+
+        $display("=== results ===  records=%0d  tie-free PASS=%0d FAIL=%0d  |  tie(fallback) PASS=%0d FAIL=%0d  |  ovf=%0d recovery=%0d",
+                 num_recs, pass_cnt, fail_cnt, tie_pass, tie_fail, ovf_pass, rec_pass);
+        if (fail_cnt || tie_fail || !ovf_pass || !rec_pass)
+             $display("RESULT: FAIL (first tie-free fail %0d)", first_fail);
+        else $display("RESULT: ALL PASS");
         $finish;
     end
 
-    initial begin #80_000_000_000; $display("RESULT: TIMEOUT"); $finish; end  // watchdog (full-coverage)
+    initial begin #(64'd80_000_000_000); $display("RESULT: TIMEOUT"); $finish; end  // watchdog (full-coverage)
 endmodule
