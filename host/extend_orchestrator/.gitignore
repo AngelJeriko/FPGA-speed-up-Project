@@ -39,3 +39,4 @@ measure_fetch
 test_bns_clamp
 check_clamp
 gen_clamp_vectors
+measure_locality

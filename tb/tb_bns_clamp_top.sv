@@ -7,7 +7,7 @@
 `timescale 1ns/1ps
 
 module tb_bns_clamp_top ();
-    localparam int NCTG = 128;
+    localparam int NCTG = 2048;   // >= deep block (1024), real chr1-5 (5), synth (3)
     logic clk=0, rst_n=0; always #5 clk=~clk;
 
     logic        tbl_we; logic [15:0] tbl_idx; logic signed [63:0] tbl_offset, tbl_len;

@@ -261,6 +261,18 @@ capture we already have** (do a read's window addresses cluster? does the mate's
 the read's?). Given bandwidth is 99% idle, the payoff would be latency-side only — and D2/D3
 already attack latency more directly. **Measure, then decide.**
 
+**MEASURED (2026-07-17, `make locality` over the 30k-read extension capture — source-a only).**
+Merging each read's chain windows into address intervals: **19.0% of fetched bytes are within-read
+"cacheable" (union < sum)** — but it is a *tail*, not typical locality. Only **2.4% of multi-chain
+reads have any window overlap at all**; the per-read overlap distribution is **p50=0%, p90=0%,
+p99=38%**. The 19% is concentrated in ~699 highly-repetitive (multi-mapping) reads whose many chains
+pile up at one locus; the typical read's chains map to **distinct loci** (no locality — as chaining
+implies). **Verdict on source (a): E2 not justified.** It would add cache complexity to help ~2.4% of
+reads on the *byte* side, and bytes/bandwidth is not the constraint (D2 already amortises the latency
+side). Source (b) — the mate-rescue window overlapping the read's own window — is untested here (it
+needs a mate-rescue window capture, a separate instrumentation) and is the only remaining reason to
+revisit E2. **Decision E stands at E1 (no cache).**
+
 ### Decision F — How this is verified (bit-exactness)
 
 Unchanged methodology, and the reason every prior stage landed clean:

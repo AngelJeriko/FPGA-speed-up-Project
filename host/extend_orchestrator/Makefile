@@ -50,6 +50,13 @@ measure_fetch: measure_fetch.cpp parse.h orch.h ksw.h
 fetchdims: measure_fetch $(VEC)
 	./measure_fetch $(VEC)
 
+# Decision E2 (window cache): measure within-read window locality — the upper bound on what a cache
+# could save. See docs/genome_fetch_options.md §4-E.
+measure_locality: measure_locality.cpp parse.h orch.h ksw.h
+	$(CXX) $(CXXFLAGS) -o $@ measure_locality.cpp
+locality: measure_locality $(VEC)
+	./measure_locality $(VEC)
+
 # Decision C2: the contig clamp (bns_clamp.h) — directed self-checking test over the real chr1-5
 # .ann table + a synthetic 3-contig table. See docs/genome_fetch_options.md §4-C/§4-F.
 test_bns_clamp: test_bns_clamp.cpp bns_clamp.h

@@ -108,8 +108,9 @@ int main(int argc, char** argv) {
     BnsTable synth;
     if (bns_load_ann("vectors/synth.fa.ann", synth)) blocks.push_back({ synth, directed(synth) });
 
-    // Block B: a deep 64-contig table for full binary-search depth + every clamp direction.
-    BnsTable deep = deep_table(64);
+    // Block B: a deep 1024-contig table for full binary-search depth (~10 levels over BRAM) + every
+    // clamp direction on both strands.
+    BnsTable deep = deep_table(1024);
     blocks.push_back({ deep, directed(deep) });
 
     // Block C (optional): the real chr1-5 capture, if both the .ann and the capture are present.

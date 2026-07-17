@@ -783,3 +783,38 @@ model + cycle measurement), `tb/tb_chaining_extend_fetch.sv` (pipelined HBM mode
 Smith-Waterman — needs double-buffering the window into `accel`, the last overlap the doc's D2 names);
 then optional A2 (packed `.pac`, only if HBM capacity is contended by the future seeding front-end),
 E2 (window cache, only if locality measured), and the full-hg38 contig table (raise `NCTG` + SRAM).
+
+
+## Step 15 — E2 measured (no cache) + full-hg38 contig table (BRAM)  ✅ 2026-07-17
+
+**E2 measured → stays E1.** `make locality` (`measure_locality.cpp` over the 30k-read ext capture,
+source-a = within-read chain-window overlap): **19.0% of fetched bytes are within-read cacheable, but
+tail-only** — just 2.4% of multi-chain reads have ANY overlap (per-read overlap p50=0%, p90=0%,
+p99=38%), concentrated in ~699 highly-repetitive reads; the typical read's chains hit distinct loci.
+Not worth an on-chip cache (helps 2.4% of reads on the *byte* side, and bytes aren't the constraint —
+D2 handles latency). Source-b (mate window vs read's own window) is untested (needs a mate capture).
+Recorded in `genome_fetch_options.md §4-E`.
+
+**Full-hg38 contig table — `bns_clamp_top` converted to registered-read BRAM.** The table was a
+register file with combinational reads (`off_r[bm]`, `off_r[bm+1]`) — fine at 5 contigs, but a giant
+address mux + 512 Kbit of flops at full hg38 (~3,366 contigs). Rewrote it, following the merge-sorter's
+v1→v1.1 registered-read pattern:
+- **Table is now a registered-read memory** (`off_mem`/`len_mem`, `NCTG` default 4096) — no
+  combinational array read, so it infers M20K BRAM (~26 M20K for full hg38) instead of a mux tree.
+- **Single-read binary search.** The registered read gives one value/cycle, so the two-reads-per-step
+  bracket search (`off[mid]` + `off[mid+1]`) was replaced by a "rightmost `offset ≤ pos_f`" search
+  needing only `off[mid]`. Since contig offsets strictly increase, this yields the IDENTICAL `rid` —
+  verified bit-exact. `S_*WAIT` states absorb the 1-cycle read latency; cost ~2·⌈log₂ n_seqs⌉ (~24
+  cyc for full hg38) + one clamp read.
+
+**Verification.** `tb_bns_clamp_top` `NCTG=2048` with the deep block raised to a **1024-contig** table
+(~10-level search over BRAM) + real chr1-5 + synth firing → **13216/0**. Mutations (restored
+byte-identical): search advance `mid+1`→`mid` and read address `rd_addr`→`rd_addr+1` both caught (all
+records fail — the search/read is genuinely exercised). Bit-exact result is unchanged, so the three
+**integration tbs re-ran green with the BRAM clamp**: extend 2000/0, pe2 200/0, pair 100/0 (the extra
+read-latency cycles compose cleanly — `chaining_extend_top` waits on `clp_done`).
+
+**Files.** `rtl/bns_clamp_top.sv` (BRAM rewrite, `NCTG`=4096), `tb/tb_bns_clamp_top.sv` (`NCTG`=2048),
+`host/extend_orchestrator/gen_clamp_vectors.cpp` (deep 1024), `measure_locality.cpp` + Makefile
+`locality`, `genome_fetch_options.md §4-E`. The on-chip genome fetch is now functionally complete,
+fast (D2), evidence-closed on caching (E2), and scalable to full hg38 (BRAM contig table).

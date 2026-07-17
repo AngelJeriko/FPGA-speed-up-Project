@@ -1,22 +1,21 @@
 // bns_clamp_top.sv — Decision C2 of docs/genome_fetch_options.md: the CONTIG CLAMP, on chip.
 //
-// Bit-exact to host/extend_orchestrator/bns_clamp.h, which is line-for-line faithful to unmodified
-// bwa-mem2: bns_fetch_seq_v2 (bwamem.cpp:1890) + bns_pos2rid (bntseq.cpp:378) + bns_depos
-// (bntseq.h:87). It sits immediately AFTER chain2aln_setup (which already emits rmax0/rmax1/s0_rbeg
-// = beg/end/mid) and BEFORE the reference fetch. Today the host performs this clamp; pulling it on
-// chip is required because "ask the host to clamp" is exactly the round trip the genome-fetch work
-// removes. Host still supplies the ref BYTES until the A1 fetch datapath lands.
+// Bit-exact to host/extend_orchestrator/bns_clamp.h (== bwa-mem2 bns_fetch_seq_v2 + bns_pos2rid +
+// bns_depos). Sits after chain2aln_setup (which emits rmax0/rmax1/s0_rbeg = beg/end/mid) and before
+// the reference fetch. Clamps [beg,end) to the contig that seeds[0].rbeg lands in (flipping into
+// reverse-strand space when is_rev) and derives rid.
 //
-// Operation (per request): swap beg/end if reversed; depos(mid) -> is_rev + forward coord midf;
-// bns_pos2rid(midf) via an iterative binary search over the ascending contig offset table
-// (~ceil(log2(n_seqs)) cycles); clamp [beg,end) to the contig's [offset, offset+len), flipped into
-// reverse-strand space when is_rev; final get_seq clamps + len (0 iff bridging, unreachable here).
-//
-// The contig table (offset,len per contig) lives in registers loaded via tbl_we; 5 entries for
-// chr1-5, up to ~3,366 for full hg38 (tens of KB) -> then move to on-chip SRAM by raising NCTG and
-// converting off_r/len_r to a RAM. n_seqs and l_pac are held stable during a request.
+// SCALABLE / BRAM VERSION (full hg38): the contig table is a REGISTERED-READ memory (off_mem/len_mem)
+// — no combinational array read, so it infers block RAM (M20K), not a giant address mux. NCTG scales
+// to ~4096 (chr1-5 uses 5; full hg38 ~3,366 with alts/decoys). Two consequences vs a register file:
+//   1. Reads have 1-cycle latency (present rd_addr, data on off_q/len_q next cycle). The FSM issues an
+//      address in one state and consumes it in the next.
+//   2. bns_pos2rid is done as a SINGLE-READ binary search ("rightmost offset <= pos_f"), which needs
+//      off_mem[mid] only (not off_mem[mid+1]). Because contig offsets strictly increase, this yields
+//      the IDENTICAL rid as bwa's bracket search — verified bit-exact vs bns_clamp.h. Search cost is
+//      ~2*ceil(log2(n_seqs)) cycles (~24 for full hg38) + one clamp read.
 module bns_clamp_top #(
-    parameter int NCTG = 8              // max contigs (5=chr1-5, 3=synthetic, up to ~4096 full hg38)
+    parameter int NCTG = 4096          // max contigs (5=chr1-5, ~3,366 full hg38 w/ alts)
 )(
     input  logic                clk,
     input  logic                rst_n,
@@ -40,51 +39,47 @@ module bns_clamp_top #(
     output logic                is_rev,        // strand of the fetch
     output logic signed [63:0]  out_len        // end_out-beg_out (0 iff bridging)
 );
-    // ---- contig table (registers; raise NCTG + convert to SRAM for full hg38) ----
-    logic signed [63:0] off_r [NCTG];
-    logic signed [63:0] len_r [NCTG];
-    always_ff @(posedge clk) if (tbl_we) begin
-        off_r[tbl_idx] <= tbl_offset;
-        len_r[tbl_idx] <= tbl_len;
+    // ---- contig table: registered-read memory (infers BRAM) ----
+    logic signed [63:0] off_mem [NCTG];
+    logic signed [63:0] len_mem [NCTG];
+    logic [15:0]        rd_addr;
+    logic signed [63:0] off_q, len_q;          // 1-cycle-latency read outputs
+    always_ff @(posedge clk) begin
+        if (tbl_we) begin off_mem[tbl_idx] <= tbl_offset; len_mem[tbl_idx] <= tbl_len; end
+        off_q <= off_mem[rd_addr];
+        len_q <= len_mem[rd_addr];
     end
 
-    typedef enum logic [1:0] { S_IDLE, S_SEARCH, S_CLAMP, S_DONE } state_t;
-    state_t state;
+    // S_*WAIT states give the registered-read memory its 1-cycle latency before the data is consumed.
+    typedef enum logic [2:0] { S_IDLE, S_SWAIT, S_SCMP, S_CWAIT, S_CCONS, S_DONE } st_t;
+    st_t state;
 
-    // request-scoped registers
     logic signed [63:0] beg_s, end_s, midf, l2, lpac_r;
-    logic [15:0]        nseq_r, left, right, bmid, rid_i;
+    logic [15:0]        lo, hi, mid_r, rid_i;
     logic               isrev_r;
 
-    assign rid = {16'd0, rid_i};
-
-    // --- combinational binary-search probe over the current [left,right) ---
-    logic [15:0]        bm;
-    logic signed [63:0] off_bm, off_bm1;
+    // next [lo,hi) from the current probe off_q vs midf ("rightmost offset <= pos_f")
+    logic [15:0] n_lo, n_hi;
     always_comb begin
-        bm      = (left + right) >> 1;
-        off_bm  = off_r[bm];
-        off_bm1 = off_r[(bm == nseq_r - 16'd1) ? bm : (bm + 16'd1)];   // guard the top-edge read
+        if (off_q <= midf) begin n_lo = mid_r + 16'd1; n_hi = hi;    end   // go right
+        else               begin n_lo = lo;            n_hi = mid_r; end   // go left
     end
 
-    // --- combinational clamp math for the resolved rid_i (valid once rid_i is set) ---
-    logic signed [63:0] fb_raw, fe_raw, fb, fe, cb, ce, cln;
+    // combinational clamp math for the resolved rid (valid in S_CCONS when off_q/len_q = off/len[rid])
+    logic signed [63:0] fb, fe, cb, ce, cln;
     always_comb begin
-        fb_raw = off_r[rid_i];
-        fe_raw = off_r[rid_i] + len_r[rid_i];
-        if (isrev_r) begin fb = l2 - fe_raw; fe = l2 - fb_raw; end   // flip into reverse-strand space
-        else         begin fb = fb_raw;      fe = fe_raw;      end
-        cb = (beg_s > fb) ? beg_s : fb;        // clamp up to contig start
-        ce = (end_s < fe) ? end_s : fe;        // clamp down to contig end
-        if (ce > l2)      ce = l2;             // bns_get_seq_v2 final clamps (no-ops post contig clamp)
-        if (cb < 64'sd0)  cb = 64'sd0;
+        if (isrev_r) begin fb = l2 - (off_q + len_q); fe = l2 - off_q; end   // flip into RC space
+        else         begin fb = off_q;                fe = off_q + len_q; end
+        cb = (beg_s > fb) ? beg_s : fb;
+        ce = (end_s < fe) ? end_s : fe;
+        if (ce > l2)     ce = l2;
+        if (cb < 64'sd0) cb = 64'sd0;
         cln = (cb >= lpac_r || ce <= lpac_r) ? (ce - cb) : 64'sd0;   // 0 == bridging fwd/rev boundary
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state <= S_IDLE;
-            done  <= 1'b0;
+            state <= S_IDLE; done <= 1'b0; rd_addr <= 16'd0;
         end else begin
             done <= 1'b0;
             case (state)
@@ -92,36 +87,40 @@ module bns_clamp_top #(
                 if (end_in < beg_in) begin beg_s <= end_in; end_s <= beg_in; end   // swap
                 else                 begin beg_s <= beg_in; end_s <= end_in; end
                 lpac_r  <= l_pac;
-                nseq_r  <= n_seqs;
                 l2      <= l_pac <<< 1;
                 isrev_r <= (midpos >= l_pac);                                       // bns_depos
                 midf    <= (midpos >= l_pac) ? ((l_pac <<< 1) - 64'sd1 - midpos) : midpos;
-                left    <= 16'd0;
-                right   <= n_seqs;
-                bmid    <= 16'd0;
-                state   <= S_SEARCH;
+                lo      <= 16'd0;
+                hi      <= n_seqs;
+                mid_r   <= n_seqs >> 1;
+                rd_addr <= n_seqs >> 1;                                             // issue first probe
+                state   <= S_SWAIT;
             end
-            S_SEARCH: begin
-                if (left < right) begin
-                    bmid <= bm;                                                     // remember last mid
-                    if (midf >= off_bm) begin
-                        if (bm == nseq_r - 16'd1 || midf < off_bm1) begin
-                            rid_i <= bm; state <= S_CLAMP;                          // bracketed -> found
-                        end else left <= bm + 16'd1;
-                    end else right <= bm;
-                end else begin
-                    rid_i <= bmid; state <= S_CLAMP;                               // loop exit: last mid
+            S_SWAIT: state <= S_SCMP;             // wait for off_q = off_mem[mid_r]
+            S_SCMP: begin                         // off_q = off_mem[mid_r] valid now
+                if (n_lo < n_hi) begin            // keep searching
+                    lo <= n_lo; hi <= n_hi;
+                    mid_r   <= (n_lo + n_hi) >> 1;
+                    rd_addr <= (n_lo + n_hi) >> 1;
+                    state   <= S_SWAIT;
+                end else begin                    // resolved: rid = n_lo - 1
+                    rid_i   <= n_lo - 16'd1;
+                    rd_addr <= n_lo - 16'd1;       // issue the clamp read of off/len[rid]
+                    state   <= S_CWAIT;
                 end
             end
-            S_CLAMP: begin
+            S_CWAIT: state <= S_CCONS;            // wait for off_q/len_q = off/len[rid_i]
+            S_CCONS: begin                        // off_q/len_q = off/len[rid_i] valid now
                 beg_out <= cb;
                 end_out <= ce;
                 out_len <= cln;
+                rid     <= {16'd0, rid_i};
                 is_rev  <= isrev_r;
                 done    <= 1'b1;
                 state   <= S_DONE;
             end
             S_DONE: state <= S_IDLE;
+            default: state <= S_IDLE;
             endcase
         end
     end
