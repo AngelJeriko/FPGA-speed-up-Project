@@ -1,10 +1,45 @@
 # Putting the genome on the device — design options for external review
 
-**Status:** decision record / options analysis. **Date:** 2026-07-17.
+**Status:** ⏸️ **DECISION PENDING — awaiting review. No RTL has been written.** **Date:** 2026-07-17.
 **Audience:** external reviewers who are *not* assumed to know this codebase or the internals of
 read alignment. Every term is defined in the Glossary (Section 2); on first use a term is
 *italicised*. Companion to `chaining_extension_wiring_options.md`, which deferred this work as
 its **Decision B2**.
+
+**Safe checkpoint:** git tag **`pre-genome-fetch-safe`** (= `94f72a7`, pushed) marks the last
+fully-validated state *before* any genome-fetch work: the join complete and bit-exact, full
+regression green, reference bytes still host-fed. Revert there if this proves unviable.
+
+---
+
+## 0. Decision sheet — the questions to answer
+
+Read Sections 3–4 for the reasoning; this is the summary to decide against. Recommendations are
+the author's, and each is defensible to overturn — the reasoning is in the linked section.
+
+| # | Question | Options | Recommended | Why / what it hinges on | § |
+|---|----------|---------|-------------|--------------------------|---|
+| **A** | How is the reference stored on the device? | **A1** byte (`.0123`-style, 2.0 GB / ~6.2 GB full hg38) · **A2** packed (`.pac`-style, 254 MB / ~775 MB) · **A3** packed + on-chip cache | **A1 to start; A2 as a measured follow-up** | Bandwidth is <1% of HBM, so this is **capacity + simplicity**, not throughput. A1 has *zero* fetch logic (§3.3). A2 is 8× smaller — matters only if the future seeding front-end contends for HBM. | §4-A |
+| **B** | Where does it live? | **B-i** HBM · **B-ii** DDR · **B-iii** on-chip SRAM | **B-i (HBM)** | Mostly decided by the target board. B-iii is impossible (tens of MB vs ≥775 MB). Seeding will want HBM anyway. | §4-B |
+| **C** | When do we build the contig clamp? | **C1** fold into B2 · **C2** land first, standalone, verified | **C2** | **The one piece with real bit-exactness risk.** It's pure arithmetic — it needs no memory subsystem to validate. Landing it first means any later end-to-end mismatch is unambiguously a *fetch* bug. | §3.4, §4-C |
+| **D** | How is latency hidden? | **D1** blocking · **D2** prefetch on `rmax` · **D3** deep multi-chain pipelining | **D1 → D2**; D3 only if measured | This is where the win is. A host round trip *cannot* be pipelined away; a memory read *can*. D2 is modest logic for most of the benefit. | §4-D |
+| **E** | Do we cache windows? | **E1** none · **E2** small window cache | **E1 until measured** | Locality is a *hypothesis* (mate sits within ~300–500 bp of the read). Cheap to test from the capture we already have. Bandwidth is 99% idle, so re-fetching is nearly free. | §4-E |
+| **F** | How is it verified? | — | Capture → model → RTL → **mutation-test the tb** | Needs a **4th capture** (`bns_fetch_seq_v2` I/O) added to `remote_capture_plan.md`, and a **multi-contig test genome** — `g(pos)=pos&3` has no contigs and cannot exercise the clamp at all. | §4-F |
+
+**Recommended path if you agree with all of the above:**
+`C2` (clamp first, verified) → `A1 + B-i + D1` (simplest working fetch) → `D2` (prefetch — most of
+the win) → then `A2` / `D3` / `E2` **only if measurement justifies them**.
+
+**The two facts that should drive the decision** (both measured/verified this session, not estimated):
+1. **Latency is the entire problem; bandwidth is a non-issue.** 8.03 fetches/read × ~2–4 µs host
+   round trip ≈ **16–32 µs/read of stall** (worst read: 615 fetches ≈ 1.2–2.5 ms). Meanwhile the
+   data rate is ~2.3 GB/s per Mread/s = **<1% of HBM**. Simulation hides all of this. (§3.1–3.2)
+2. **The contig clamp is unmodelled work that cannot stay on the host** — asking the host to clamp
+   *is* the round trip we're removing. It is the only genuinely new correctness surface here. (§3.4)
+
+**Smallest useful first commitment** if you want to de-risk before committing to the whole thing:
+approve **C2 alone**. It is independently valuable (it closes a real gap between our model and
+bwa-mem2), independently verifiable against a capture, and it does not presuppose A, B, D or E.
 
 ---
 
