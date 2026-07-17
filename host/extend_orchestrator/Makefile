@@ -43,6 +43,13 @@ measure_dims: measure_dims.cpp parse.h orch.h ksw.h
 dims: measure_dims $(VEC)
 	./measure_dims $(VEC)
 
+# Sizing data for the on-chip genome fetch (docs/genome_fetch_options.md): chains/read
+# (= fetches/read) and reference-window bytes, over the real captured extension vectors.
+measure_fetch: measure_fetch.cpp parse.h orch.h ksw.h
+	$(CXX) $(CXXFLAGS) -o $@ measure_fetch.cpp
+fetchdims: measure_fetch $(VEC)
+	./measure_fetch $(VEC)
+
 check_band: check_band.cpp parse.h orch.h ksw.h
 	$(CXX) $(CXXFLAGS) -o $@ check_band.cpp
 checkband: check_band $(VEC)

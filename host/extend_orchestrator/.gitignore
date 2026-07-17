@@ -26,3 +26,4 @@ test_orch_full
 test_orch_hw
 test_orch_inthw
 *.o
+measure_fetch
