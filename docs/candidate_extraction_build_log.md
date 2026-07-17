@@ -571,3 +571,64 @@ RTL restored byte-identical (md5 verified) after each.
 **Reproduce.** `bash scripts/run_sim.sh tb_chaining_pe2_top` (and `..._pe_pair_top`) — both
 bootstrap their vectors. NOTE `run_sim.sh` is mode 644, so invoke it via `bash`, not `./`.
 `BSW_BUILD_DIR=/tmp/bsw_reg` lets a second sim run concurrently without clashing on the obj dir.
+
+
+## Step 10 — CONTIG CLAMP model + 4th capture (Decision C2 of the genome fetch)  ✅ 2026-07-17
+
+**Context.** After the join (Step 9), the user reviewed `docs/genome_fetch_options.md` and chose the
+on-chip genome-fetch path: **A1** byte layout to start (→ A2 packed later), **B-i** HBM, **C2** land
+the contig clamp FIRST as its own verified step, **D2** prefetch on `rmax`, **E1** no cache. This step
+is C2: the clamp is the one genuinely new correctness surface (§3.4 of the options doc), so it is
+modelled and proven bit-exact *before* any memory subsystem exists.
+
+**What the clamp is.** The extension does not call raw `bns_get_seq_v2`; it calls **`bns_fetch_seq_v2`**
+(`bwamem.cpp:1890`, invoked at `:2172`), which after `chain2aln_setup` produces `rmax[0..1]`:
+1. derives the contig `rid = bns_pos2rid(bns_depos(mid, &is_rev))` — binary search over the ascending
+   `.ann` offset table (`bntseq.cpp:378`), `mid = c->seeds[0].rbeg`;
+2. clamps `[beg,end)` to that contig's `[offset, offset+len)`, flipping both bounds into reverse-strand
+   space (`far_beg = 2*l_pac - far_end`, etc.) when `is_rev`.
+
+**Seam.** The caller passes `beg=rmax[0]`, `end=rmax[1]`, `mid=c->seeds[0].rbeg` — and our
+`chain2aln_setup` RTL already outputs all three (`rmax0`, `rmax1`, `s0_rbeg = b_rbeg[0]`), so C2 slots
+in immediately after it with **no upstream change**. Bonus: the caller does `assert(c->rid == rid)`, so
+recomputing `rid` on chip and comparing to the chain's `rid` is a free consistency check / fallback.
+
+**Model.** `host/extend_orchestrator/bns_clamp.h` — line-for-line faithful to those three functions
+(`BnsTable`, `bns_depos_m`, `bns_pos2rid_m`, `bns_clamp`, plus `bns_load_ann` to read the contig
+table). Validated bit-exact **three ways**:
+
+| golden | how | result | what it proves |
+|---|---|---|---|
+| directed (`make clamp`) | `test_bns_clamp.cpp`, 6 synthetic + 7 real chr1-5 coords | **13/13** | every edge by hand: no-clamp, run-off-end, start-before-contig, `is_rev` flip, rev clamp, mid==boundary |
+| real chr1-5 (`make checkclampreal`) | 4th capture `clamp_vec.bin`, 400k records | **400000/0** | rid-derivation + `is_rev` (193,755 rev) + no-op path on the real distribution |
+| synthetic firing (`make checkclamp`) | `clamp_synth.bin`, 16 records | **16/16** | the actual clamp arithmetic vs real bwa: clamped_beg=4, clamped_end=12, rev=8 |
+
+**KEY FINDING — the clamp never fires on real chr1-5.** The 400k capture had `clamped_beg=0,
+clamped_end=0`; a firing-only capture (`ALNREG_CLAMP_FIRED=1`) over *all* 50k pairs produced a
+**0-byte** file. Reason: chr1-5 are 5 huge contigs whose ends are N-masked telomeres, so no read ever
+seeds within a ~280-byte window of a boundary. The clamp is a rare safety net here (it *would* fire on
+full hg38's ~3,366 small alt/decoy contigs). So the firing path **cannot** be validated against real
+chr1-5 data — hence the synthetic multi-contig genome (`vectors/synth.fa`, 3 non-N contigs 4k/6k/5k;
+`synth.fq` boundary reads), which §4-F of the options doc anticipated. This is the same lesson as the
+`bsw_top` episode: a rare path that real data doesn't exercise needs a *directed* golden, or it ships
+unproven.
+
+**Capture mechanics (all local now — no WSL/SSH hop).** Instrumentation artifact
+`host/extend_orchestrator/capture/clamp_capture.inc` = infra block + one hook around `bwamem.cpp:2172`
+(snapshot `rmax` before the mutating call, write `beg_out/end_out/rid` + the returned window BYTES
+after). Env-gated `ALNREG_CLAMP_OUT` / `ALNREG_CLAMP_MAX` / `ALNREG_CLAMP_FIRED`. The record carries the
+bytes so the *same* capture later validates the A1 byte-fetch without re-instrumenting. Flow: apply the
+2 edits → `make arch=avx512 EXE=bwa-mem2.avx512bw all -j16` → run with the env vars on `cap_sel/c1.fq`
++`c2.fq` (50k HG00733 pairs, same corpus as `ext_vec`) → `cp bwamem.cpp.orig bwamem.cpp` to REVERT →
+rebuild clean. Verified pristine (identical to `.orig`, 0 markers) + clean binary rebuilt.
+
+**Files.** `host/extend_orchestrator/`: `bns_clamp.h` (model), `test_bns_clamp.cpp` (directed),
+`check_clamp.cpp` (capture validator), `capture/clamp_capture.inc` (instrumentation), Makefile targets
+`clamp` / `checkclamp` / `checkclampreal`, `.gitignore` (keeps the 4 KB `clamp_synth.bin`, drops the
+139 MB `clamp_vec.bin` + regenerable synth index files). Committed goldens: `vectors/synth.fa`,
+`synth.fq`, `synth.fa.ann`, `clamp_synth.bin`.
+
+**NEXT (Step 11) = the C2 RTL:** contig table in on-chip SRAM (5 entries here; tens of KB for full
+hg38) + `bns_pos2rid` binary search + `is_rev` flip + min/max clamp, fed by `chain2aln_setup`, verified
+bit-exact vs `bns_clamp.h` over both goldens, then mutation-tested. Host still supplies the ref BYTES
+until the A1 fetch datapath lands after C2.

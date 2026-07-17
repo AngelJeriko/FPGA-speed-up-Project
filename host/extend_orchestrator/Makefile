@@ -50,6 +50,25 @@ measure_fetch: measure_fetch.cpp parse.h orch.h ksw.h
 fetchdims: measure_fetch $(VEC)
 	./measure_fetch $(VEC)
 
+# Decision C2: the contig clamp (bns_clamp.h) — directed self-checking test over the real chr1-5
+# .ann table + a synthetic 3-contig table. See docs/genome_fetch_options.md §4-C/§4-F.
+test_bns_clamp: test_bns_clamp.cpp bns_clamp.h
+	$(CXX) $(CXXFLAGS) -o $@ test_bns_clamp.cpp
+clamp: test_bns_clamp
+	./test_bns_clamp
+
+# Validate the clamp model bit-exact vs real bwa-mem2 (Decision C2 / §4-F). Two goldens, both from
+# capture/clamp_capture.inc: the committed SYNTHETIC firing golden (clamp_synth.bin — exercises the
+# actual boundary clamp, both strands + beg/end, which real chr1-5 data never triggers because its
+# 5 contigs have N-masked telomeres), and the large REAL chr1-5 capture (clamp_vec.bin, gitignored
+# — validates rid-derivation + the no-op path on 400k real windows; regenerate per the .inc).
+check_clamp: check_clamp.cpp bns_clamp.h
+	$(CXX) $(CXXFLAGS) -o $@ check_clamp.cpp
+checkclamp: check_clamp                     # permanent regression: the synthetic firing golden
+	./check_clamp vectors/clamp_synth.bin vectors/synth.fa.ann
+checkclampreal: check_clamp                 # the 400k real chr1-5 capture (regenerate first)
+	./check_clamp vectors/clamp_vec.bin /home/ccloud/ref/hg38_chr1-5.fa.ann
+
 check_band: check_band.cpp parse.h orch.h ksw.h
 	$(CXX) $(CXXFLAGS) -o $@ check_band.cpp
 checkband: check_band $(VEC)
