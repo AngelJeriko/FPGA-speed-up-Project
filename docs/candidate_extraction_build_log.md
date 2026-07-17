@@ -707,3 +707,43 @@ and vector formats UNCHANGED (single contig is a tb-side constant), so no downst
 **NEXT = Decision A1**: replace the host behind `ref_req`/`ref_in_*` with an on-chip byte-array fetch
 from HBM (`seq = ref_string + beg` over the clamped window), then D2 prefetch-on-`rmax`. The contig
 clamp — the one new correctness surface — is now on chip, verified, and integrated.
+
+
+## Step 13 — A1 on-chip reference fetch (`rtl/ref_fetch_top.sv`)  ✅ 2026-07-17  (unit 604/0, integ 2000/0)
+
+**What.** Decision A1: the reference window bytes now come from an on-chip HBM-resident byte array
+instead of the host. `ref_fetch_top` consumes the existing `ref_req`/`ref_rbeg`/`ref_len` seam and
+produces `ref_in_*`, unchanged — it REPLACES the host behind those ports (exactly the B1 promise).
+Because BWA-MEM2 pre-materialises the whole `2*l_pac` space at ONE BYTE PER BASE in `.0123`
+(fwd+RC spelled out), the fetch is a **flat byte read**: read `ref_len` bytes at byte address
+`ref_rbeg` — no unpack/mirror/complement (those are only for the packed `.pac` layout, Decision A2).
+The window is already contig-clamped by `bns_clamp_top` upstream, so the address never runs off a
+contig.
+
+**Design.** FSM `F_IDLE→F_AR→F_R→F_DONE→F_SETTLE`, single-outstanding **D1 blocking** bring-up: issue
+one byte address on a simple in-order memory read port (`mem_arvalid/araddr/arready` + `mem_rvalid/
+rdata`), wait, stream the byte on `ref_in_*`, repeat; pulse `ref_in_done` after `ref_len` bytes
+(`ref_len==0` → immediate done, the bridging edge). The memory port is deliberately a plain
+valid/ready read so **D2 (prefetch on rmax, many reads in flight)** and the real AXI/HBM adapter drop
+in behind it without touching the consumer. `ref_in_data = base_t'(mem_rdata)` (base 0..4).
+
+**Verification.**
+- **Unit** `tb/tb_ref_fetch_top.sv`: models HBM as `g(addr)=addr&3` (the SAME bytes the host served)
+  and checks each request `{rbeg,len}` emits exactly `len` bytes with `ref_in_addr=0..len-1` and
+  `ref_in_data=(rbeg+i)&3`, then `ref_in_done`. Directed edges (len 0/1/811, large 64-bit addr) +
+  600 randomized → **604/0**. Mutation-tested (restored byte-identical): **M1** `mem_araddr +1` →
+  603/604 fail (data wrong, count right — the HBM address drives the data); **M2** `cnt+1>=len` →
+  `cnt+2>=len` → 599 fail (`got len-1 bytes`, count short).
+- **Integration** `tb/tb_chaining_extend_fetch.sv`: the full chaining→extend pipeline with
+  `ref_fetch_top` + an HBM model (`g(addr)=addr&3`) in place of the host ref-server. Same golden as
+  `tb_chaining_extend_top` → **2000/0**: the on-chip fetch reproduces the host byte stream in-context.
+
+**Files.** `rtl/ref_fetch_top.sv`, `tb/tb_ref_fetch_top.sv`, `tb/tb_chaining_extend_fetch.sv`,
+`scripts/run_sim.sh` (`tb_ref_fetch_top` + `tb_chaining_extend_fetch` branches). `chaining_extend_top`
+and the pe2/pair wrappers are UNCHANGED — the host path (Step 12) and the on-chip fetch path share
+the same seam; the fetch tb composes the two real modules.
+
+**NEXT = Decision D2** (prefetch on `rmax`): keep many `mem_ar` reads in flight and issue the fetch
+the instant `chain2aln_setup`+clamp produce the window, overlapping it with the previous chain's SW —
+this converts the per-byte blocking latency (the whole point of moving the genome on chip) into
+near-invisible pipelined reads. The A1 memory port was shaped to make that a local change.

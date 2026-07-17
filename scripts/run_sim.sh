@@ -159,6 +159,29 @@ elif [[ "$TB" == tb_chaining_extend_top ]]; then
             -o gen_chaining_extend_vectors gen_chaining_extend_vectors.cpp \
           && ./gen_chaining_extend_vectors vectors/chainingext_vectors.txt 2000 )
     fi
+elif [[ "$TB" == tb_chaining_extend_fetch ]]; then
+    # A1 integration: same pipeline as tb_chaining_extend_top but the ref window comes from
+    # ref_fetch_top reading an HBM model (g(addr)=addr&3) instead of the host. Same golden.
+    RTL_FILES=(
+        "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
+        "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
+        "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
+        "$RTL/chain_store.sv" "$RTL/chain_weight.sv" "$RTL/chain_introsort.sv" "$RTL/chain_flt.sv"
+        "$RTL/chain_flt_top.sv" "$RTL/chaining_top.sv" "$RTL/chain2aln_setup.sv" "$RTL/bns_clamp_top.sv"
+        "$RTL/ref_fetch_top.sv" "$RTL/chaining_extend_top.sv"
+    )
+    EO="$ROOT/host/extend_orchestrator"
+    VEC_TXT="$EO/vectors/chainingext_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$EO/vectors"
+        ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -I../chaining \
+            -o gen_chaining_extend_vectors gen_chaining_extend_vectors.cpp \
+          && ./gen_chaining_extend_vectors vectors/chainingext_vectors.txt 2000 )
+    fi
 elif [[ "$TB" == tb_chaining_pe2_top ]]; then
     # THE JOIN: chaining -> extension -> sort -> mate-rescue as one block. Needs BOTH trees'
     # RTL (chaining_extend_top + matesw_pe_sel_top) plus the two-stage vector bootstrap:
@@ -235,6 +258,12 @@ elif [[ "$TB" == tb_chain2aln_setup ]]; then
         ( cd "$EO" && g++ -O2 -std=c++17 -o gen_chain2aln_vectors gen_chain2aln_vectors.cpp \
           && ./gen_chain2aln_vectors vectors/chain2aln_vectors.txt 4000 )
     fi
+elif [[ "$TB" == tb_ref_fetch_top ]]; then
+    RTL_FILES=(
+        "$RTL/bsw_pkg.sv"
+        "$RTL/ref_fetch_top.sv"
+    )
+    # self-contained tb (models HBM as g(addr)=addr&3); no vector bootstrap needed
 elif [[ "$TB" == tb_bns_clamp_top ]]; then
     RTL_FILES=(
         "$RTL/bns_clamp_top.sv"
