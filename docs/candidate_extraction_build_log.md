@@ -818,3 +818,37 @@ read-latency cycles compose cleanly — `chaining_extend_top` waits on `clp_done
 `host/extend_orchestrator/gen_clamp_vectors.cpp` (deep 1024), `measure_locality.cpp` + Makefile
 `locality`, `genome_fetch_options.md §4-E`. The on-chip genome fetch is now functionally complete,
 fast (D2), evidence-closed on caching (E2), and scalable to full hg38 (BRAM contig table).
+
+
+## Step 16 — D2 cross-chain prefetch (variant `chaining_extend_prefetch_top`)  ✅ 2026-07-17  2000/0
+
+**What.** The last overlap the doc's D2 names: fetch chain k+1's window during chain k's Smith-Waterman.
+`accel_top` processes one chain per `ch_go` and reloads its single ref buffer each chain, so overlap
+needs a local **2-slot ping-pong window buffer**. Built as an ISOLATED DROP-IN VARIANT
+(`chaining_extend_prefetch_top`, identical ports/output) — the production `chaining_extend_top` and the
+pe2/pair wrappers are UNTOUCHED, so this carries zero risk and can be adopted once synthesis/real-HW
+numbers justify it.
+
+**Design.** The per-chain work is split into two concurrent FSMs around the 2-slot buffer:
+- **PRODUCER** (`kp`): per chain — read chaining_top → walk seeds → `chain2aln_setup` (rmax) →
+  `bns_clamp_top` (clamp) → `ref_req`/`ref_in_*` fetch INTO `win_buf[kp%2]` + `sb_*[kp%2]` + metadata;
+  commit `slot_full[kp%2]`. Stalls when the target slot is still full (≤1 chain of lookahead, which the
+  doc says is enough).
+- **CONSUMER** (`kc`): per chain in order — when `slot_full[kc%2]`, stream the slot's window→`accel`
+  `r_ld` + seeds→`s_ld`, `ch_go`, wait `ch_ready`, free the slot.
+So chain k+1's HBM fetch (already D2-pipelined) overlaps chain k's extension — the fetch latency is
+lifted off the critical path. Slot ownership is mutually exclusive (producer writes only an empty slot,
+consumer reads only a full one), so no read/write hazard even at the same physical slot.
+
+**Verification.** `tb/tb_chaining_extend_prefetch.sv` (copy of the extend tb driving the variant, same
+host ref-server + same golden) → **2000/0 first try** — bit-exact, so the re-timing/overlap changes
+nothing observable. Mutation (restored byte-identical): the ping-pong capture `win_buf[kp%2][ref_in_addr]`
+→ `+1` gave **6424 failures** with shifted `rb/re`/`score` — the prefetched window genuinely feeds
+`accel` (not bypassed).
+
+**Files.** `rtl/chaining_extend_prefetch_top.sv`, `tb/tb_chaining_extend_prefetch.sv`,
+`scripts/run_sim.sh` branch. **Note (synthesis TODO):** `win_buf` is read combinationally here for
+functional proof; a synthesizable version reads it from BRAM (registered read + one `C_RLOAD` wait
+cycle, the same treatment as the clamp table). Adoption into pe2/pair is deferred pending the Quartus
+Fmax/area + real-HW latency numbers that would quantify the gain (sim can't show it — the tb answers
+instantly). The on-chip genome fetch (C2+A1+D2 pipelined + cross-chain prefetch) is now complete.
