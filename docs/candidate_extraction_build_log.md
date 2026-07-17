@@ -427,8 +427,11 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
   matesw_pe_top 2000/0, matesw_pe_sel_top 2000/0, accel_pe2_loop 94/94 (real-accel, tie checked);
   accel_pe_top 200/0, accel_pe2_top, accel_pe_pair_top 91/91 (tie wired, capture/pair tbs).
   The host now has a top-level dedup-tie fallback signal at every accel rescue top.
-- (tiny optional) explicit `tie==fb` check in tb_accel_pe_pair_top (gen_pe2pair fb column); the
-  pair tie is the same pass-through signal already verified at accel_pe2_loop.
+- ~~(tiny optional) explicit `tie==fb` check at the pair level (gen_pe2pair fb column)~~ DONE
+  2026-07-16 for the JOIN's pair top: `gen_chaining_pe2pair_vectors` emits each direction's
+  rescue `fb` and `tb_chaining_pe_pair_top` checks `tie==fb` per direction. (Still absent from
+  the older `gen_pe2pair_vectors`/`tb_accel_pe_pair_top`, where the pair tie remains the same
+  pass-through signal already verified at accel_pe2_loop.)
 - **hw.h / orch.h real-data validation** — the mate SW kernel + per-call orchestration captures
   (`matesw_/orch_capture.inc`) still un-run. orch.h transitively covers the kernel (its only SW
   is hw_align2). orch.h's hooks need care: bwamem_pair.cpp has near-duplicate mem_matesw /
@@ -446,3 +449,96 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
   (50 <= 64) and the selection only reads the first `min(n_src, max_matesw)` candidates, so
   `NSRC` needs no fallback — but nothing enforces it. See the "Related: NSRC" section of
   `docs/ma_max_sizing_analysis.md`.
+
+---
+
+## Step 6 — THE JOIN: `chaining_pe2_top` + `chaining_pe_pair_top`  ✅ 2026-07-16
+
+**Why.** The RTL had **two separate integration trees that both sat on `accel_top` but did not
+contain each other**:
+
+```
+Tree A (front): chaining_top + chain2aln_setup + accel_top    -> chaining_extend_top
+Tree B (back):  accel_top + matesw_pe_sel_top                 -> accel_pe2_top -> accel_pe_pair_top
+```
+
+So `chaining -> extension -> sort -> mate-rescue` had **never run as one block**. Step 6 fuses
+them: substitute `chaining_extend_top` for `accel_top` inside `accel_pe2_top`.
+
+**Why it's mostly interface work.** `chaining_extend_top` and `accel_top` already share an
+IDENTICAL output contract — the same `m_axis_tvalid/tdata/tlast/tready` carrying `rec_t`. The
+capture FSM's `.m_axis_tready(1'b1)` and its `ac_done` edge-detect both survive the substitution
+unchanged. What actually changes:
+
+1. **Input side** — raw seeds + query + `start`/`n_in` (chaining derives the chains itself)
+   replace `accel_top`'s pre-chained per-chain drive (`ch_go` / `s_ld` / `rmax`).
+2. **Ref fetch** — `rmax` is now computed on chip, so the per-chain window is no longer
+   host-known up front: the deferred-fetch handshake (`ref_req` / `ref_in_*`) is plumbed UP
+   through pe2 → pair to the host. Swapping in an on-chip genome fetch later (Decision B2 of
+   `chaining_extension_wiring_options.md`) touches only these ports.
+3. **Run reset** — the run is latched at `start` (was `read_start`).
+
+**Run-reset risk: checked, already safe.** The plan flagged "chaining state must reset cleanly
+between the two runs". It does: `chain_store` zeroes `nch`/`pool_n`/`fallback` on its own `start`
+pulse (`C_IDLE: if (start)`), and `chaining_top` clears `fallback`/`n_out`. The raw-seed buffer is
+bounded by `n_in`, so a shorter run 2 never reads run 1's stale tail. No new logic was needed.
+The tbs exercise this hard: 2 runs/case × 200 cases, and 4 runs/pair × 100 pairs.
+
+**Timing note (why the substitution is *safer* than the original).** `accel_pe2_top` captures
+`cap_cnt` at the `ac_done` edge, which would race a same-cycle final beat. `chaining_extend_top`
+waits for `ac_done` in `E_AXI` and pulses its own `done` a state later, so its `done` sits
+strictly later relative to the stream than `accel_top`'s — strictly more margin than the
+already-verified `accel_pe2_top`.
+
+### STAGE-SPECIFIC FALLBACK (the user decision — worth more than the MA_MAX bump)
+
+Fallback used to be ONE OR'd bit → the host redid the WHOLE read. Now each stage reports its own:
+
+| bit | stage | raised by | sampled at |
+|-----|-------|-----------|------------|
+| `fb_chain` | chaining | dup-pos / capacity / combsort depth | `ce_done` (per run) |
+| `fb_sort`  | extension+sort | equal-`re` tie / `n > N_MAX` oversize | `ce_done` (per run) |
+| `tie`      | rescue | mr_dedup equal-key tie | `sel_done` |
+| `overflow` | rescue | ma list > `MA_MAX` | `sel_done` |
+
+`chaining_extend_top` gained `fb_chain`/`fb_sort` outputs (`fallback` kept as their OR for
+callers that only need "something needs SW"). A chaining fallback short-circuits the read —
+extension never runs — so **`fb_chain=1` implies `fb_sort=0`**; the generator's measured split
+confirms it (537 total = 451 chaining + 86 sort, exactly disjoint).
+
+Why it matters: fallbacks are a DIRECT tax, ceiling = `1/(0.476 + 0.524*f)`. Rescue is only 12.5%
+of runtime, so redoing just rescue caps its damage at ~0.05x vs ~0.15x for a whole-read redo.
+
+### Verification
+
+- **`gen_chaining_extend_vectors` now emits `fb_chain fb_sort nout`** (was `fb nout`), and
+  `tb_chaining_extend_top` checks **each bit independently, not their OR** — attributing a
+  fallback to the wrong stage would silently corrupt the read. **2000 cases, 0 failures**
+  (451 chaining + 86 sort fallbacks all correctly attributed).
+- **`gen_chaining_pe2_vectors`** — same TU-isolation trick as `gen_pe2_vectors`, one stage
+  further back: PARSES `chainingext_vectors.txt` (read `i`'s output = candidate source, read
+  `!i`'s = entry ma) and runs ONLY `pe.h::matesw_pe_select`. Keeps the chaining and mate-rescue
+  headers in separate translation units. Re-emits both reads' RAW-SEED blocks so the RTL
+  regenerates the identical source/ma on chip, chaining included. Ref bytes are NOT emitted —
+  the TB serves each on-chip `rmax` request from the same synthetic genome `g(pos)=pos&3`.
+- **`tb_chaining_pe2_top`: 200 cases, 0 failures** (688 selected rescues).
+- **`tb_chaining_pe_pair_top`: 100 pairs** — both directions + result-A snapshot; also checks
+  `tie==fb` per direction, closing the logged pair-level follow-on.
+
+**Shared config ports.** `wcfg` / `min_seed_len` / `l_pac` are ONE opt field each in bwa
+(`opt->w`, `opt->min_seed_len`, `bns->l_pac`), so the join shares one port rather than
+duplicating chaining-side and rescue-side copies. Verified consistent: `MOpt` defaults
+(`min_seed_len=19`, `a=1`, `o_del=6`, `e_del=1`, `o_ins=6`, `e_ins=1`) match the chaining
+block's `COpt`/`Cfg` exactly. The golden takes `l_pac` from the read block for the same reason.
+
+### The tbs have teeth — two RTL mutation tests (negative controls)
+
+Motivated by the `bsw_top` episode (it passed 9 hand-written cases, then turned out ~19%
+over-scored on real data). A green test proves nothing until it has been shown to go red:
+
+| mutant | change | result |
+|--------|--------|--------|
+| **M1** | `run_cand_r <= 1'b1` (break run routing) | **CAUGHT** — `n_ma_init=0/5, 0/7, 0/1, 0/6`: run 2's beats landed in the source buffer, ma left empty. Proves the routing is checked AND that the ma counts are real on-chip values, not pass-through zeros. |
+| **M2** | `s_ma_sc = ce_tdata.score + 1` (corrupt record datapath) | **CAUGHT** — `sc 130/129` on every captured record, and ONLY the score field (`qb`/`qe`/`rb`/`re` still match). Records `ma[3..5]` did NOT fail: those are computed by the on-chip rescue SW core and don't flow through the mutated capture path — the mutation hit exactly the records it should. |
+
+RTL restored byte-identical (md5 verified) after each.

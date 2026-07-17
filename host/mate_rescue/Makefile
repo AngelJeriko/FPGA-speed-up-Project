@@ -61,6 +61,23 @@ gen_pe2_vectors: gen_pe2_vectors.cpp pe.h orch.h hw.h ksw_ref.cpp ksw_ref.h macr
 pe2vec: gen_pe2_vectors
 	./gen_pe2_vectors ../extend_orchestrator/vectors/accel_vectors.txt vectors/pe2_vectors.txt 300
 
+# THE JOIN's golden for tb_chaining_pe2_top: same trick one stage further back — parses
+# chainingext_vectors.txt (read i's chaining->extend->sort output = candidate source, read !i's
+# = entry ma), then runs pe.h rescue. The RTL regenerates both from RAW SEEDS on chip, chaining
+# included (already verified == the golden by tb_chaining_extend_top). -DMR_DEDUP_INT.
+gen_chaining_pe2_vectors: gen_chaining_pe2_vectors.cpp pe.h orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_chaining_pe2_vectors.cpp ksw_ref.cpp
+chainpe2vec: gen_chaining_pe2_vectors
+	./gen_chaining_pe2_vectors ../extend_orchestrator/vectors/chainingext_vectors.txt vectors/chaining_pe2_vectors.txt 200
+
+# Both-directions golden for tb_chaining_pe_pair_top: THE JOIN for a full pair (a[0]' + a[1]'),
+# driven from raw seeds. Also emits each direction's rescue fb, so the pair-level tb can check
+# tie==fb (gen_pe2pair_vectors omits it -- that check only existed one level down).
+gen_chaining_pe2pair_vectors: gen_chaining_pe2pair_vectors.cpp pe.h orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
+	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_chaining_pe2pair_vectors.cpp ksw_ref.cpp
+chainpe2pairvec: gen_chaining_pe2pair_vectors
+	./gen_chaining_pe2pair_vectors ../extend_orchestrator/vectors/chainingext_vectors.txt vectors/chaining_pe2pair_vectors.txt 100
+
 # Both-directions closed-loop golden for tb_accel_pe_pair_top (full pair: a[0]' + a[1]').
 gen_pe2pair_vectors: gen_pe2pair_vectors.cpp pe.h orch.h hw.h ksw_ref.cpp ksw_ref.h macro.h
 	$(CXX) $(CXXFLAGS) -DMR_DEDUP_INT -o $@ gen_pe2pair_vectors.cpp ksw_ref.cpp

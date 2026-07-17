@@ -6,8 +6,12 @@
 //   orch.h orchestrate (HWMODEL+INTPURGE)  (extension + seedcov + purge)
 //   compact (keep qe>qb) + accel fallback (equal-re tie / n>1024) + v2_dedup (sort+dedup)
 // The query is built on the PRIMARY surviving chain's diagonal so its seeds are real matches in
-// g (-> non-trivial extensions); secondary chains score low (realistic). fb = chaining-fallback
-// OR accel-fallback -> the RTL raises fallback and the TB skips the output check.
+// g (-> non-trivial extensions); secondary chains score low (realistic).
+//
+// Fallback is emitted STAGE-SPECIFICALLY (fb_chain = chaining dup-pos/combsort, fb_sort = accel
+// equal-re tie / n>1024) so the TB can check each bit on its own -- the host redoes only the
+// failed stage. Chaining short-circuits the read, so fb_chain=1 implies fb_sort=0. Either bit
+// makes the RTL raise `fallback` and the TB skips the output check.
 //
 // Build with -DHWMODEL -DINTPURGE (so extension+purge match the RTL), -I../chaining.
 // Output:
@@ -16,7 +20,7 @@
 //     l_query a o_del e_del o_ins e_ins zdrop w pen5 pen3 max_chain_gap min_seed_len max_chain_extend l_pac n_seeds
 //     n_seeds * { rbeg qbeg len score rid is_alt }
 //     query[0..l_query-1]
-//     fb nout
+//     fb_chain fb_sort nout
 //     nout * { rb re qb qe rid score }
 #include <cstdio>
 #include <cstdint>
@@ -45,7 +49,7 @@ int main(int argc, char** argv) {
 
     std::string buf; buf.reserve(32<<20);
     char line[256];
-    long nfb=0;
+    long nfb=0, nfb_chain=0, nfb_sort=0;
     for (int it=0; it<n; ++it) {
         COpt o = copt;
         if ((rnd()%6)==0) o.max_chain_extend = 1 + rnd()%5;     // exercise the cap path
@@ -96,6 +100,8 @@ int main(int argc, char** argv) {
         }
         bool fb = fb_chaining || fb_accel;
         if (fb) nfb++;
+        if (fb_chaining) nfb_chain++;
+        if (fb_accel)    nfb_sort++;
 
         snprintf(line,sizeof line,"%d %d %d %d %d %d %d %d %d %d %d %d %d %lld %d\n",
             l_query, ecfg.a, ecfg.o_del, ecfg.e_del, ecfg.o_ins, ecfg.e_ins, ecfg.zdrop, ecfg.w,
@@ -104,13 +110,14 @@ int main(int argc, char** argv) {
         for (int k=0;k<ns;++k){ snprintf(line,sizeof line,"%lld %d %d %d %d %d\n",
             (long long)seeds[k].rbeg,seeds[k].qbeg,seeds[k].len,seeds[k].score,rid[k],alt[k]?1:0); buf+=line; }
         for (int j=0;j<l_query;++j){ snprintf(line,sizeof line,"%d ",query[j]); buf+=line; } buf+='\n';
-        snprintf(line,sizeof line,"%d %d\n", fb?1:0, fb?0:nout); buf+=line;
+        snprintf(line,sizeof line,"%d %d %d\n", fb_chaining?1:0, fb_accel?1:0, fb?0:nout); buf+=line;
         if (!fb) for (int i=0;i<nout;++i){ snprintf(line,sizeof line,"%lld %lld %d %d %d %d\n",
             (long long)a2[i].rb,(long long)a2[i].re,a2[i].qb,a2[i].qe,a2[i].rid,a2[i].score); buf+=line; }
     }
     FILE* out=fopen(argv[1],"w"); if(!out){ fprintf(stderr,"cannot open %s\n",argv[1]); return 1; }
     fprintf(out,"%d\n",n);
     fwrite(buf.data(),1,buf.size(),out); fclose(out);
-    fprintf(stderr,"wrote %d chaining-extend vectors (%ld fallback) to %s\n", n, nfb, argv[1]);
+    fprintf(stderr,"wrote %d chaining-extend vectors (%ld fallback: %ld chaining, %ld sort) to %s\n",
+            n, nfb, nfb_chain, nfb_sort, argv[1]);
     return 0;
 }

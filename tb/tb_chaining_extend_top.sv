@@ -4,6 +4,10 @@
 // golden used, captures the AXI-Stream alnregs, and checks fallback + the sorted record list
 // bit-exact vs gen_chaining_extend_vectors. fb reads (chaining dup-pos/combsort OR accel
 // equal-re tie / n>1024) expect fallback and skip the output check.
+//
+// The two STAGE-SPECIFIC fallback bits are checked INDEPENDENTLY (fb_chain vs fb_sort), not just
+// their OR: the host redoes only the failed stage, so attributing a fallback to the wrong stage
+// would silently corrupt the read.
 `timescale 1ns/1ps
 `include "bsw_pkg.sv"
 `include "msort_v2_pkg.sv"
@@ -21,7 +25,7 @@ module tb_chaining_extend_top
     logic signed [63:0] ld_rbeg; logic signed [31:0] ld_qbeg, ld_len, ld_score, ld_rid, ld_isalt;
     logic        q_ld_en; logic [15:0] q_ld_addr; base_t q_ld_data;
     logic        start; logic [15:0] n_in;
-    logic        busy, done, fallback;
+    logic        busy, done, fallback, fb_chain, fb_sort;
     logic        ref_req; logic signed [63:0] ref_rbeg; logic [15:0] ref_len;
     logic        ref_in_en; logic [15:0] ref_in_addr; base_t ref_in_data; logic ref_in_done;
     logic        m_tvalid, m_tlast, m_tready; rec_t m_tdata;
@@ -31,7 +35,7 @@ module tb_chaining_extend_top
         .a,.o_del,.e_del,.o_ins,.e_ins,.zdrop,.pen5,.pen3,.l_query,.l_pac,
         .ld_en,.ld_idx,.ld_rbeg,.ld_qbeg,.ld_len,.ld_score,.ld_rid,.ld_isalt,
         .q_ld_en,.q_ld_addr,.q_ld_data,
-        .start,.n_in,.busy,.done,.fallback,
+        .start,.n_in,.busy,.done,.fallback,.fb_chain,.fb_sort,
         .ref_req,.ref_rbeg,.ref_len,.ref_in_en,.ref_in_addr,.ref_in_data,.ref_in_done,
         .m_axis_tvalid(m_tvalid),.m_axis_tdata(m_tdata),.m_axis_tlast(m_tlast),.m_axis_tready(m_tready));
 
@@ -56,7 +60,8 @@ module tb_chaining_extend_top
     end
 
     integer fd,got,cnt,ci,k,fails,guard,ngot;
-    integer t_lq,t_a,t_od,t_ed,t_oi,t_ei,t_zd,t_w,t_p5,t_p3,t_gap,t_msl,t_mce,t_ns,e_fb,e_nout;
+    integer t_lq,t_a,t_od,t_ed,t_oi,t_ei,t_zd,t_w,t_p5,t_p3,t_gap,t_msl,t_mce,t_ns,e_nout;
+    integer e_fbc, e_fbs, e_fb;
     longint t_lpac, srb[0:63]; integer sqb[0:63],sln[0:63],ssc[0:63],srid[0:63],sal[0:63];
     integer qv[0:511];
     longint g_rb[0:1199],g_re[0:1199],e_rb[0:1199],e_re[0:1199];
@@ -76,7 +81,8 @@ module tb_chaining_extend_top
                 t_lq,t_a,t_od,t_ed,t_oi,t_ei,t_zd,t_w,t_p5,t_p3,t_gap,t_msl,t_mce,t_lpac,t_ns);
             for (k=0;k<t_ns;k=k+1) got=$fscanf(fd,"%d %d %d %d %d %d", srb[k],sqb[k],sln[k],ssc[k],srid[k],sal[k]);
             for (k=0;k<t_lq;k=k+1) got=$fscanf(fd,"%d", qv[k]);
-            got=$fscanf(fd,"%d %d", e_fb, e_nout);
+            got=$fscanf(fd,"%d %d %d", e_fbc, e_fbs, e_nout);
+            e_fb = (e_fbc || e_fbs) ? 1 : 0;
             for (k=0;k<e_nout;k=k+1) got=$fscanf(fd,"%d %d %d %d %d %d", e_rb[k],e_re[k],e_qb[k],e_qe[k],e_rid[k],e_sc[k]);
 
             // load raw seeds
@@ -107,9 +113,11 @@ module tb_chaining_extend_top
                 guard=guard+1;
             end
 
-            if (fallback !== e_fb[0]) begin
+            // stage-specific: each bit must match on its own, not merely their OR
+            if (fb_chain !== e_fbc[0] || fb_sort !== e_fbs[0] || fallback !== e_fb[0]) begin
                 fails=fails+1;
-                if (fails<=15) $display("MISMATCH[%0d] fallback %0b/%0b (ns=%0d)", ci, fallback, e_fb[0], t_ns);
+                if (fails<=15) $display("MISMATCH[%0d] fb_chain %0b/%0b fb_sort %0b/%0b fallback %0b/%0b (ns=%0d)",
+                    ci, fb_chain, e_fbc[0], fb_sort, e_fbs[0], fallback, e_fb[0], t_ns);
             end else if (e_fb == 0) begin
                 if (ngot !== e_nout) begin
                     fails=fails+1;

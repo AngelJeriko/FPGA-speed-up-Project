@@ -159,6 +159,69 @@ elif [[ "$TB" == tb_chaining_extend_top ]]; then
             -o gen_chaining_extend_vectors gen_chaining_extend_vectors.cpp \
           && ./gen_chaining_extend_vectors vectors/chainingext_vectors.txt 2000 )
     fi
+elif [[ "$TB" == tb_chaining_pe2_top ]]; then
+    # THE JOIN: chaining -> extension -> sort -> mate-rescue as one block. Needs BOTH trees'
+    # RTL (chaining_extend_top + matesw_pe_sel_top) plus the two-stage vector bootstrap:
+    # chainingext_vectors.txt (chaining->extend golden) feeds gen_chaining_pe2_vectors.
+    RTL_FILES=(
+        "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
+        "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
+        "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
+        "$RTL/chain_store.sv" "$RTL/chain_weight.sv" "$RTL/chain_introsort.sv" "$RTL/chain_flt.sv"
+        "$RTL/chain_flt_top.sv" "$RTL/chaining_top.sv" "$RTL/chain2aln_setup.sv" "$RTL/chaining_extend_top.sv"
+        "$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv"
+        "$RTL/matesw_pe_top.sv" "$RTL/matesw_pe_sel_top.sv" "$RTL/chaining_pe2_top.sv"
+    )
+    EO="$ROOT/host/extend_orchestrator"
+    MR="$ROOT/host/mate_rescue"
+    VEC_TXT="$MR/vectors/chaining_pe2_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        CE_TXT="$EO/vectors/chainingext_vectors.txt"
+        if [[ ! -f "$CE_TXT" ]]; then
+            echo "Generating $CE_TXT ..."
+            mkdir -p "$EO/vectors"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -I../chaining \
+                -o gen_chaining_extend_vectors gen_chaining_extend_vectors.cpp \
+              && ./gen_chaining_extend_vectors vectors/chainingext_vectors.txt 2000 )
+        fi
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$MR/vectors"
+        ( cd "$MR" && make -s chainpe2vec )
+    fi
+elif [[ "$TB" == tb_chaining_pe_pair_top ]]; then
+    # THE JOIN, both directions (full pair). Same RTL as tb_chaining_pe2_top + the pair wrapper.
+    RTL_FILES=(
+        "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
+        "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
+        "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
+        "$RTL/chain_store.sv" "$RTL/chain_weight.sv" "$RTL/chain_introsort.sv" "$RTL/chain_flt.sv"
+        "$RTL/chain_flt_top.sv" "$RTL/chaining_top.sv" "$RTL/chain2aln_setup.sv" "$RTL/chaining_extend_top.sv"
+        "$RTL/matesw_top.sv" "$RTL/matesw_orient_unit.sv" "$RTL/matesw_dedup.sv" "$RTL/matesw_orch_top.sv"
+        "$RTL/matesw_pe_top.sv" "$RTL/matesw_pe_sel_top.sv" "$RTL/chaining_pe2_top.sv"
+        "$RTL/chaining_pe_pair_top.sv"
+    )
+    EO="$ROOT/host/extend_orchestrator"
+    MR="$ROOT/host/mate_rescue"
+    VEC_TXT="$MR/vectors/chaining_pe2pair_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        CE_TXT="$EO/vectors/chainingext_vectors.txt"
+        if [[ ! -f "$CE_TXT" ]]; then
+            echo "Generating $CE_TXT ..."
+            mkdir -p "$EO/vectors"
+            ( cd "$EO" && g++ -O2 -std=c++17 -DHWMODEL -DINTPURGE -I../chaining \
+                -o gen_chaining_extend_vectors gen_chaining_extend_vectors.cpp \
+              && ./gen_chaining_extend_vectors vectors/chainingext_vectors.txt 2000 )
+        fi
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$MR/vectors"
+        ( cd "$MR" && make -s chainpe2pairvec )
+    fi
 elif [[ "$TB" == tb_chain2aln_setup ]]; then
     RTL_FILES=(
         "$RTL/chain2aln_setup.sv"

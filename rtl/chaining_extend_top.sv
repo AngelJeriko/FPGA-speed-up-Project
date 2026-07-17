@@ -6,7 +6,13 @@
 // The per-chain reference BYTES are supplied externally (deferred genome fetch, per the design
 // doc): when a chain's rmax is ready the top raises `ref_req` with {ref_rbeg, ref_len}; the host
 // streams the window back on ref_in_* and pulses ref_in_done; the top forwards those bytes to
-// accel_top's r_ld. Both chaining and the sorter can raise `fallback` -> whole-read SW redo.
+// accel_top's r_ld.
+//
+// FALLBACK IS STAGE-SPECIFIC: `fb_chain` (chaining dup-pos / capacity / combsort depth) and
+// `fb_sort` (extension sorter equal-re tie / n>N_MAX oversize) are reported SEPARATELY so the
+// host redoes only the stage that failed, not the whole read. `fallback` is kept as the OR for
+// callers that only need "something needs SW". A chaining fallback short-circuits the read —
+// extension never runs — so fb_chain=1 implies fb_sort=0.
 //
 // Per surviving chain k (weight-sorted order from chaining_top): read its chain_store index,
 // walk its seed pool (head->next) into a local buffer, compute rmax (chain2aln_setup), fetch the
@@ -47,7 +53,9 @@ module chaining_extend_top
     input  logic [15:0]        n_in,        // # raw seeds
     output logic               busy,
     output logic               done,
-    output logic               fallback,
+    output logic               fallback,    // = fb_chain | fb_sort
+    output logic               fb_chain,    // chaining stage needs SW redo
+    output logic               fb_sort,     // extension/sort stage needs SW redo
 
     // ---- deferred reference-window fetch ----
     output logic               ref_req,     // high: need ref bytes for [ref_rbeg, ref_rbeg+ref_len)
@@ -122,6 +130,7 @@ module chaining_extend_top
     } st_t;
     st_t state;
     assign busy = (state != E_IDLE);
+    assign fallback = fb_chain | fb_sort;
     assign ref_rbeg = rmax0_k;
     assign ref_len  = (rmax1_k - rmax0_k);
     assign ref_req  = (state == E_K_REFREQ);
@@ -164,15 +173,15 @@ module chaining_extend_top
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
-            state<=E_IDLE; done<=1'b0; fallback<=1'b0; ct_start<=1'b0;
+            state<=E_IDLE; done<=1'b0; fb_chain<=1'b0; fb_sort<=1'b0; ct_start<=1'b0;
         end else begin
             done<=1'b0; ct_start<=1'b0;
             case (state)
-                E_IDLE: if (start) begin fallback<=1'b0; ct_start<=1'b1; state<=E_CH_RUN; end
+                E_IDLE: if (start) begin fb_chain<=1'b0; fb_sort<=1'b0; ct_start<=1'b1; state<=E_CH_RUN; end
 
                 E_CH_RUN: state<=E_CH_WAIT;
                 E_CH_WAIT: if (ct_done) begin
-                    if (ct_fallback) begin fallback<=1'b1; state<=E_DONE_FB; end
+                    if (ct_fallback) begin fb_chain<=1'b1; state<=E_DONE_FB; end
                     else begin nsurv<=ct_nout; state<=E_RSTART; end
                 end
 
@@ -210,7 +219,7 @@ module chaining_extend_top
 
                 E_FINISH: state<=E_AXI;                  // read_finish pulsed via comb
                 E_AXI: if (ac_done) begin
-                    if (ac_fallback) fallback<=1'b1;
+                    if (ac_fallback) fb_sort<=1'b1;
                     state<=E_DONE;
                 end
 
