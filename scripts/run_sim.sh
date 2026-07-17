@@ -235,6 +235,19 @@ elif [[ "$TB" == tb_chain2aln_setup ]]; then
         ( cd "$EO" && g++ -O2 -std=c++17 -o gen_chain2aln_vectors gen_chain2aln_vectors.cpp \
           && ./gen_chain2aln_vectors vectors/chain2aln_vectors.txt 4000 )
     fi
+elif [[ "$TB" == tb_bns_clamp_top ]]; then
+    RTL_FILES=(
+        "$RTL/bns_clamp_top.sv"
+    )
+    EO="$ROOT/host/extend_orchestrator"
+    VEC_TXT="$EO/vectors/clamp_vectors.txt"
+    PLUSARGS=("+VEC=$VEC_TXT")
+    if [[ ! -f "$VEC_TXT" ]]; then
+        echo "Generating $VEC_TXT ..."
+        mkdir -p "$EO/vectors"
+        # Real chr1-5 block (block C) is included only if the .ann + capture are present.
+        ( cd "$EO" && make -s clampvec )
+    fi
 elif [[ "$TB" == tb_chaining_top ]]; then
     RTL_FILES=(
         "$RTL/chain_store.sv"

@@ -632,3 +632,41 @@ rebuild clean. Verified pristine (identical to `.orig`, 0 markers) + clean binar
 hg38) + `bns_pos2rid` binary search + `is_rev` flip + min/max clamp, fed by `chain2aln_setup`, verified
 bit-exact vs `bns_clamp.h` over both goldens, then mutation-tested. Host still supplies the ref BYTES
 until the A1 fetch datapath lands after C2.
+
+
+## Step 11 — CONTIG CLAMP RTL (`rtl/bns_clamp_top.sv`)  ✅ 2026-07-17  5536/0, mutation-tested
+
+**Module.** `rtl/bns_clamp_top.sv` — bit-exact to `bns_clamp.h`. FSM `S_IDLE → S_SEARCH → S_CLAMP →
+S_DONE`: latch + swap `beg/end`, `bns_depos` (`is_rev` + forward coord `midf`), then an **iterative
+`bns_pos2rid` binary search** (one probe per cycle, ~⌈log₂ n_seqs⌉ cycles) over the contig offset
+table, then a combinational flip + min/max clamp latched in `S_CLAMP`. Contig table (`offset`,`len`
+per contig) in registers, loaded via `tbl_we`; `n_seqs`/`l_pac` held. Inputs are exactly
+`chain2aln_setup`'s outputs (`rmax0`=beg, `rmax1`=end, `s0_rbeg`=mid) so it drops in after it with no
+upstream change. All math signed 64-bit (`2*l_pac` ≈ 2.1e9 chr1-5 / 6.2e9 full hg38 exceeds 32 bits).
+`NCTG` param (8 default; raise + convert `off_r`/`len_r` to SRAM for full hg38's ~3,366 contigs).
+
+**Search faithfulness.** The C loop `while(left<right){ mid=(left+right)>>1; ... } return mid;` is
+mirrored exactly, including: the `bm==n_seqs-1` top-edge guard (also guards the `off_r[bm+1]` read
+from going OOB), the `left=bm+1` / `right=bm` recurrence, and the "loop-exit returns the last computed
+mid" case (`bmid` register). Verified this matters — mutation M2 below.
+
+**Verification.** `tb/tb_bns_clamp_top.sv` + `host/extend_orchestrator/gen_clamp_vectors.cpp` (expected
+from `bns_clamp.h` → transitively == bwa). Three table blocks in one run: the synthetic 3-contig table
+(firing arithmetic, both strands), a programmatic **deep 64-contig** table (full search depth + every
+clamp direction on both strands), and 5000 real chr1-5 records (real distribution + `is_rev` + no-op).
+`bash scripts/run_sim.sh tb_bns_clamp_top` → **5536 checks, 0 failures**.
+
+**Mutation-tested** (per the `feedback-verify-by-mutating-rtl` rule; RTL restored byte-identical via
+md5 after each):
+- **M1 (data)** `ce = min(end_s,fe)` → `ce = end_s` (drop end clamp): **132 fails**, every one on
+  `end_out`/`len` ONLY, `beg_out`/`rid`/`rev` correct — exactly the near-end firing records; no-clamp
+  records pass. The end-clamp datapath is genuinely exercised.
+- **M2 (control)** search init `right = n_seqs` → `n_seqs-1` (last contig unreachable): **896 fails**,
+  ALL with true `rid == n_seqs-1` (synth ctgC → resolves to rid 1; deep block → all want rid 63);
+  every other contig passes. The binary-search control path is genuinely exercised.
+
+**Files.** `rtl/bns_clamp_top.sv`, `tb/tb_bns_clamp_top.sv`,
+`host/extend_orchestrator/gen_clamp_vectors.cpp` (+ Makefile `clampvec`, `.gitignore`,
+`scripts/run_sim.sh` `tb_bns_clamp_top` branch). **NEXT = integrate**: wire `bns_clamp_top` between
+`chain2aln_setup` and the ref-fetch inside `chaining_extend_top` (clamped `beg/end` feed the window;
+host still supplies BYTES), then the A1 byte-fetch (Decision A1) replaces the host behind `ref_req`.

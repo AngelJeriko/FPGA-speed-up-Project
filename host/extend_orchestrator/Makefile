@@ -69,6 +69,13 @@ checkclamp: check_clamp                     # permanent regression: the syntheti
 checkclampreal: check_clamp                 # the 400k real chr1-5 capture (regenerate first)
 	./check_clamp vectors/clamp_vec.bin /home/ccloud/ref/hg38_chr1-5.fa.ann
 
+# tb vectors for rtl/bns_clamp_top.sv (expected from bns_clamp.h). Real chr1-5 args are optional —
+# block C is skipped if vectors/clamp_vec.bin is absent (it is gitignored / regenerable).
+gen_clamp_vectors: gen_clamp_vectors.cpp bns_clamp.h
+	$(CXX) $(CXXFLAGS) -o $@ gen_clamp_vectors.cpp
+clampvec: gen_clamp_vectors
+	./gen_clamp_vectors vectors/clamp_vectors.txt /home/ccloud/ref/hg38_chr1-5.fa.ann vectors/clamp_vec.bin
+
 check_band: check_band.cpp parse.h orch.h ksw.h
 	$(CXX) $(CXXFLAGS) -o $@ check_band.cpp
 checkband: check_band $(VEC)
