@@ -49,6 +49,7 @@ module tb_chaining_pe_pair_top
     logic snap_a_start, snap_busy, snap_done, res_from_a;
     logic [15:0] n_ma, rd_idx;
     logic signed [63:0] o_rb,o_re; logic signed [31:0] o_qb,o_qe,o_rid,o_score,o_cov;
+    logic ctab_we; logic [15:0] ctab_idx; logic signed [63:0] ctab_offset, ctab_len; logic [15:0] ctab_n;
 
     chaining_pe_pair_top #(.MA_MAX(256), .NSRC(64), .NCHAIN(64), .NSEED(64), .NQ(512), .NS(64)) dut(.clk,.rst_n,
         .run_is_cand,.start,.n_in,
@@ -57,6 +58,7 @@ module tb_chaining_pe_pair_top
         .ld_en,.ld_idx,.ld_rbeg,.ld_qbeg,.ld_len,.ld_score,.ld_rid,.ld_isalt,
         .q_ld_en,.q_ld_addr,.q_ld_data,
         .ref_req,.ref_rbeg,.ref_len,.ref_in_en,.ref_in_addr,.ref_in_data,.ref_in_done,
+        .ctab_we,.ctab_idx,.ctab_offset,.ctab_len,.ctab_n,
         .ce_busy,.ce_done,.fb_chain,.fb_sort,.n_src_o,.n_ma_init_o,
         .ld_ms_en,.ld_ms_addr,.ld_ms_data,.ld_ref_en,.ld_ref_win,.ld_ref_addr,.ld_ref_data,
         .sel_start,.l_ms,.min_seed_len,.a_sc,.mo_del,.me_del,.mo_ins,.me_ins,.l_pac,
@@ -191,11 +193,14 @@ module tb_chaining_pe_pair_top
     initial begin
         if (!$value$plusargs("VEC=%s", path)) path="host/mate_rescue/vectors/chaining_pe2pair_vectors.txt";
         fd=$fopen(path,"r"); if (fd==0) begin $display("FATAL: cannot open %s",path); $finish; end
-        start=0; ld_en=0; q_ld_en=0; run_is_cand=0;
+        start=0; ld_en=0; q_ld_en=0; run_is_cand=0; ctab_we=0; ctab_n=16'd1;
         ld_ms_en=0; ld_ref_en=0; sel_start=0; cand_wins_ready=0; rd_idx=0;
         snap_a_start=0; res_from_a=0;
         for (k=0;k<4;k=k+1) begin win_used[k]=0; pes_failed[k]=0; win_rb[k]=0; win_re[k]=0; win_rid[k]=0; pes_low[k]=0; pes_high[k]=0; end
         repeat(6) @(posedge clk); rst_n=1; @(posedge clk);
+        // single all-encompassing contig [0, l_pac=1<<34) -> clamp is a no-op (see tb_chaining_extend_top)
+        @(posedge clk); ctab_we<=1; ctab_idx<=16'd0; ctab_offset<=64'sd0; ctab_len<=(64'sd1<<<34);
+        @(posedge clk); ctab_we<=0;
 
         got=$fscanf(fd,"%d",cnt); fails=0;
         for (ci=0; ci<cnt; ci=ci+1) begin

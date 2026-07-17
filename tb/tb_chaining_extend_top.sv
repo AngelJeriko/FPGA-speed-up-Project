@@ -28,6 +28,7 @@ module tb_chaining_extend_top
     logic        busy, done, fallback, fb_chain, fb_sort;
     logic        ref_req; logic signed [63:0] ref_rbeg; logic [15:0] ref_len;
     logic        ref_in_en; logic [15:0] ref_in_addr; base_t ref_in_data; logic ref_in_done;
+    logic        ctab_we; logic [15:0] ctab_idx; logic signed [63:0] ctab_offset, ctab_len; logic [15:0] ctab_n;
     logic        m_tvalid, m_tlast, m_tready; rec_t m_tdata;
 
     chaining_extend_top #(.NCHAIN(64), .NSEED(64), .NQ(512), .NS(64)) dut(.clk,.rst_n,
@@ -37,6 +38,7 @@ module tb_chaining_extend_top
         .q_ld_en,.q_ld_addr,.q_ld_data,
         .start,.n_in,.busy,.done,.fallback,.fb_chain,.fb_sort,
         .ref_req,.ref_rbeg,.ref_len,.ref_in_en,.ref_in_addr,.ref_in_data,.ref_in_done,
+        .ctab_we,.ctab_idx,.ctab_offset,.ctab_len,.ctab_n,
         .m_axis_tvalid(m_tvalid),.m_axis_tdata(m_tdata),.m_axis_tlast(m_tlast),.m_axis_tready(m_tready));
 
     assign m_tready = 1'b1;
@@ -72,8 +74,15 @@ module tb_chaining_extend_top
     initial begin
         if (!$value$plusargs("VEC=%s", path)) path="host/extend_orchestrator/vectors/chainingext_vectors.txt";
         fd=$fopen(path,"r"); if (fd==0) begin $display("FATAL: cannot open %s",path); $finish; end
-        ld_en=0; q_ld_en=0; start=0;
+        ld_en=0; q_ld_en=0; start=0; ctab_we=0; ctab_n=16'd1;
         repeat(6) @(posedge clk); rst_n=1; @(posedge clk);
+
+        // Single all-encompassing contig [0, l_pac) — the synthetic vectors use l_pac=1<<34 and
+        // position-random rid, so a per-contig table can't reproduce them; one contig makes the
+        // clamp a PROVABLE no-op on beg/end (goldens unchanged), while still exercising the clamp
+        // datapath in-context. The clamp is proven bit-exact standalone in tb_bns_clamp_top.
+        @(posedge clk); ctab_we<=1; ctab_idx<=16'd0; ctab_offset<=64'sd0; ctab_len<=(64'sd1<<<34);
+        @(posedge clk); ctab_we<=0;
 
         got=$fscanf(fd,"%d",cnt); fails=0;
         for (ci=0; ci<cnt; ci=ci+1) begin

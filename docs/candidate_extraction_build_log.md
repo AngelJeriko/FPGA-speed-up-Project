@@ -670,3 +670,40 @@ md5 after each):
 `scripts/run_sim.sh` `tb_bns_clamp_top` branch). **NEXT = integrate**: wire `bns_clamp_top` between
 `chain2aln_setup` and the ref-fetch inside `chaining_extend_top` (clamped `beg/end` feed the window;
 host still supplies BYTES), then the A1 byte-fetch (Decision A1) replaces the host behind `ref_req`.
+
+
+## Step 12 — INTEGRATE the clamp into the pipeline  ✅ 2026-07-17  (extend 2000/0, pe2 200/0, pair 100/0)
+
+**Wiring.** `bns_clamp_top` now sits inside `chaining_extend_top` between `chain2aln_setup` and the
+ref-fetch: two new FSM states `E_K_CLAMPRUN`/`E_K_CLAMPWAIT` run the clamp on `{beg=rmax0_k,
+mid=sb_rbeg[0], end=rmax1_k}` right after `E_K_RMAXWAIT`, then latch the **clamped** `rmax0_k/rmax1_k`
+before `E_K_REFREQ`. So `ref_rbeg`/`ref_len` and `accel`'s `ch_rmax0/1` all use the clamped window.
+`rid` stays from the chain (`ct_o_rid`, which == the clamp's `rid` on faithful data per bwa's
+`assert(c->rid==rid)`); the clamp's `rid`/`is_rev`/`len` are held for a future consistency check /
+fallback. A new contig-table load port set (`ctab_we/idx/offset/len/n`) is plumbed UP through
+`chaining_pe2_top` → `chaining_pe_pair_top` to the host, exactly like the `ref_*` ports.
+
+**Verification strategy — provable no-op.** The chaining→extend goldens are synthetic (`l_pac=1<<34`,
+position-random `rid`), so a per-contig table can't reproduce them. The tbs therefore load a SINGLE
+all-encompassing contig `[0, l_pac)`, which makes the clamp a **provable no-op** on `beg/end` (and
+`rid` stays from the chain) → every existing golden is preserved. This proves the integration doesn't
+disturb the verified pipeline. Results (host still serving `g(pos)=pos&3` ref bytes): **extend
+2000/0, pe2 200/0, pair 100/0** — unchanged from before the clamp.
+
+**Wiring mutation (proves the clamp is in the datapath, not bypassed).** With a no-op clamp,
+"wired-correctly" and "bypassed" are indistinguishable on outputs — so a bypass wouldn't be caught by
+the goldens alone. Mutating the feed `rmax0_k <= clp_beg` → `clp_beg + 1` produced **1165/2000
+failures** with the exact signature (`rb` +1, `qb` +1, `score` −1 — the extension window shifted one
+base): the clamp's `beg_out` genuinely propagates through `ref_req` into `accel`. RTL restored
+byte-identical (md5). The clamp's own correctness (rid derivation, firing, both strands) is proven at
+unit level in Step 11.
+
+**Files.** `rtl/chaining_extend_top.sv` (clamp instance + 2 FSM states + `ctab_*` ports + `NCTG`
+param), `rtl/chaining_pe2_top.sv` + `rtl/chaining_pe_pair_top.sv` (`ctab_*` plumbed up),
+`tb/tb_chaining_extend_top.sv` + `tb/tb_chaining_pe2_top.sv` + `tb/tb_chaining_pe_pair_top.sv`
+(single-contig load), `scripts/run_sim.sh` (`bns_clamp_top.sv` added to the three RTL lists). Generators
+and vector formats UNCHANGED (single contig is a tb-side constant), so no downstream ripple.
+
+**NEXT = Decision A1**: replace the host behind `ref_req`/`ref_in_*` with an on-chip byte-array fetch
+from HBM (`seq = ref_string + beg` over the clamped window), then D2 prefetch-on-`rmax`. The contig
+clamp — the one new correctness surface — is now on chip, verified, and integrated.

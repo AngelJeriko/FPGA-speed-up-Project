@@ -27,7 +27,8 @@ module chaining_extend_top
     parameter int NCHAIN = 64,
     parameter int NSEED  = 64,     // chain_store pool / raw seeds
     parameter int NQ     = 512,    // query length bound
-    parameter int NS     = 64      // per-chain seed buffer
+    parameter int NS     = 64,     // per-chain seed buffer
+    parameter int NCTG   = 8       // max contigs for the on-chip clamp (5=chr1-5, ~3366 full hg38)
 )(
     input  logic               clk,
     input  logic               rst_n,
@@ -65,6 +66,13 @@ module chaining_extend_top
     input  logic [15:0]        ref_in_addr,
     input  base_t              ref_in_data,
     input  logic               ref_in_done,
+
+    // ---- contig table for the on-chip clamp (host loads once; n_seqs held) ----
+    input  logic               ctab_we,
+    input  logic [15:0]        ctab_idx,
+    input  logic signed [63:0] ctab_offset,
+    input  logic signed [63:0] ctab_len,
+    input  logic [15:0]        ctab_n,      // n_seqs
 
     // ---- AXI-Stream result (passthrough from accel_top) ----
     output logic               m_axis_tvalid,
@@ -125,15 +133,32 @@ module chaining_extend_top
     typedef enum logic [4:0] {
         E_IDLE, E_CH_RUN, E_CH_WAIT, E_RSTART, E_RDY0, E_QREP,
         E_K_CIDX, E_K_META, E_K_WALK, E_K_RMAXRUN, E_K_RMAXWAIT,
+        E_K_CLAMPRUN, E_K_CLAMPWAIT,
         E_K_REFREQ, E_K_SLOAD, E_K_GO, E_K_GOWAIT, E_K_NEXT,
         E_FINISH, E_AXI, E_DONE, E_DONE_FB
     } st_t;
     st_t state;
     assign busy = (state != E_IDLE);
     assign fallback = fb_chain | fb_sort;
-    assign ref_rbeg = rmax0_k;
+    assign ref_rbeg = rmax0_k;              // clamped (contig clamp runs before the fetch)
     assign ref_len  = (rmax1_k - rmax0_k);
     assign ref_req  = (state == E_K_REFREQ);
+
+    // ================= bns_clamp_top (contig clamp) =================
+    // Between chain2aln_setup (rmax) and the ref fetch: clamp [rmax0,rmax1) to the contig that
+    // seeds[0].rbeg lands in. rid stays from the chain (ct_o_rid == the clamp's rid on faithful
+    // data, per bwa's assert); the clamp's rid/is_rev/len are held for a future consistency check.
+    logic               clp_start, clp_done, clp_isrev;
+    logic signed [63:0] clp_beg, clp_end, clp_ol;
+    logic [31:0]        clp_rid;
+    bns_clamp_top #(.NCTG(NCTG)) u_clp (.clk, .rst_n,
+        .tbl_we(ctab_we), .tbl_idx(ctab_idx), .tbl_offset(ctab_offset), .tbl_len(ctab_len),
+        .n_seqs(ctab_n), .l_pac(l_pac),
+        .start(clp_start), .beg_in(rmax0_k), .midpos(sb_rbeg[0]), .end_in(rmax1_k),
+        .done(clp_done), .beg_out(clp_beg), .end_out(clp_end),
+        .rid(clp_rid), .is_rev(clp_isrev), .out_len(clp_ol));
+    assign clp_start = (state == E_K_CLAMPRUN);
+    logic _unused_clp; assign _unused_clp = ^{clp_rid, clp_isrev, clp_ol};   // held; not yet consumed
 
     // ---- chaining_top read ports (driven by the walk) ----
     always_comb begin
@@ -206,7 +231,10 @@ module chaining_extend_top
                     else scnt<=scnt+16'd1;
                 end
                 E_K_RMAXRUN: state<=E_K_RMAXWAIT;        // c2 start pulsed via comb
-                E_K_RMAXWAIT: if (c2_done) begin rmax0_k<=c2_rmax0; rmax1_k<=c2_rmax1; state<=E_K_REFREQ; end
+                E_K_RMAXWAIT: if (c2_done) begin rmax0_k<=c2_rmax0; rmax1_k<=c2_rmax1; state<=E_K_CLAMPRUN; end
+
+                E_K_CLAMPRUN:  state<=E_K_CLAMPWAIT;      // clp_start pulsed via comb (uses rmax0_k/rmax1_k/sb_rbeg[0])
+                E_K_CLAMPWAIT: if (clp_done) begin rmax0_k<=clp_beg; rmax1_k<=clp_end; state<=E_K_REFREQ; end
 
                 E_K_REFREQ: if (ref_in_done) begin sload_i<=16'd0; state<=E_K_SLOAD; end
 

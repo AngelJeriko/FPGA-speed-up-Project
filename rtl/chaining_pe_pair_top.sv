@@ -56,6 +56,12 @@ module chaining_pe_pair_top
     input  logic [15:0]        ref_in_addr,
     input  base_t              ref_in_data,
     input  logic               ref_in_done,
+    // contig table for the on-chip clamp (plumbed up from chaining_pe2_top)
+    input  logic               ctab_we,
+    input  logic [15:0]        ctab_idx,
+    input  logic signed [63:0] ctab_offset,
+    input  logic signed [63:0] ctab_len,
+    input  logic [15:0]        ctab_n,
     output logic               ce_busy,
     output logic               ce_done,
     output logic               fb_chain,     // current run's chaining stage -> SW redo
@@ -161,6 +167,8 @@ module chaining_pe_pair_top
         .ld_en(ld_en), .ld_idx(ld_idx), .ld_rbeg(ld_rbeg), .ld_qbeg(ld_qbeg),
         .ld_len(ld_len), .ld_score(ld_score), .ld_rid(ld_rid), .ld_isalt(ld_isalt),
         .q_ld_en(q_ld_en), .q_ld_addr(q_ld_addr), .q_ld_data(q_ld_data),
+        .ctab_we(ctab_we), .ctab_idx(ctab_idx), .ctab_offset(ctab_offset),
+        .ctab_len(ctab_len), .ctab_n(ctab_n),
         .ref_req(ref_req), .ref_rbeg(ref_rbeg), .ref_len(ref_len),
         .ref_in_en(ref_in_en), .ref_in_addr(ref_in_addr), .ref_in_data(ref_in_data),
         .ref_in_done(ref_in_done),
