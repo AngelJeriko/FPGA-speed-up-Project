@@ -8,8 +8,9 @@ Context going in: `accel_pe_top` already folds ONE accel run (read `!i`) into th
 ma list; the candidates `b[i]` and their windows were still host-fed. Goal: feed the
 candidates from a SECOND accel run over read `i`, with the score-gate selection on-chip.
 
-NOT committed yet (per request — commit the batch later). Working tree carries all of the
-below on top of `origin/main` + the two doc-fix commits (`7f9e177`, `2d49c50`).
+All of the below is COMMITTED + PUSHED on `main`. Steps 1–5 = `7007f9a` / `35a4a0e` / `7b25ac0`;
+Steps 6–8 (real-data validation) = `7019d7a`; **Step 9 (THE JOIN) = `15e03a1`** (2026-07-16).
+(This header used to read "NOT committed yet" — that was true only for the original June batch.)
 
 ---
 
@@ -122,7 +123,7 @@ accel vectors).
 
 ---
 
-## Status / what's on-chip now
+## Status snapshot AS OF STEP 3 (superseded — see Step 9 for the current picture)
 
 The mate-rescue back-half is, in simulation, fully composable on-chip for one direction:
 accel(read i) → candidate source → on-chip SELECTION (score gate + max_matesw cap) →
@@ -452,7 +453,11 @@ merge-sorter equal-re tie / accel n>1024). Cost ~0.4% runtime.
 
 ---
 
-## Step 6 — THE JOIN: `chaining_pe2_top` + `chaining_pe_pair_top`  ✅ 2026-07-16
+## Step 9 — THE JOIN: `chaining_pe2_top` + `chaining_pe_pair_top`  ✅ 2026-07-16
+
+> Numbering note: Steps 1–8 above are the candidate-extraction work (through 2026-06-19); the
+> "Remaining / deferred" section sits between them and this step because it was written then and
+> is kept updated in place. Step 9 is chronologically last (2026-07-16).
 
 **Why.** The RTL had **two separate integration trees that both sat on `accel_top` but did not
 contain each other**:
@@ -542,3 +547,27 @@ over-scored on real data). A green test proves nothing until it has been shown t
 | **M2** | `s_ma_sc = ce_tdata.score + 1` (corrupt record datapath) | **CAUGHT** — `sc 130/129` on every captured record, and ONLY the score field (`qb`/`qe`/`rb`/`re` still match). Records `ma[3..5]` did NOT fail: those are computed by the on-chip rescue SW core and don't flow through the mutated capture path — the mutation hit exactly the records it should. |
 
 RTL restored byte-identical (md5 verified) after each.
+
+**Files.**
+- `rtl/chaining_pe2_top.sv` (new) — the join, one direction.
+- `rtl/chaining_pe_pair_top.sv` (new) — both-directions sequencer + result-A snapshot.
+- `tb/tb_chaining_pe2_top.sv`, `tb/tb_chaining_pe_pair_top.sv` (new) — each carries the
+  concurrent synthetic-genome ref server (`g(pos)=pos&3`) that answers on-chip `ref_req`.
+- `host/mate_rescue/gen_chaining_pe2_vectors.cpp`, `gen_chaining_pe2pair_vectors.cpp` (new).
+- `rtl/chaining_extend_top.sv` — +`fb_chain`/`fb_sort` outputs; `fallback` becomes their OR
+  (a wire now, not a reg — same timing: the stage regs are set on the clock edges the old
+  single reg was).
+- `host/extend_orchestrator/gen_chaining_extend_vectors.cpp` — emits `fb_chain fb_sort nout`
+  (**FORMAT CHANGE**; `chainingext_vectors.txt` must be regenerated) + a stderr breakdown.
+- `tb/tb_chaining_extend_top.sv` — parses/checks both bits independently.
+- `scripts/run_sim.sh` — `tb_chaining_pe2_top` + `tb_chaining_pe_pair_top` branches, each with
+  a TWO-STAGE vector bootstrap (build `chainingext_vectors.txt` first if absent, then the
+  pe2/pair vectors via the Makefile).
+- `host/mate_rescue/Makefile` — `chainpe2vec` / `chainpe2pairvec` targets.
+- `host/mate_rescue/.gitignore` — the two new generator binaries.
+- `docs/candidate_extraction_build_log.md` — this step; the pair-level `tie==fb` follow-on
+  marked done in "Remaining / deferred".
+
+**Reproduce.** `bash scripts/run_sim.sh tb_chaining_pe2_top` (and `..._pe_pair_top`) — both
+bootstrap their vectors. NOTE `run_sim.sh` is mode 644, so invoke it via `bash`, not `./`.
+`BSW_BUILD_DIR=/tmp/bsw_reg` lets a second sim run concurrently without clashing on the obj dir.
