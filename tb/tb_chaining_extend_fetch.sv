@@ -52,16 +52,23 @@ module tb_chaining_extend_fetch
         .ref_req,.ref_rbeg,.ref_len,
         .ref_in_en,.ref_in_addr,.ref_in_data,.ref_in_done,
         .mem_arvalid,.mem_araddr,.mem_arready,.mem_rdata,.mem_rvalid);
-    // HBM model: in-order byte read, 1-cycle latency, g(addr)=addr&3
-    logic hbm_acc; logic signed [63:0] hbm_addr;
+    // HBM model: PIPELINED in-order read, fixed latency MEM_LAT, one accept/cycle, g(addr)=addr&3.
+    // Multiple reads in flight (delay line) so ref_fetch_top's D2 outstanding reads actually overlap.
+    localparam int MEM_LAT = 8;
+    logic       pv [MEM_LAT];
+    logic [1:0] pa [MEM_LAT];
+    integer pi;
     assign mem_arready = 1'b1;
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin mem_rvalid<=1'b0; hbm_acc<=1'b0; end
-        else begin
-            mem_rvalid <= 1'b0;
-            hbm_acc <= (mem_arvalid && mem_arready);
-            if (mem_arvalid && mem_arready) hbm_addr <= mem_araddr;
-            if (hbm_acc) begin mem_rvalid <= 1'b1; mem_rdata <= {6'd0, hbm_addr[1:0]}; end
+        if (!rst_n) begin
+            mem_rvalid<=1'b0; mem_rdata<=8'd0;
+            for (pi=0; pi<MEM_LAT; pi=pi+1) pv[pi]<=1'b0;
+        end else begin
+            for (pi=MEM_LAT-1; pi>0; pi=pi-1) begin pv[pi]<=pv[pi-1]; pa[pi]<=pa[pi-1]; end
+            pv[0] <= (mem_arvalid && mem_arready);
+            pa[0] <= mem_araddr[1:0];
+            mem_rvalid <= pv[MEM_LAT-1];
+            mem_rdata  <= {6'd0, pa[MEM_LAT-1]};
         end
     end
 

@@ -747,3 +747,39 @@ the same seam; the fetch tb composes the two real modules.
 the instant `chain2aln_setup`+clamp produce the window, overlapping it with the previous chain's SW —
 this converts the per-byte blocking latency (the whole point of moving the genome on chip) into
 near-invisible pipelined reads. The A1 memory port was shaped to make that a local change.
+
+
+## Step 14 — D2 pipelined reference fetch (`ref_fetch_top.sv`)  ✅ 2026-07-17  (unit 604/0, integ 2000/0)
+
+**Problem.** The Step-13 A1 fetch was single-outstanding: issue one byte address, stall for the whole
+memory round trip, issue the next. A ~280-byte window then costs ~280 × latency — *below* even the
+doc's D1 model (which assumed a window arrives in ~one access), and exactly the blocking cost moving
+the genome on chip was meant to remove.
+
+**D2.** `ref_fetch_top` now keeps up to `DEPTH` (=32) reads **in flight**: it issues addresses
+back-to-back as fast as `mem_arready` allows (`mem_arvalid` gated by `outstanding < DEPTH` and
+`i_issue < len`) and collects the in-order replies (`i_recv`), streaming each on `ref_in_*`. With
+`DEPTH ≥ memory latency` the pipe stays full, so a window costs **~latency + len** cycles (≈1
+byte/cycle) instead of **len × latency**. The output byte stream is byte-identical (same bytes, same
+order) — only the timing changes — so it stays bit-exact. Byte-granular is fine because bandwidth is
+<1% of HBM (measured); bursting (wider reads) is an optional later optimisation. The `mem_*` port is
+unchanged, so a real in-order (or id-reordered) AXI/HBM adapter still drops in behind it.
+
+**Measured (tb_ref_fetch_top, MEM_LAT=8).** `1.02 cyc/byte` over 239,578 bytes; the **811-byte max
+window = 822 cyc** (= 811 + 8 latency + ~3), i.e. the latency is amortised ONCE over the window rather
+than paid per byte. At a realistic HBM latency (~100 cyc) that is ~900 cyc/window pipelined vs
+~81,000 blocking — the ~90× the whole genome-fetch exercise is about (simulation hides it; real HW
+won't). The tb HBM model was upgraded to a **pipelined** in-order delay line (multiple outstanding),
+since a single-outstanding model would have hidden the speedup.
+
+**Verification.** `tb_ref_fetch_top` **604/0** + measurement; mutations (restored byte-identical):
+`mem_araddr +1` → 603 fail (data wrong), `i_recv+1==len` → `+2` → short fetch. `tb_chaining_extend_fetch`
+(full pipeline, pipelined HBM model) **2000/0** — bit-exact result, faster fetch.
+
+**Files.** `rtl/ref_fetch_top.sv` (rewritten, `DEPTH` param), `tb/tb_ref_fetch_top.sv` (pipelined HBM
+model + cycle measurement), `tb/tb_chaining_extend_fetch.sv` (pipelined HBM model).
+
+**NEXT (remaining D2 + beyond):** cross-chain prefetch (issue chain k+1's window during chain k's
+Smith-Waterman — needs double-buffering the window into `accel`, the last overlap the doc's D2 names);
+then optional A2 (packed `.pac`, only if HBM capacity is contended by the future seeding front-end),
+E2 (window cache, only if locality measured), and the full-hg38 contig table (raise `NCTG` + SRAM).
