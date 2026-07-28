@@ -8,7 +8,7 @@ Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below 
 |--------|-----------:|---------:|----:|---:|--------------:|----:|---------|
 | chain_store     | **89.1** | −8.22 | 134,467 | 66,147 | 10 | 0 | slow + LUT-bloated |
 | bsw_max_tracker | **3.5**  | −280.9 | 21,611 | 6,574 | 0 | 2 | BEFORE (160-deep serial max-reduction) |
-| matesw_dedup    | _pending_ | | | | | | (synth was still running) |
+| matesw_dedup    | _invalid_ | | | | | | BASELINE VOID — multi-driven nets (see below) |
 
 ### Conversions applied (re-measure to fill "after")
 - **bsw_max_tracker** ✅ serial 160-deep max-reduction → balanced log₂-depth tree.
@@ -25,6 +25,14 @@ Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below 
   big LUT drop (the 512-wide parallel comparator logic is gone); synthesis should also be far faster
   than the ~11 min baseline. Note: c_pos and the c_* arrays are still register/distributed-RAM (single-
   index reads); a later full registered-read-BRAM pass would further cut area if utilization demands.
+- **matesw_dedup + matesw_orch_top** ✅ **BUG FOUND BY SYNTHESIS** (Verilator missed it): the host
+  load and the in-place FSM both wrote the same `rb/re/...` (dedup) / `m_*` (orch) arrays from TWO
+  separate `always_ff` blocks → **147,456 multi-driven-net CRITICAL WARNINGS** in Vivado (duplicated
+  flops, wrong on hardware; 38-min/16 GB synth). Fix: fold the load into the single FSM `always_ff`
+  that drives those arrays. Bit-exact preserved: tb_matesw_dedup 6000/0, tb_matesw_orch_top 3000/0,
+  tb_matesw_pe_top 2000/0. Confirm on re-synth = **0 critical warnings** (was 147,456). `matesw_pe_top`
+  was already single-driver (load inside the main block) — no change. This is why we synthesize:
+  a multi-driven memory is invisible to Verilator but fatal on the FPGA.
 
 ## Readout
 

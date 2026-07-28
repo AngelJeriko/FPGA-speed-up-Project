@@ -65,11 +65,10 @@ module matesw_dedup #(parameter int MA_MAX = 256) (
     logic signed [31:0] sc [MA_MAX];
     logic signed [31:0] cov[MA_MAX];
 
-    always_ff @(posedge clk) if (ld_en && ld_idx < MA_MAX[15:0]) begin
-        rb[ld_idx]  <= ld_rb;  re[ld_idx]  <= ld_re;
-        qb[ld_idx]  <= ld_qb;  qe[ld_idx]  <= ld_qe;
-        rid[ld_idx] <= ld_rid; sc[ld_idx]  <= ld_score; cov[ld_idx] <= ld_cov;
-    end
+    // The host load writes the SAME rb/re/... arrays the FSM sorts in place, so it MUST
+    // live in the one always_ff that drives them. A separate load always_ff makes each
+    // array MULTI-DRIVEN (two flop sets) -> a synthesis error, not just a warning. The
+    // load is folded into the FSM block below (leading `if (ld_en...)`).
 
     assign o_rb=rb[rd_idx]; assign o_re=re[rd_idx]; assign o_qb=qb[rd_idx];
     assign o_qe=qe[rd_idx]; assign o_rid=rid[rd_idx]; assign o_score=sc[rd_idx];
@@ -128,6 +127,12 @@ module matesw_dedup #(parameter int MA_MAX = 256) (
             state <= S_IDLE; done <= 1'b0; overflow <= 1'b0; tie <= 1'b0; n_out <= '0;
         end else begin
             done <= 1'b0;
+            // host load — same block that drives these arrays (single driver)
+            if (ld_en && ld_idx < MA_MAX[15:0]) begin
+                rb[ld_idx]  <= ld_rb;  re[ld_idx]  <= ld_re;
+                qb[ld_idx]  <= ld_qb;  qe[ld_idx]  <= ld_qe;
+                rid[ld_idx] <= ld_rid; sc[ld_idx]  <= ld_score; cov[ld_idx] <= ld_cov;
+            end
             case (state)
                 S_IDLE: if (start) begin
                     n <= n_in; overflow <= (n_in > MA_MAX[15:0]); tie <= 1'b0;

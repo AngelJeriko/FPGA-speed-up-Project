@@ -176,12 +176,9 @@ module matesw_orch_top
     assign dd_ld_en  = (state == T_DD_LD);
     assign dd_ld_idx = k[15:0];
 
-    // ---- ma load ----
-    always_ff @(posedge clk) if (ld_ma_en && ld_ma_idx < MA_MAX[15:0]) begin
-        m_rb[ld_ma_idx]<=ld_ma_rb; m_re[ld_ma_idx]<=ld_ma_re; m_qb[ld_ma_idx]<=ld_ma_qb;
-        m_qe[ld_ma_idx]<=ld_ma_qe; m_rid[ld_ma_idx]<=ld_ma_rid; m_sc[ld_ma_idx]<=ld_ma_score;
-        m_cov[ld_ma_idx]<=ld_ma_cov;
-    end
+    // ---- ma load ---- folded into the FSM block below: it writes the SAME m_* arrays the
+    // FSM drives (copy_ma / capture / readback), so a separate load always_ff would make
+    // them MULTI-DRIVEN (a synthesis error). Single driver -> load lives in that block.
 
     typedef enum logic [4:0] {
         T_IDLE, T_SKIP, T_SKIPCHK, T_ORI, T_LDQ, T_LDR, T_RUN, T_RWAIT,
@@ -202,6 +199,12 @@ module matesw_orch_top
             ou_start<=1'b0; ou_ld_en<=1'b0; dd_start<=1'b0;
         end else begin
             done<=1'b0; ou_start<=1'b0; dd_start<=1'b0; ou_ld_en<=1'b0;
+            // host ma load -- same block that drives m_* (single driver)
+            if (ld_ma_en && ld_ma_idx < MA_MAX[15:0]) begin
+                m_rb[ld_ma_idx]<=ld_ma_rb; m_re[ld_ma_idx]<=ld_ma_re; m_qb[ld_ma_idx]<=ld_ma_qb;
+                m_qe[ld_ma_idx]<=ld_ma_qe; m_rid[ld_ma_idx]<=ld_ma_rid; m_sc[ld_ma_idx]<=ld_ma_score;
+                m_cov[ld_ma_idx]<=ld_ma_cov;
+            end
             case (state)
                 T_IDLE: if (start) begin
                     lms_r<=l_ms; msl_r<=min_seed_len; a_r<=a;
