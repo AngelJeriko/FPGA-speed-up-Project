@@ -45,6 +45,7 @@ puts "### using proxy part: $part ###"
 set targets {
   chain_store      {chain_store.sv}
   bsw_max_tracker  {bsw_pkg.sv bsw_max_tracker.sv}
+  matesw_dedup     {matesw_dedup.sv}
 }
 
 proc ncells {pat} { return [llength [get_cells -hier -quiet -filter "REF_NAME =~ $pat"]] }
