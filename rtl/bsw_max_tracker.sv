@@ -108,29 +108,66 @@ module bsw_max_tracker
     len_t   glob_max_j;
     len_t   glob_max_off;
 
-    // Reduction: scan PE taps from low to high index, keeping the new cell
-    // when strictly greater.
+    // Reduction: pick the strict-greatest active cell, ties -> lowest PE index,
+    // incumbent glob_max wins ties vs the cells. Implemented as a BALANCED TREE
+    // (was a 160-deep serial scan -- the module's critical path, ~280 ns / 3.5 MHz
+    // on the proxy part). Combinational, and it registers on the same cycle with
+    // identical values -> BIT-EXACT with the serial version; depth drops from
+    // N_PE to log2(N_PE) (~8). NOTE: glob_max feeds the score VALUE and max_off
+    // only; the reported argmax (qle/tle) comes from the row pipeline below.
     score_t reduced_h;
     len_t   reduced_i;
     len_t   reduced_j;
     logic   any_valid;
 
+    localparam int     RLEVELS   = $clog2(N_PE);                       // 8 for 160
+    localparam int     RNPOW     = 1 << RLEVELS;                       // 256, pad up
+    localparam score_t SCORE_MIN = score_t'({1'b1, {(SCORE_WIDTH-1){1'b0}}}); // -2^(W-1)
+
+    // level 0 = padded leaves; each level halves; root at [RLEVELS][0]
+    score_t rt_h [RLEVELS+1][RNPOW];
+    len_t   rt_i [RLEVELS+1][RNPOW];
+    len_t   rt_j [RLEVELS+1][RNPOW];
+
     always_comb begin
-        reduced_h = glob_max;
-        reduced_i = glob_max_i;
-        reduced_j = glob_max_j;
-        any_valid = 1'b0;
-        // NOTE: glob_max here is used only for the score VALUE and max_off (which
-        // the orchestrator does not consume). The bit-exact argmax (qle/tle) is
-        // derived from the row pipeline below, matching ksw's "first row to
-        // strictly exceed, rightmost column in that row" tie-break.
-        for (int k = 0; k < N_PE; k++) begin
-            if (cell_valid_i[k] && (h_cells_i[k] > reduced_h)) begin
-                reduced_h = h_cells_i[k];
-                reduced_i = row_of_pe[k];
-                reduced_j = len_t'(k);
+        // leaves: an active lane contributes its cell; padding/inactive lanes get
+        // -inf so they never win. row index and PE index ride along.
+        for (int k = 0; k < RNPOW; k++) begin
+            if (k < N_PE && cell_valid_i[k]) begin
+                rt_h[0][k] = h_cells_i[k];
+                rt_i[0][k] = row_of_pe[k];
+                rt_j[0][k] = len_t'(k);
+            end else begin
+                rt_h[0][k] = SCORE_MIN;
+                rt_i[0][k] = '0;
+                rt_j[0][k] = '0;
             end
-            if (cell_valid_i[k]) any_valid = 1'b1;
+        end
+        // combine adjacent pairs; the LEFT (lower-index) operand wins ties (>=),
+        // giving the lowest-PE-index max -- matching the serial scan's strict '>'.
+        for (int lev = 0; lev < RLEVELS; lev++) begin
+            for (int m = 0; m < (RNPOW >> (lev+1)); m++) begin
+                if (rt_h[lev][2*m] >= rt_h[lev][2*m+1]) begin
+                    rt_h[lev+1][m] = rt_h[lev][2*m];
+                    rt_i[lev+1][m] = rt_i[lev][2*m];
+                    rt_j[lev+1][m] = rt_j[lev][2*m];
+                end else begin
+                    rt_h[lev+1][m] = rt_h[lev][2*m+1];
+                    rt_i[lev+1][m] = rt_i[lev][2*m+1];
+                    rt_j[lev+1][m] = rt_j[lev][2*m+1];
+                end
+            end
+        end
+        // fold in the incumbent: cells must STRICTLY exceed glob_max to replace it.
+        any_valid = |cell_valid_i;
+        if (rt_h[RLEVELS][0] > glob_max) begin
+            reduced_h = rt_h[RLEVELS][0];
+            reduced_i = rt_i[RLEVELS][0];
+            reduced_j = rt_j[RLEVELS][0];
+        end else begin
+            reduced_h = glob_max;
+            reduced_i = glob_max_i;
+            reduced_j = glob_max_j;
         end
     end
 
