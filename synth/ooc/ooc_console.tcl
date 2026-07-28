@@ -13,19 +13,26 @@ set out  $here/reports
 file mkdir $out
 set period 3.0   ;# ns; target 333 MHz. Fmax = 1000/(period - WNS)
 
-# --- auto-pick a free UltraScale+ part that is actually installed ---
+# --- pick a proxy part that is actually installed ---
+# Override anytime by typing `set PART <part>` in the Tcl Console BEFORE sourcing this.
+# Auto-pick order: UltraScale+ (future/AMI) -> big Virtex-7 -> big Kintex-7 -> smaller.
+# 7-series is a valid proxy for RELATIVE numbers (same LUT6 + RAMB36 fabric as VU9P).
 set candidates {
-  xcku5p-ffvb676-2-e xcku3p-ffva676-2-e
-  xczu7ev-ffvc1156-2-e xczu3eg-sbva484-2-e xczu2cg-sbva484-1-e
-  xcau25p-ffvb676-2-e
+  xcku5p-ffvb676-2-e xczu7ev-ffvc1156-2-e
+  xc7v2000tfhg1761-2 xc7k410tffg900-2 xc7k325tffg900-2 xc7k160tfbg484-2
+  xc7a200tfbg484-2 xc7a100tcsg324-2
 }
-set part ""
-foreach p $candidates { if {[llength [get_parts -quiet $p]] > 0} { set part $p; break } }
-if {$part eq ""} {
+if {[info exists ::PART] && $::PART ne ""} {
+  set part $::PART
+} else {
+  set part ""
+  foreach p $candidates { if {[llength [get_parts -quiet $p]] > 0} { set part $p; break } }
+}
+if {$part eq "" || [llength [get_parts -quiet $part]] == 0} {
   puts "############################################################"
-  puts "ERROR: none of my candidate proxy parts are installed."
-  puts "Type   get_parts -filter {FAMILY =~ *UltraScale+*}   to see yours,"
-  puts "pick one ending in -2-e or -2-i, and tell Claude."
+  puts "ERROR: no usable part found (tried: $candidates)."
+  puts "Type this to list yours:  join \[lsort \[get_parts\]\] \\n"
+  puts "then:  set PART <one-of-them>   and re-run this script."
   puts "############################################################"
   return
 }
