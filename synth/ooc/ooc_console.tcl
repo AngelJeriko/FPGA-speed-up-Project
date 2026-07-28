@@ -43,8 +43,8 @@ puts "### using proxy part: $part ###"
 # makes synthesis churn for many minutes. We synth it AFTER converting it (then it's
 # fast). To include it once converted, add back:   chain_store {chain_store.sv}
 set targets {
+  chain_store      {chain_store.sv}
   bsw_max_tracker  {bsw_pkg.sv bsw_max_tracker.sv}
-  matesw_dedup     {matesw_dedup.sv}
 }
 
 proc ncells {pat} { return [llength [get_cells -hier -quiet -filter "REF_NAME =~ $pat"]] }

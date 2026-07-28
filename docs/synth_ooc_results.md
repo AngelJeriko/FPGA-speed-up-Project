@@ -13,7 +13,18 @@ Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below 
 ### Conversions applied (re-measure to fill "after")
 - **bsw_max_tracker** ✅ serial 160-deep max-reduction → balanced log₂-depth tree.
   Bit-exact verified: tb_bsw_top 26/0, tb_bsw_ext 15887/0, tb_matesw_top 4000/0;
-  mutation-tested (freeze reduction → tb_bsw_top T5 zdrop FAIL). **AFTER Fmax: _pending re-synth_.**
+  mutation-tested (freeze reduction → tb_bsw_top T5 zdrop FAIL).
+  **AFTER: Fmax 3.5 → 70.1 MHz (20×), WNS −280.9 → −11.27 ns. LUT 21,611 → 24,510, FF 6,590, DSP 2.**
+  New critical path (−11.27 ns): the row-tail 160:1 mux → zdrop 32-bit multiply (Vivado warns
+  "not enough pipeline registers after wide multiplier", bsw_max_tracker.sv:380). Follow-up if the
+  BSW core needs >70 MHz: register the row-tail select + pipeline the zdrop math (delicate — zdrop
+  is an early-exit, so a delayed break must not change which row terminates). Banked for now.
+- **chain_store** ✅ 512-deep combinational lower_bound scan → sequential binary search (~log₂ depth)
+  over the same sorted c_pos array. Bit-exact: tb_chain_store 4000/0 + overflow-guard; mutation-tested
+  (invert search compare → 7192 fails). **AFTER: _pending re-synth_** — expect a large Fmax gain and a
+  big LUT drop (the 512-wide parallel comparator logic is gone); synthesis should also be far faster
+  than the ~11 min baseline. Note: c_pos and the c_* arrays are still register/distributed-RAM (single-
+  index reads); a later full registered-read-BRAM pass would further cut area if utilization demands.
 
 ## Readout
 

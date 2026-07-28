@@ -102,18 +102,14 @@ module chain_store #(parameter int NCHAIN = 512, parameter int NSEED = 2048) (
     logic [15:0] lo; logic signed [31:0] lo_s;   // predecessor (lo_s = -1 -> none)
     integer sh;                                  // shift index for insert
 
-    // ---- predecessor (kb_intervalp) over the sorted pos array, for in_rbeg[i] ----
-    logic [15:0] pred_beg, pred_lo; logic signed [31:0] pred_lo_s;
-    always_comb begin
-        pred_beg = 16'd0;
-        for (int c=0;c<NCHAIN;c++)
-            if (c < {16'd0,nch} && c_pos[c] < in_rbeg[i]) pred_beg = c[15:0] + 16'd1;
-        if (pred_beg < nch && c_pos[pred_beg] == in_rbeg[i]) begin
-            pred_lo = pred_beg;            pred_lo_s = {16'd0, pred_beg};
-        end else begin
-            pred_lo = pred_beg - 16'd1;    pred_lo_s = $signed({16'd0, pred_beg}) - 32'sd1;
-        end
-    end
+    // ---- predecessor (kb_intervalp) via SEQUENTIAL BINARY SEARCH over sorted c_pos ----
+    // Was a 512-deep combinational lower_bound scan reading c_pos[0..NCHAIN) in parallel
+    // -- the module's critical path (~89 MHz) AND the source of the huge parallel-
+    // comparator LUT usage. c_pos is sorted ascending, so lower_bound is a log2(NCHAIN)
+    // binary search: ONE indexed c_pos read per cycle instead of 512 in parallel. Same
+    // lower_bound result -> bit-exact; costs ~ceil(log2 nch)+1 extra cycles per seed.
+    logic [15:0] srch_lo, srch_hi;
+    wire  [15:0] srch_mid = (srch_lo + srch_hi) >> 1;
 
     // ---- test_and_merge (combinational on chain[lo] vs current seed); valid if lo_s>=0 ----
     logic [15:0] loc;                       // clamped lo for safe array reads
@@ -140,7 +136,7 @@ module chain_store #(parameter int NCHAIN = 512, parameter int NSEED = 2048) (
                    ((xx - cll64) < gap64) && ((yy - cll64) < gap64);
     end
 
-    typedef enum logic [3:0] { C_IDLE, C_PRED, C_DECIDE, C_APPEND, C_INSERT, C_NEXT, C_DONE } st_t;
+    typedef enum logic [3:0] { C_IDLE, C_PRED, C_PSEARCH, C_DECIDE, C_APPEND, C_INSERT, C_NEXT, C_DONE } st_t;
     st_t state;
     assign busy = (state != C_IDLE);
 
@@ -155,12 +151,30 @@ module chain_store #(parameter int NCHAIN = 512, parameter int NSEED = 2048) (
                     if (n_in==16'd0) state<=C_DONE; else state<=C_PRED;
                 end
 
-                // latch current seed + the combinational predecessor for in_rbeg[i]
+                // latch current seed; init the binary-search window over c_pos[0..nch)
                 C_PRED: begin
                     s_rb<=in_rbeg[i]; s_qb<=in_qbeg[i]; s_ln<=in_len[i];
                     s_sc<=in_score[i]; s_rd<=in_rid[i]; s_al<=in_isalt[i];
-                    lo<=pred_lo; lo_s<=pred_lo_s;
-                    state<=C_DECIDE;
+                    srch_lo<=16'd0; srch_hi<=nch;
+                    state<=C_PSEARCH;
+                end
+
+                // lower_bound: narrow [srch_lo,srch_hi) to the first index whose c_pos
+                // is >= target (s_rb, = in_rbeg[i]). One indexed c_pos read per cycle.
+                C_PSEARCH: begin
+                    if (srch_lo < srch_hi) begin
+                        if (c_pos[srch_mid] < s_rb) srch_lo <= srch_mid + 16'd1;
+                        else                        srch_hi <= srch_mid;
+                    end else begin
+                        // srch_lo == lower_bound == pred_beg
+                        if (srch_lo < nch && c_pos[srch_lo] == s_rb) begin
+                            lo <= srch_lo;  lo_s <= $signed({16'd0, srch_lo});
+                        end else begin
+                            lo <= srch_lo - 16'd1;
+                            lo_s <= $signed({16'd0, srch_lo}) - 32'sd1;
+                        end
+                        state <= C_DECIDE;
+                    end
                 end
 
                 // decide: merge into chain[lo] (append/contained) or add a new chain
