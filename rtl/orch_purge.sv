@@ -73,8 +73,10 @@ module orch_purge #(
     always_ff @(posedge clk) begin
         if (av_ld_en) begin
             av_rb[av_ld_idx]<=av_ld_rb; av_re[av_ld_idx]<=av_ld_re;
-            av_qb[av_ld_idx]<=av_ld_qb; av_qe[av_ld_idx]<=av_ld_qe;
             av_w[av_ld_idx]<=av_ld_w;   av_sl0[av_ld_idx]<=av_ld_sl0;
+            // av_qb/av_qe are ALSO written by the purge FSM (exclusion -> -1), so their load
+            // lives in THAT always_ff (below) — else they are multi-driven across two
+            // processes, which Vivado reports as "Unsupported RAM template" (a hard error).
         end
         if (sd_ld_en) begin
             sd_rbeg[sd_ld_idx]<=sd_ld_rbeg; sd_qbeg[sd_ld_idx]<=sd_ld_qbeg;
@@ -169,6 +171,10 @@ module orch_purge #(
             state <= S_IDLE; done <= 1'b0;
         end else begin
             done <= 1'b0;
+            // av_qb/av_qe host load — same block that drives them via the exclusion write
+            if (av_ld_en) begin
+                av_qb[av_ld_idx]<=av_ld_qb; av_qe[av_ld_idx]<=av_ld_qe;
+            end
             case (state)
                 S_IDLE: if (start) begin
                     a_r<=a; od_r<=o_del; ed_r<=e_del; oi_r<=o_ins; ei_r<=e_ins;

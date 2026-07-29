@@ -40,9 +40,9 @@ module chain_introsort #(parameter int NMAX = 512, parameter int STACKD = 48) (
     // ---- the array being sorted in place ----
     logic signed [31:0] aw [NMAX];
     logic [15:0]        aid[NMAX];
-    always_ff @(posedge clk) if (ld_en && ld_idx < NMAX[15:0]) begin
-        aw[ld_idx]<=ld_w; aid[ld_idx]<=ld_id;
-    end
+    // The sort FSM below writes aw/aid in place (swaps), so the host load MUST live in
+    // that same always_ff. A separate load always_ff makes aw/aid MULTI-DRIVEN (two flop
+    // sets) -> a synthesis error. Folded in (leading `if (ld_en...)`).
     logic [15:0] n;
     assign n_out = n;
     assign o_w   = aw [rd_idx];
@@ -80,6 +80,10 @@ module chain_introsort #(parameter int NMAX = 512, parameter int STACKD = 48) (
             state<=A_IDLE; done<=1'b0; fallback<=1'b0;
         end else begin
             done<=1'b0;
+            // host load — same block that drives aw/aid (single driver)
+            if (ld_en && ld_idx < NMAX[15:0]) begin
+                aw[ld_idx]<=ld_w; aid[ld_idx]<=ld_id;
+            end
             case (state)
                 A_IDLE: if (start) begin
                     n<=n_in; fallback<=1'b0; dlc<=8'd2; state<=A_DEPTH;
