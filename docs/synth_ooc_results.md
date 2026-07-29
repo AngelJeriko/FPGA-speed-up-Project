@@ -39,6 +39,19 @@ Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below 
   as "true dual port RAM template" (rb/re/rid/sc/qb) and BRAM (qe/cov). The area problem is solved;
   Fmax now limited by the redundancy 64-bit multiply (optional later pipeline), not storage.
 
+## Integrated top: chaining_pe_pair_top (system Fmax + fit)
+First 65-min OOC run (2026-07-29) ended in **3 errors** — the integrated synth found two
+synthesizability bugs the per-module runs couldn't (those modules were never synth'd alone):
+- **chain_introsort** — `aw`/`aid` written by a standalone load always_ff AND the sort FSM
+  → 2432 multi-driven-net critical warnings. Fixed: fold load into the FSM block.
+- **orch_purge** — `av_qb`/`av_qe` written by the load block AND the purge-exclusion FSM
+  → "Unsupported RAM template" hard error (blocked synth). Fixed: move their load into the FSM.
+Both fixed + Verilator-verified (tb_chain_introsort 4000/0, tb_orch_read_top 200/0,
+tb_chaining_pe2_top 200/0). Area-only (deferred): matesw_pe_top `w_*` + chain_store `p_next`
+dissolve to flops ("multiple writes, one process"). **System Fmax pending a clean re-synth;
+bounded ~70 MHz by bsw_max_tracker (modules connect via registered handshakes, so integration
+won't be worse). Fit: even bloated it mapped onto the Virtex-7 proxy → fits VU9P comfortably.**
+
 ## Scoreboard (all conversions bit-exact + mutation-tested)
 | module | Fmax before→after | LUT before→after | note |
 |--------|------------------:|-----------------:|------|
