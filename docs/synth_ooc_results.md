@@ -33,8 +33,19 @@ Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below 
   inner loop latches element[i] into p_* and reads only j; the output port o_* is registered (fixed
   matesw_orch_top's read loop to present rd_idx a cycle early). Bit-exact: tb_matesw_dedup 6000/0,
   tb_matesw_orch_top 3000/0, tb_matesw_pe_top 2000/0, tb_matesw_pe_sel_top 2000/0, tb_accel_pe2_top
-  200/0; mutation-tested (wrong read address → 4421 fails). **AFTER Fmax/LUT: _pending re-synth_** —
-  expect the 573K LUTs to collapse to a few K + a handful of BRAMs (the mux trees become BRAM ports).
+  200/0; mutation-tested (wrong read address → 4421 fails).
+  **AFTER (measured 2026-07-29): LUT 573,564 → 3,114 (184×), FF 74,381 → 728, BRAM 0 → 4×RAMB36 +
+  8×RAMB18, Fmax 82.0 MHz, synth 41 min → 1.5 min, 0 crit warnings.** Vivado recognized the arrays
+  as "true dual port RAM template" (rb/re/rid/sc/qb) and BRAM (qe/cov). The area problem is solved;
+  Fmax now limited by the redundancy 64-bit multiply (optional later pipeline), not storage.
+
+## Scoreboard (all conversions bit-exact + mutation-tested)
+| module | Fmax before→after | LUT before→after | note |
+|--------|------------------:|-----------------:|------|
+| bsw_max_tracker | 3.5 → 70.1 MHz (20×) | 21.6K → 24.5K | serial max-reduction → tree |
+| chain_store     | 89.1 → 115.3 MHz | 134K → 59K (−56%) | linear predecessor → binary search |
+| matesw_dedup    | (unbuildable) → 82.0 MHz | 573K → **3.1K** (184×) | register file → TDP BRAM; multi-driver bug fixed |
+| matesw_orch_top | — | — | multi-driver bug fixed (0 crit warns, was 147,456) |
 
 ### Conversions applied (re-measure to fill "after")
 - **bsw_max_tracker** ✅ serial 160-deep max-reduction → balanced log₂-depth tree.
