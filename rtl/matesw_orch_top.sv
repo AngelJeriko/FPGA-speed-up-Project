@@ -169,6 +169,9 @@ module matesw_orch_top
         .rd_idx(dd_rd_idx), .o_rb(dd_o_rb), .o_re(dd_o_re), .o_qb(dd_o_qb), .o_qe(dd_o_qe),
         .o_rid(dd_o_rid), .o_score(dd_o_sc), .o_cov(dd_o_cov)
     );
+    // dedup output read is now REGISTERED (BRAM): present k combinationally, sample dd_o_* next
+    // cycle (T_DD_RD0 is the settle cycle, T_DD_RD1 consumes).
+    assign dd_rd_idx = k[15:0];
     assign dd_ld_rb=m_rb[k]; assign dd_ld_re=m_re[k]; assign dd_ld_qb=m_qb[k];
     assign dd_ld_qe=m_qe[k]; assign dd_ld_rid=m_rid[k]; assign dd_ld_sc=m_sc[k]; assign dd_ld_cov=m_cov[k];
     // load enable/index are combinational so they track the combinational data above
@@ -302,7 +305,7 @@ module matesw_orch_top
 `endif
                     if (dd_n_out==0) state<=T_NEXTR; else state<=T_DD_RD0;
                 end
-                T_DD_RD0: begin dd_rd_idx<=k[15:0]; state<=T_DD_RD1; end
+                T_DD_RD0: state<=T_DD_RD1;   // settle cycle: dd_rd_idx=k (comb) -> dd_o_* valid next
                 T_DD_RD1: begin
                     m_rb[k]<=dd_o_rb; m_re[k]<=dd_o_re; m_qb[k]<=dd_o_qb; m_qe[k]<=dd_o_qe;
                     m_rid[k]<=dd_o_rid; m_sc[k]<=dd_o_sc; m_cov[k]<=dd_o_cov;

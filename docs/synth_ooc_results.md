@@ -27,6 +27,14 @@ Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below 
   VU9P for one small module) at 81.5 MHz — the combinational dual-index (i,j) reads over 256-deep
   register files feeding the 64-bit multiply. This is the clear next target: sequential single-read
   + registered-BRAM (its #3-sweep conversion). 41-min synth, so verify hard in Verilator first.
+- **matesw_dedup CONVERTED** ✅ (2026-07-29): the 7 field arrays are now a registered-read memory
+  with 1 write + 2 read ports (port A/B for the i/j dual reads) → true-dual-port BRAM instead of a
+  256:1 LUT-mux register file. Every access is present-address→consume-next-cycle; the redundancy
+  inner loop latches element[i] into p_* and reads only j; the output port o_* is registered (fixed
+  matesw_orch_top's read loop to present rd_idx a cycle early). Bit-exact: tb_matesw_dedup 6000/0,
+  tb_matesw_orch_top 3000/0, tb_matesw_pe_top 2000/0, tb_matesw_pe_sel_top 2000/0, tb_accel_pe2_top
+  200/0; mutation-tested (wrong read address → 4421 fails). **AFTER Fmax/LUT: _pending re-synth_** —
+  expect the 573K LUTs to collapse to a few K + a handful of BRAMs (the mux trees become BRAM ports).
 
 ### Conversions applied (re-measure to fill "after")
 - **bsw_max_tracker** ✅ serial 160-deep max-reduction → balanced log₂-depth tree.
