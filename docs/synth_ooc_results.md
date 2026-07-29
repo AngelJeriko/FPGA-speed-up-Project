@@ -8,7 +8,25 @@ Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below 
 |--------|-----------:|---------:|----:|---:|--------------:|----:|---------|
 | chain_store     | **89.1** | −8.22 | 134,467 | 66,147 | 10 | 0 | slow + LUT-bloated |
 | bsw_max_tracker | **3.5**  | −280.9 | 21,611 | 6,574 | 0 | 2 | BEFORE (160-deep serial max-reduction) |
-| matesw_dedup    | _invalid_ | | | | | | BASELINE VOID — multi-driven nets (see below) |
+| matesw_dedup    | _see below_ | | | | | | multi-driver bug fixed; real numbers below |
+
+### MEASURED AFTER (2026-07-29, same Virtex-7 proxy)
+
+| module | Fmax before→after | WNS after | LUT before→after | FF | BRAM | crit warns |
+|--------|------------------:|----------:|-----------------:|---:|-----:|-----------:|
+| chain_store     | 89.1 → **115.3 MHz** | −5.68 | 134,467 → **59,040** | 33,258 | 14 | 0 |
+| bsw_max_tracker | 3.5 → **70.1 MHz** | −11.27 | 21,611 → 24,510 | 6,590 | 0 | 0 |
+| matesw_dedup    | (void) → **81.5 MHz** | −9.28 | — → **573,564** ⚠ | 74,381 | 0 | **0** (was 147,456) |
+
+- **chain_store WIN:** +30% Fmax (89→115) AND LUT more than halved (134K→59K, the 512-wide
+  comparator is gone), FF halved (66K→33K), synth 11 min → 5 min. `c_pos`/`c_*` still infer as
+  distributed RAM (RAM64M) — a later full-BRAM pass would cut area further. Minor: `p_next` can't
+  infer as RAM (multiple writes, one process) so it dissolves to 32K flops — cosmetic, not a bug.
+- **matesw_dedup:** multi-driver fix CONFIRMED — **0 critical warnings** (was 147,456), FF halved
+  (148K→74K duplication gone). But the real design is now visible and it's **573K LUTs** (~half a
+  VU9P for one small module) at 81.5 MHz — the combinational dual-index (i,j) reads over 256-deep
+  register files feeding the 64-bit multiply. This is the clear next target: sequential single-read
+  + registered-BRAM (its #3-sweep conversion). 41-min synth, so verify hard in Verilator first.
 
 ### Conversions applied (re-measure to fill "after")
 - **bsw_max_tracker** ✅ serial 160-deep max-reduction → balanced log₂-depth tree.
