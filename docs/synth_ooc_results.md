@@ -47,10 +47,23 @@ synthesizability bugs the per-module runs couldn't (those modules were never syn
 - **orch_purge** — `av_qb`/`av_qe` written by the load block AND the purge-exclusion FSM
   → "Unsupported RAM template" hard error (blocked synth). Fixed: move their load into the FSM.
 Both fixed + Verilator-verified (tb_chain_introsort 4000/0, tb_orch_read_top 200/0,
-tb_chaining_pe2_top 200/0). Area-only (deferred): matesw_pe_top `w_*` + chain_store `p_next`
-dissolve to flops ("multiple writes, one process"). **System Fmax pending a clean re-synth;
-bounded ~70 MHz by bsw_max_tracker (modules connect via registered handshakes, so integration
-won't be worse). Fit: even bloated it mapped onto the Virtex-7 proxy → fits VU9P comfortably.**
+tb_chaining_pe2_top 200/0). Area-only (deferred): matesw_pe_top `w_*`, chain_store `p_next`,
+orch_purge `av_qb/av_qe` dissolve to flops ("multiple writes, one process").
+
+**CLEAN INTEGRATED SYNTH (2026-07-29): 0 errors, 0 critical warnings. System result:**
+**Fmax 2.4 MHz (WNS −406 ns), LUT 1,093,930 (~90% of the xc7v2000t proxy), FF 319,081,
+BRAM 53, DSP 28.**
+**This REFUTES the earlier "~70 MHz bounded / fits comfortably" estimate — it was wrong.** The
+per-module Fmax numbers did NOT predict the system: the ~406 ns critical path is far worse than any
+single module. Cause = the MANY combinational-read register-file arrays still in the design (only
+3 modules were converted). They chain together across the integrated datapath into a ~400 ns path,
+AND they are the LUT bloat (cf. matesw_dedup 573K→3K when converted to BRAM). So the design is
+currently BOTH too slow (2.4 MHz) AND too big (1.09M LUT, would not fit VU9P + F1 shell). Making it
+F1-viable needs the registered-BRAM treatment applied BROADLY — the un-converted combinational-read
+arrays across chain_flt, chain_flt_top, orch_chain_unit, orch_purge (sd_*/av_qb/qe), the
+chaining_pe_pair_top top-wrapper arrays (a_*/sb_*/s_*/sd_*/av_*), matesw_pe_top w_*, chain_store
+p_next, and others. NEXT DIAGNOSTIC: `report_timing` on the failing path to see which arrays/modules
+own the ~400 ns, then convert worst-first. This is a large multi-module effort, not a quick fix.
 
 ## Scoreboard (all conversions bit-exact + mutation-tested)
 | module | Fmax before→after | LUT before→after | note |
