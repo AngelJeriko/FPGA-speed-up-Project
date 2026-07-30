@@ -65,6 +65,30 @@ chaining_pe_pair_top top-wrapper arrays (a_*/sb_*/s_*/sd_*/av_*), matesw_pe_top 
 p_next, and others. NEXT DIAGNOSTIC: `report_timing` on the failing path to see which arrays/modules
 own the ~400 ns, then convert worst-first. This is a large multi-module effort, not a quick fix.
 
+### report_timing DIAGNOSIS (2026-07-30) — the ~400 ns path was NOT a register-file array
+User uploaded the full `report_timing_summary` (`chaining_pe_pair_top_timing.rpt`, 20 worst paths).
+**All 20 worst paths are the SAME structure**, and it is **not** on the combinational-read worklist:
+- Source: `.../u_bsw/u_fsm/cfg_q_reg[o_ins]`  →  Dest: `.../u_bsw/u_array/g_pe[158].u_pe/H_curr_reg`
+- 409 ns data path, **1117 logic levels, 796 CARRY4**, netlist names ripple `...__152 __153 ... __158`
+  (one per PE index) — a giveaway for a per-column cumulative chain.
+Root cause = `bsw_ctrl_fsm.sv` computed the first-row init boundary `eh_init[j]` as a **160-deep
+combinational saturating-subtract LADDER** (`eh_init[j] = max(eh_init[j-1] - e_ins, 0)`), feeding
+each PE's `H_curr_reg` preload. `eh_init[158]` = h0 through 157 chained subtract+clamp stages.
+So the PEs are correctly pipelined — the killer was a *prefix-scan* combinational loop in the FSM,
+a DIFFERENT anti-pattern than the register-file mux trees the worklist targets.
+
+**FIX (bit-exact, no added latency, no FSM/timing changes) ✅** Every subtracted term is >= 0, so the
+unclamped prefix `P_j = h0 - (o_ins + j*e_ins)` is monotonically non-increasing → a saturating
+running-max-with-0 over it equals the pointwise clamp:
+  `eh_init[j] = max(h0 - o_ins - j*e_ins, 0)`  (each lane independent; const-coeff mul + subtract + clamp).
+This breaks the 160-deep dependency into a shallow parallel structure. Verified bit-exact:
+tb_bsw_top 26/0, **tb_bsw_ext 15887/0 (real data)**, tb_matesw_top 4000/0; mutation-tested
+(j→j+1 off-by-one → 552 fails, restored byte-identical). Files: rtl/bsw_ctrl_fsm.sv.
+**RE-SYNTH TODO:** re-run the integrated OOC (`chaining_pe_pair_top`) to measure the new system Fmax
+— this removes THE dominant path; the next bottleneck is unknown (likely bsw_max_tracker's zdrop
+multiply, or one of the still-un-converted register-file arrays that the worklist ranks). Area
+(1.09M LUT) is unchanged by this fix — that still needs the broad registered-BRAM conversions.
+
 ## Scoreboard (all conversions bit-exact + mutation-tested)
 | module | Fmax before→after | LUT before→after | note |
 |--------|------------------:|-----------------:|------|

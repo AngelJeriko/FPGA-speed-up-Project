@@ -202,27 +202,35 @@ module bsw_ctrl_fsm
         end
     end
 
-    // ---- First-row eh[] init (combinational saturating-subtract ladder) ----
+    // ---- First-row eh[] init (parallel closed form of the saturating ladder) ----
     // Mirrors C++ scalarBandedSWA:
     //   eh[0] = h0
     //   eh[1] = max(h0 - (o_ins + e_ins), 0)
-    //   eh[j] = max(eh[j-1] - e_ins, 0)   for j >= 2  (while > e_ins; else 0)
-    // We feed this to each PE_j as its initial H_curr_reg value so that the
-    // wavefront chain delivers the correct H_diag for each PE's first cell.
+    //   eh[j] = max(eh[j-1] - e_ins, 0)   for j >= 2
+    // The original RTL implemented this as a 160-deep combinational subtract-and-
+    // clamp CHAIN (eh_init[j] depended on eh_init[j-1]). Out-of-context synthesis
+    // showed that chain WAS the system critical path: ~409 ns / 796 CARRY4 from
+    // cfg_q.o_ins to PE_158's H_curr_reg preload (system Fmax 2.4 MHz, WNS -406 ns).
+    //
+    // Closed form: every subtracted term (o_ins, e_ins) is >= 0, so the unclamped
+    // prefix  P_j = h0 - (o_ins + j*e_ins)  is monotonically NON-INCREASING. A
+    // saturating running-max-with-0 over a non-increasing sequence equals the
+    // pointwise clamp, so
+    //   eh_init[j] = max(P_j, 0) = max(h0 - o_ins - j*e_ins, 0)   (bit-exact).
+    // Each lane is now independent (one const-coeff mul + one subtract + clamp),
+    // breaking the 160-deep dependency into a shallow parallel structure.
+    // Arithmetic widened to 32 bits so the o_ins + j*e_ins sum cannot overflow for
+    // any legal config (j < 160); the positive result always fits score_t (h0 <=
+    // 1024 by the h0 contract, see docs/bit_width_proof.md).
     score_t eh_init [N_PE];
-    score_t oe_ins_w;
-    assign oe_ins_w = cfg_q.o_ins + cfg_q.e_ins;
-
-    score_t eh_sub  [N_PE];
-    score_t eh_diff [N_PE];
+    logic signed [31:0] eh_pen [N_PE];   // cumulative gap penalty S_j = o_ins + j*e_ins
     always_comb begin
         eh_init[0] = cfg_q.h0;
-        eh_sub[0]  = '0;
-        eh_diff[0] = '0;
+        eh_pen[0]  = '0;
         for (int j = 1; j < N_PE; j++) begin
-            eh_sub[j]  = (j == 1) ? oe_ins_w : cfg_q.e_ins;
-            eh_diff[j] = eh_init[j-1] - eh_sub[j];
-            eh_init[j] = (eh_diff[j] > score_t'(0)) ? eh_diff[j] : score_t'(0);
+            eh_pen[j]  = 32'(cfg_q.o_ins) + j * 32'(cfg_q.e_ins);
+            eh_init[j] = (32'(cfg_q.h0) > eh_pen[j])
+                         ? score_t'(32'(cfg_q.h0) - eh_pen[j]) : score_t'(0);
         end
     end
 

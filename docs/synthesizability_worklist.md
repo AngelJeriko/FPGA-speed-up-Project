@@ -1,5 +1,14 @@
 # Synthesizability worklist — combinational-read memories (VU9P / AWS F1)
 
+> **UPDATE 2026-07-30 — the measured system critical path was NOT on this list.**
+> `report_timing` on `chaining_pe_pair_top` showed all 20 worst paths (−406 ns) were a
+> 160-deep combinational cumulative-subtract LADDER in `bsw_ctrl_fsm.sv` (`eh_init[j]`
+> first-row boundary), a prefix-scan anti-pattern distinct from the register-file mux trees
+> below. **FIXED** with a parallel closed form (bit-exact, tb_bsw_ext 15887/0; see
+> `synth_ooc_results.md`). The items below remain the **AREA** problem (1.09M LUT) and are
+> the likely NEXT timing paths — but re-synth `chaining_pe_pair_top` to confirm the new Fmax
+> and worst path before assuming their static ranking is the timing order.
+
 Tree-wide RTL sweep (2026-07-28). The design is Verilator-verified but never synthesized.
 The dominant issue is **combinational array reads** → they infer DEPTH:1 LUT mux trees
 (a register file), which burns flops AND (when the read feeds arithmetic in the same
