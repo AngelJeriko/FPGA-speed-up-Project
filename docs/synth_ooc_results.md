@@ -102,6 +102,20 @@ Bit-exact (identical algebra, deferred one cycle; extra states transparent behin
 matesw_dedup register-file→BRAM story) — but chain_flt is more an AREA than a timing target.
 Files: rtl/chain_flt.sv.
 
+### MEASURED integrated re-synth (2026-07-30, eh_init + chain_flt both in)
+**chaining_pe_pair_top: Fmax 2.4 → 13.7 MHz (5.7×), WNS −406 → −69.8 ns, LUT 1,093,930 → 1,074,576,
+FF 320,131, DSP 28 → 308, 0 errors / 0 crit warns.** The eh_init closed form removed the 400 ns
+ladder as predicted (headline timing win). chain_flt cw/cb/ce now infer BRAM (RAMB18) — confirmed —
+but LUT barely moved (chain_flt is small; the bulk is still distributed-RAM). eh_init added ~280
+DSP48 (one small const-mult per PE lane × 2 dirs) = 308/6840 on VU9P (4.5%), fine.
+
+**NEW worst path (−69.8 ns) = `orch_purge` (worklist #6).** Source `av_qb_reg[887]` (the av_qb/av_qe
+1024-deep arrays, still dissolved to 32,768 flops — multi-write, unconverted) → `cmg1_return14`
+purge gap arithmetic (**386 logic levels, 326 CARRY4** — a big combinational reduction) → `av_rb`
+BRAM write-address. So orch_purge is now BOTH the timing bottleneck AND a major area sink
+(av_qb/av_qe flops + sd_* distributed RAM + the cmg arithmetic). Clear next target. Area still
+1.07M LUT overall — the big distributed-RAM arrays (c_pos, sd_*, av_*, a_*) remain unconverted.
+
 ## Scoreboard (all conversions bit-exact + mutation-tested)
 | module | Fmax before→after | LUT before→after | note |
 |--------|------------------:|-----------------:|------|
