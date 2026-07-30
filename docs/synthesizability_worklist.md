@@ -25,7 +25,7 @@ Priority = fix top-of-list first; MEASURE each with local OOC synth (proxy US+ p
 | 1 | chain_store.sv | c_pos (+in_rbeg broadcast) | 512 | 512 (comb scan) | YES (512 `<`, adds/subs) | HIGH | replace kb_intervalp linear predecessor with sequential binary-search FSM over registered-read BRAM |
 | 2 | bsw_max_tracker.sv | row_m/mj/idx/vld_pipe | 160 | 160 (comb scan) | YES (zdrop mul/sub/cmp, gscore, argmax) | HIGH | index by tail_idx (registered read), register selected tail before zdrop arith |
 | 3 | matesw_dedup.sv | rb/re/qb/qe/rid | 256 | 3 (i,j,rd_idx) | YES (**64-bit multiply** 20*or_>19*mr_) | HIGH | sequence O(n²) redundancy test one index/cycle from BRAM; register operands ahead of multiplier |
-| 4 | chain_flt.sv | cw/cb/ce/calt | 512 | 2 (i,jj) | YES (max/min, 2*(e-b), subs) | HIGH | read [i] then [jj] on successive cycles, or dup for 2 ports |
+| 4 | chain_flt.sv | cw/cb/ce/calt | 512 | 2 (i,jj) | YES (max/min, 2*(e-b), subs) | **DONE** | ✅ registered-read port; element[i] latched once, survivor jj sequenced (present→consume). tb_chain_flt 4000/0, tb_chain_flt_top 4000/0, mutation 14694 fails |
 | 5 | chain_introsort.sv | aw | 512 | 3 (s,t,mid) | YES (median-of-3 cmp) | HIGH | latch 3 pivots over 3 cycles; compare-only (milder than #3) |
 | 6 | orch_purge.sv | av_qb/av_qe | 1024 | 2 (rd_idx,i) | YES (contained/toolong) | HIGH | true-dual-port BRAM or duplicate; register compare operands |
 | 7 | chain_store.sv | c_rid/c_fq/c_lq/c_lr/c_ll | 512 | 1 | YES (test_and_merge) | MED | registered-read RAM |

@@ -89,6 +89,19 @@ tb_bsw_top 26/0, **tb_bsw_ext 15887/0 (real data)**, tb_matesw_top 4000/0; mutat
 multiply, or one of the still-un-converted register-file arrays that the worklist ranks). Area
 (1.09M LUT) is unchanged by this fix — that still needs the broad registered-BRAM conversions.
 
+### chain_flt (worklist #4) CONVERTED ✅ (2026-07-30)
+The greedy overlap/shadow filter read the four 512-deep metadata arrays `cw/cb/ce/calt`
+COMBINATIONALLY at two indices every cycle (outer chain `i` and survivor `jj=keptlist[kk]`)
+→ eight 512:1 LUT-mux trees feeding the compares. Converted to a single REGISTERED-READ port:
+`i`'s metadata is constant across the inner loop so it is read once and latched into `*_i`;
+the inner loop presents the survivor address (L_JPRES) and consumes it the next cycle (L_JCON).
+Arrays are written only by the host load (single writer) so they infer simple-dual-port BRAM.
+Bit-exact (identical algebra, deferred one cycle; extra states transparent behind busy/done):
+**tb_chain_flt 4000/0, tb_chain_flt_top 4000/0**; mutation-tested (survivor read addr +1 →
+14694 fails, restored byte-identical). RE-SYNTH TODO: measure LUT drop (expect large, cf. the
+matesw_dedup register-file→BRAM story) — but chain_flt is more an AREA than a timing target.
+Files: rtl/chain_flt.sv.
+
 ## Scoreboard (all conversions bit-exact + mutation-tested)
 | module | Fmax before→after | LUT before→after | note |
 |--------|------------------:|-----------------:|------|

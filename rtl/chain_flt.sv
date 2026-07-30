@@ -14,6 +14,15 @@
 // span < max_chain_gap, and j not-alt-unless-i-alt) records a shadow (j.first=i) and, if i is
 // much weaker (2*w_i < w_j and gap >= 2*min_seed_len), DROPS i. Survivors that shadowed someone
 // resurrect their first shadowed chain (kept=1). Integer surrogates: mask_level=drop_ratio=0.5.
+//
+// SYNTHESIZABILITY (2026-07-30, worklist #4): the metadata arrays cw/cb/ce/calt were read
+// COMBINATIONALLY at TWO indices (i and jj=keptlist[kk]) every cycle -> two 512:1 LUT-mux trees
+// per array feeding the compares (area bloat + long path). They are now a single REGISTERED-READ
+// port (present rd_addr -> *_q valid next cycle) so they infer simple-dual-port BRAM (one write
+// port = the host load, one read port). element[i] is CONSTANT across the whole inner loop, so it
+// is read once and latched into *_i; the inner loop reads only the survivor jj. Bit-exact:
+// identical algebra, just deferred by a cycle; extra internal states are transparent behind
+// busy/done. See docs/synthesizability_worklist.md and docs/synth_ooc_results.md.
 module chain_flt #(parameter int NMAX = 512) (
     input  logic               clk,
     input  logic               rst_n,
@@ -42,7 +51,12 @@ module chain_flt #(parameter int NMAX = 512) (
     input  logic [15:0]        rd_idx,
     output logic [1:0]         o_kept
 );
+    localparam int AW = $clog2(NMAX);
+
     // ---- per-chain metadata ----
+    // cw/cb/ce/calt: written ONLY by the load port (single writer) and read via the
+    // registered-read port below -> simple-dual-port BRAM. kept/first/keptlist remain
+    // FSM-driven register files (single-index, out of this conversion's scope).
     logic signed [31:0] cw[NMAX], cb[NMAX], ce[NMAX];
     logic               calt[NMAX];
     logic [1:0]         kept[NMAX];
@@ -61,28 +75,53 @@ module chain_flt #(parameter int NMAX = 512) (
     logic signed [31:0] cnt;
     logic        large_ovlp;
     logic signed [31:0] gap, msl, mce;
+    logic [15:0] jj_r;                          // survivor index whose metadata is in *_q
 
-    // ---- inner-loop combinational compare of chain i vs survivor jj=keptlist[kk] ----
-    logic [15:0] jj;
-    logic signed [31:0] b_max, e_min, li, lj, min_l;
-    logic ov, signif, brk;
-    always_comb begin
-        jj    = keptlist[kk];
-        b_max = (cb[jj] > cb[i]) ? cb[jj] : cb[i];
-        e_min = (ce[jj] < ce[i]) ? ce[jj] : ce[i];
-        ov    = (e_min > b_max) && (!calt[jj] || calt[i]);
-        li    = ce[i]  - cb[i];
-        lj    = ce[jj] - cb[jj];
-        min_l = (li < lj) ? li : lj;
-        signif = ov && (2*(e_min - b_max) >= min_l) && (min_l < gap);
-        brk    = signif && (2*cw[i] < cw[jj]) && ((cw[jj]-cw[i]) >= (msl <<< 1));
+    // ---- registered-read port over the metadata arrays ----
+    // rd_addr presented one cycle; *_q valid the next. Index i is read once and
+    // latched into *_i (constant across the inner loop); the inner loop reads jj.
+    logic [AW-1:0]      rd_addr;
+    logic signed [31:0] cw_q, cb_q, ce_q;
+    logic               calt_q;
+    always_ff @(posedge clk) begin
+        cw_q   <= cw  [rd_addr];
+        cb_q   <= cb  [rd_addr];
+        ce_q   <= ce  [rd_addr];
+        calt_q <= calt[rd_addr];
     end
 
+    // latched metadata for the outer chain i
+    logic signed [31:0] cw_i, cb_i, ce_i;
+    logic               calt_i;
+
     typedef enum logic [3:0] {
-        L_IDLE, L_CLR, L_OUTER, L_INNER, L_ADD, L_NEXT, L_RES, L_EXT1, L_EXT2, L_DONE
+        L_IDLE, L_CLR, L_OUTER, L_IPRES, L_ILAT, L_JPRES, L_JCON,
+        L_ADD, L_NEXT, L_RES, L_EXT1, L_EXT2, L_DONE
     } st_t;
     st_t state;
     assign busy = (state != L_IDLE);
+
+    // rd_addr: present i by default; present survivor keptlist[kk] during L_JPRES.
+    always_comb begin
+        rd_addr = i[AW-1:0];
+        if (state == L_JPRES) rd_addr = keptlist[kk][AW-1:0];
+    end
+
+    // ---- inner-loop combinational compare of chain i (latched *_i) vs survivor
+    //      jj (registered-read *_q). Identical algebra to the C++ model:
+    //      cw_i/cb_i/ce_i/calt_i == c*[i]; cw_q/cb_q/ce_q/calt_q == c*[jj].
+    logic signed [31:0] b_max, e_min, li, lj, min_l;
+    logic ov, signif, brk;
+    always_comb begin
+        b_max  = (cb_q > cb_i) ? cb_q : cb_i;
+        e_min  = (ce_q < ce_i) ? ce_q : ce_i;
+        ov     = (e_min > b_max) && (!calt_q || calt_i);
+        li     = ce_i - cb_i;
+        lj     = ce_q - cb_q;
+        min_l  = (li < lj) ? li : lj;
+        signif = ov && (2*(e_min - b_max) >= min_l) && (min_l < gap);
+        brk    = signif && (2*cw_i < cw_q) && ((cw_q - cw_i) >= (msl <<< 1));
+    end
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -110,19 +149,30 @@ module chain_flt #(parameter int NMAX = 512) (
 
                 L_OUTER: begin
                     if (i >= n) begin kk<=16'd0; state<=L_RES; end
-                    else begin large_ovlp<=1'b0; kk<=16'd0; state<=L_INNER; end
+                    else begin large_ovlp<=1'b0; kk<=16'd0; state<=L_IPRES; end
                 end
 
-                // compare chain i against survivor kk; drop (break) or advance
-                L_INNER: begin
-                    if (kk >= klen) state<=L_ADD;
+                // read element[i] (rd_addr=i via default) and latch it next cycle
+                L_IPRES: state<=L_ILAT;
+                L_ILAT: begin
+                    cw_i<=cw_q; cb_i<=cb_q; ce_i<=ce_q; calt_i<=calt_q;
+                    if (kk >= klen) state<=L_ADD;        // no survivors to test
+                    else            state<=L_JPRES;
+                end
+
+                // present survivor keptlist[kk], remember its index, consume next cycle
+                L_JPRES: begin jj_r<=keptlist[kk]; state<=L_JCON; end
+
+                // compare chain i against survivor jj_r; drop (break) or advance
+                L_JCON: begin
+                    if (signif) begin
+                        large_ovlp<=1'b1;
+                        if (first[jj_r] < 0) first[jj_r]<=i;
+                    end
+                    if (brk) state<=L_NEXT;              // i dropped (kept stays 0)
                     else begin
-                        if (signif) begin
-                            large_ovlp<=1'b1;
-                            if (first[jj] < 0) first[jj]<=i;
-                        end
-                        if (brk) state<=L_NEXT;                 // i dropped (kept stays 0)
-                        else begin kk<=kk+16'd1; state<=L_INNER; end
+                        kk<=kk+16'd1;
+                        state<= ((kk+16'd1) >= klen) ? L_ADD : L_JPRES;
                     end
                 end
 
