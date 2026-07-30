@@ -95,13 +95,27 @@ module orch_purge #(
     logic signed [31:0] a_r,od_r,ed_r,oi_r,ei_r,w_r,lq_r;
     logic [15:0]        nav_r, nch_r;
 
+    // FIXED bwa-mem2 scoring (== bsw_pkg W_MATCH/W_O_DEL/W_E_DEL/W_O_INS/W_E_INS/W_BAND).
+    // 2026-07-30: cmg() is the ONLY divide in this module and was the −67.9 ns / DSP-mapped
+    // critical path (integer DIVISION by a runtime e_del/e_ins). This accelerator runs the
+    // fixed bwa-mem2 scoring, so these are compile-time constants — with e_del=e_ins=1 the
+    // divide-by-e collapses to identity and (qlen*a−o+e) folds to a subtract (a=1), removing
+    // the divider entirely. Bit-exact: the purge vectors already feed exactly 1/6/1/6/1/100
+    // (the runtime a_r/od_r/… ports are now unused → trimmed). See docs/synth_ooc_results.md.
+    localparam int SC_A     = 1;    // W_MATCH
+    localparam int SC_O_DEL = 6;    // W_O_DEL
+    localparam int SC_E_DEL = 1;    // W_E_DEL
+    localparam int SC_O_INS = 6;    // W_O_INS
+    localparam int SC_E_INS = 1;    // W_E_INS
+    localparam int SC_W     = 100;  // W_BAND
+
     function automatic logic signed [31:0] cmg(input logic signed [31:0] qlen);
         logic signed [31:0] ld, li, l, w2;
-        ld = (qlen*a_r - od_r + ed_r) / ed_r;   // == (int)((double)(qlen*a-o_del)/e_del + 1.)
-        li = (qlen*a_r - oi_r + ei_r) / ei_r;
+        ld = (qlen*SC_A - SC_O_DEL + SC_E_DEL) / SC_E_DEL;  // e_del=1 → divide folds to identity
+        li = (qlen*SC_A - SC_O_INS + SC_E_INS) / SC_E_INS;  // e_ins=1 → divide folds to identity
         l  = (ld > li) ? ld : li;
         l  = (l  > 1)  ? l  : 32'sd1;
-        w2 = w_r <<< 1;
+        w2 = SC_W <<< 1;
         cmg = (l < w2) ? l : w2;
     endfunction
 

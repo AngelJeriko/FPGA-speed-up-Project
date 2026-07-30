@@ -53,14 +53,28 @@ module chain2aln_setup #(parameter int NSEED = 256) (
     logic signed [31:0] a_r, od_r, ed_r, oi_r, ei_r, w_r, lq_r;
     logic signed [63:0] lpac_r, lpac2_r, s0_rbeg;
 
+    // FIXED bwa-mem2 scoring (== bsw_pkg W_MATCH/W_O_DEL/W_E_DEL/W_O_INS/W_E_INS/W_BAND).
+    // 2026-07-30: cmg() (cal_max_gap) is the only divide here and a twin of orch_purge's
+    // −67.9 ns critical path (integer DIVISION by runtime e_del/e_ins). This accelerator runs
+    // the fixed bwa-mem2 scoring, so these are compile-time constants — with e_del=e_ins=1 the
+    // divide folds to identity and (qlen*a−o+e) folds to a subtract (a=1), removing the divider.
+    // Bit-exact: gen_chain2aln_vectors now pins the scoring to 1/6/1/6/1/100 to match (the
+    // runtime a_r/od_r/… ports are unused → trimmed). See docs/synth_ooc_results.md.
+    localparam int SC_A     = 1;    // W_MATCH
+    localparam int SC_O_DEL = 6;    // W_O_DEL
+    localparam int SC_E_DEL = 1;    // W_E_DEL
+    localparam int SC_O_INS = 6;    // W_O_INS
+    localparam int SC_E_INS = 1;    // W_E_INS
+    localparam int SC_W     = 100;  // W_BAND
+
     // cal_max_gap (integer-exact): trunc((qlen*a - o + e)/e), max, clamp to 1 and w<<1
     function automatic logic signed [31:0] cmg(input logic signed [31:0] qlen);
         logic signed [31:0] ld, li, l, w2;
-        ld = (qlen*a_r - od_r + ed_r) / ed_r;
-        li = (qlen*a_r - oi_r + ei_r) / ei_r;
+        ld = (qlen*SC_A - SC_O_DEL + SC_E_DEL) / SC_E_DEL;  // e_del=1 → divide folds to identity
+        li = (qlen*SC_A - SC_O_INS + SC_E_INS) / SC_E_INS;  // e_ins=1 → divide folds to identity
         l  = (ld > li) ? ld : li;
         l  = (l > 32'sd1) ? l : 32'sd1;
-        w2 = w_r <<< 1;
+        w2 = SC_W <<< 1;
         cmg = (l < w2) ? l : w2;
     endfunction
 

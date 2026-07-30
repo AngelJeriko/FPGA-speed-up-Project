@@ -27,10 +27,13 @@ int main(int argc, char** argv) {
     char line[160];
     for (int it = 0; it < n; ++it) {
         Cfg o{};
-        o.a = 1 + (int)(rnd()%2);            // 1..2
-        o.o_del = 4 + (int)(rnd()%6);  o.e_del = 1 + (int)(rnd()%3);
-        o.o_ins = 4 + (int)(rnd()%6);  o.e_ins = 1 + (int)(rnd()%3);
-        o.w = 50 + (int)(rnd()%120);
+        // FIXED bwa-mem2 scoring: the accelerator hardcodes it, so chain2aln_setup folds cmg to
+        // compile-time constants (removes the runtime divider). Pin the vectors to the same values
+        // (was randomized to stress the divide, now moot) — seeds/l_query/l_pac stay random.
+        o.a = 1;
+        o.o_del = 6;  o.e_del = 1;
+        o.o_ins = 6;  o.e_ins = 1;
+        o.w = 100;
         int l_query = 80 + (int)(rnd()%120);
         int64_t l_pac = (rnd()%4==0) ? (int64_t)(2000 + rnd()%4000)   // small -> exercise clamps
                                      : (int64_t)((uint64_t)1<<40);    // huge -> interior (like real)
