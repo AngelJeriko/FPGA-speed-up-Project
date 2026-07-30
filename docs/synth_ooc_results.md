@@ -172,3 +172,55 @@ matesw_dedup**.
 
 ## After-conversion numbers go here
 (re-run the same OOC synth on each converted module; record delta)
+
+---
+
+## Integrated re-synth #2 (2026-07-30) — after the orch_purge cmg divide-pipeline (`4cf6def`)
+
+MEASURED `chaining_pe_pair_top`, same Virtex-7 proxy (`xc7v2000tfhg1761-2`, 3.0 ns target):
+
+| metric | after eh_init (#1) | after divide-pipeline (#2) | delta |
+|--------|-------------------:|---------------------------:|-------|
+| Fmax   | 13.7 MHz           | **14.1 MHz**               | +0.4 MHz |
+| WNS    | −69.8 ns           | **−67.9 ns**               | +1.9 ns |
+| LUT    | 1,074,576          | **1,097,558**              | +23K (worse) |
+| FF     | ~319K              | 320,481                    | ~ |
+| DSP    | 308                | 308                        | ~ |
+| errors / crit-warn | 0 / 0  | 0 / 0                      | clean |
+
+**The divide-pipeline barely moved timing and slightly grew area.** Root cause understood:
+isolating the `cmg` integer divide into its own reg-to-reg stage does NOT shorten it — a
+**single-cycle 32-bit division by a runtime value is inherently ~68 ns**. Vivado mapped the
+multiply half of `cmg` to DSP48s (`cmg1_return14 … A*B2`) but the divide stays the worst path.
+The worst path is still `cmg` in `orch_purge`, with a near-equal twin in `chain2aln_setup`.
+LESSON: pipelining a long combinational op into its own stage doesn't help unless the op is
+itself **sequenced (multi-cycle)** or **removed**.
+
+### Fix applied: constant-fold the scoring (`0c76968`)
+
+This accelerator runs the FIXED bwa-mem2 scoring, so `a/o_del/e_del/o_ins/e_ins/w` are now
+compile-time `localparam`s (= `bsw_pkg` `1/6/1/6/1/100`) inside `cmg` in **both** `orch_purge`
+and `chain2aln_setup`. With `e_del=e_ins=1` the divide folds to identity and `(qlen*a−o+e)`
+folds to a subtract (`a=1`) — the divider **and** the DSP multiply vanish at every `cmg` site.
+
+- Bit-exact: `orch_purge` vectors already fed `1/6/1/6/1/100` → tb_orch_purge 200/0,
+  tb_orch_read_top 200/0. `chain2aln_setup`'s generator previously **randomized** the scoring
+  to stress the divide (moot now) — pinned it to the fixed values, regenerated → 4000/0.
+- Mutation (force `cmg` to a wrong magnitude, `SC_A=40`/`SC_W=3`): orch_purge 1–2 fail,
+  chain2aln_setup 3770–3945 fail → `cmg` is on a live path.
+- Re-synth pending to measure the new Fmax.
+
+### ⚠️ Area is now the harder wall
+
+At **1.098M LUT** (~90% of this proxy) the design **will not place** on the real VU9P (F1),
+whose fabric is 3 SLRs of ~394K LUT each. Instance-area report:
+
+- `u_sel` / mate-rescue ≈ **970K cells** — contains a *second and third* full 160-PE Smith-
+  Waterman array (`matesw_orient_unit` + `matesw_top`).
+- `orch_read_top` ≈ 499K (orch_purge 324K + orch_chain_unit/bsw_seed_unit 171K).
+
+The design instantiates ~3 complete SW arrays. Area needs a **structural** rework — share one
+SW engine across extend/mate-rescue, and BRAM-ify the big distributed-RAM register files
+(`av_qb/av_qe` 32,768 flops still unconverted, `sd_*`, `a_*`, `c_pos`) — not more per-module
+register-file conversion. The per-module timing grind has hit diminishing returns
+(eh_init 5.7×; orch_purge divide ~3%); the remaining wins are structural.
