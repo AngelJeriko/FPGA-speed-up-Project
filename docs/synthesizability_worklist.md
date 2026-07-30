@@ -27,7 +27,7 @@ Priority = fix top-of-list first; MEASURE each with local OOC synth (proxy US+ p
 | 3 | matesw_dedup.sv | rb/re/qb/qe/rid | 256 | 3 (i,j,rd_idx) | YES (**64-bit multiply** 20*or_>19*mr_) | HIGH | sequence O(n²) redundancy test one index/cycle from BRAM; register operands ahead of multiplier |
 | 4 | chain_flt.sv | cw/cb/ce/calt | 512 | 2 (i,jj) | YES (max/min, 2*(e-b), subs) | **DONE** | ✅ registered-read port; element[i] latched once, survivor jj sequenced (present→consume). tb_chain_flt 4000/0, tb_chain_flt_top 4000/0, mutation 14694 fails |
 | 5 | chain_introsort.sv | aw | 512 | 3 (s,t,mid) | YES (median-of-3 cmp) | HIGH | latch 3 pivots over 3 cycles; compare-only (milder than #3) |
-| 6 | orch_purge.sv | av_qb/av_qe | 1024 | 2 (rd_idx,i) | YES (contained/toolong) | HIGH | true-dual-port BRAM or duplicate; register compare operands |
+| 6 | orch_purge.sv | av_qb/av_qe | 1024 | 2 (rd_idx,i) | YES (contained/toolong) | **TIMING ½ DONE** | ✅ cmg integer-DIVIDE (the −69.8 ns / 326-CARRY4 path) pipelined out of the free-running comb into S_BAND_MIN/DIV/DEC (register divide inputs → cmg reg-to-reg → decide). tb_orch_purge 200/0, tb_orch_read_top 200/0, mutation red. **AREA half TODO:** av_qb/av_qe multi-write→registered-read BRAM (32,768 flops). commit 4cf6def; re-synth pending |
 | 7 | chain_store.sv | c_rid/c_fq/c_lq/c_lr/c_ll | 512 | 1 | YES (test_and_merge) | MED | registered-read RAM |
 | 8 | orch_purge.sv | av_rb/re/w/sl0, sd_* | 1024 | 1 | YES | MED | registered-read BRAM (~426 Kib flops today) |
 | 9 | chain_store.sv | in_rbeg | 2048 | 1 (fans to 512 cmps) | YES | MED | folds into #1 |
