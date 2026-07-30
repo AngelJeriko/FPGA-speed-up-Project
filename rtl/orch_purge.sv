@@ -190,15 +190,37 @@ module orch_purge #(
 
     wire [15:0] aidx = abase_r + (n_r - 16'd1 - k[15:0]);  // av index for seed at pos k
 
+    // ---- av_qb/av_qe SINGLE write port (2026-07-30, worklist #6 AREA half) ----
+    // Previously av_qb/av_qe were written from TWO statements in the FSM always_ff (host preload +
+    // purge exclusion → −1). Vivado can't infer a RAM with multiple writes in one process, so both
+    // dissolved into 32,768 flops + 1024:1 read muxes (vs the single-write siblings av_rb/av_re/av_w/
+    // av_sl0 which DO infer BRAM). The two writes are temporally DISJOINT (preload before start;
+    // exclusion only in S_VV_DONE, mid-run), so folding them into ONE muxed write port makes av_qb/
+    // av_qe BRAM-inferable like their siblings — no read/interface change. Bit-exact: identical
+    // address/data/timing, just one write statement. (matesw_dedup pattern — see memory.)
+    logic               avq_we;
+    logic [15:0]        avq_waddr;
+    logic signed [31:0] avq_wqb, avq_wqe;
+    always_comb begin
+        if (av_ld_en) begin                                       // host preload (before start)
+            avq_we = 1'b1; avq_waddr = av_ld_idx; avq_wqb = av_ld_qb; avq_wqe = av_ld_qe;
+        end else if (state == S_VV_DONE && !vv_broke) begin        // purge exclusion (mid-run)
+            avq_we = 1'b1; avq_waddr = aidx;      avq_wqb = -32'sd1;  avq_wqe = -32'sd1;
+        end else begin
+            avq_we = 1'b0; avq_waddr = '0;        avq_wqb = '0;       avq_wqe = '0;
+        end
+    end
+    always_ff @(posedge clk) if (avq_we) begin
+        av_qb[avq_waddr] <= avq_wqb;
+        av_qe[avq_waddr] <= avq_wqe;
+    end
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             state <= S_IDLE; done <= 1'b0;
         end else begin
             done <= 1'b0;
-            // av_qb/av_qe host load — same block that drives them via the exclusion write
-            if (av_ld_en) begin
-                av_qb[av_ld_idx]<=av_ld_qb; av_qe[av_ld_idx]<=av_ld_qe;
-            end
+            // av_qb/av_qe are driven by the folded single-write port above (avq_we), NOT here.
             case (state)
                 S_IDLE: if (start) begin
                     a_r<=a; od_r<=o_del; ed_r<=e_del; oi_r<=o_ins; ei_r<=e_ins;
@@ -285,8 +307,7 @@ module orch_purge #(
                 end
                 S_VV_DONE: begin
                     if (!vv_broke) begin                                 // vv==n -> purge
-                        av_qb[aidx] <= -32'sd1;
-                        av_qe[aidx] <= -32'sd1;
+                        // av_qb[aidx]/av_qe[aidx] <= -1 done by the folded write port (avq_we)
                         srt_inv[k[7:0]] <= 1'b1;
                     end else begin
                         lim <= lim + 16'd1;
