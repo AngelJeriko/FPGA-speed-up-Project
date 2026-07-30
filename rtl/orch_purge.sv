@@ -119,10 +119,19 @@ module orch_purge #(
     logic signed [15:0] vv; logic vv_broke;
 
     // ---- combinational view of av[i] vs current seed s (inner scan) ----
+    // SYNTHESIZABILITY (2026-07-30, worklist #6): the band tests call cmg(), which does
+    // integer DIVISION (cal_max_gap surrogate). Done here in the free-running always_comb,
+    // 4 cmg calls x 2 divides built the 326-CARRY4 / 386-level cone from the av[] read to a
+    // BRAM address -- the -69.8 ns system critical path. The divides are now PIPELINED out of
+    // this block into S_BAND_MIN -> S_BAND_DIV -> S_BAND_DEC (below): the divide inputs
+    // (minL/minR) are registered, then cmg runs reg-to-reg, then the band decision. Only the
+    // cheap, division-free signals stay combinational here. Bit-exact: identical algebra,
+    // deferred by two cycles for the (rare) contained-&&-not-toolong entries; the fast-path
+    // (purged / not-contained / toolong) still resolves in one S_SCAN cycle.
     logic signed [63:0] p_rb, p_re; logic signed [31:0] p_qb, p_qe, p_w, p_sl0;
-    logic purged_i, contained_i, toolong_i, bandL_i, bandR_i;
+    logic purged_i, contained_i, toolong_i;
     logic signed [63:0] qdL, rdL, qdR, rdR;
-    logic signed [31:0] minL, minR, wL, wR;
+    logic signed [31:0] minL, minR;
     always_comb begin
         p_rb=av_rb[i]; p_re=av_re[i]; p_qb=av_qb[i]; p_qe=av_qe[i]; p_w=av_w[i]; p_sl0=av_sl0[i];
         purged_i   = (p_qb == -32'sd1) && (p_qe == -32'sd1);
@@ -132,14 +141,14 @@ module orch_purge #(
         qdL = 64'(s_qbeg) - 64'(p_qb);
         rdL = s_rbeg - p_rb;
         minL = (qdL < rdL) ? qdL[31:0] : rdL[31:0];
-        wL = (cmg(minL) < p_w) ? cmg(minL) : p_w;
-        bandL_i = ((qdL - rdL) < 64'(wL)) && ((rdL - qdL) < 64'(wL));
         qdR = 64'(p_qe) - (64'(s_qbeg) + 64'(s_len));
         rdR = p_re - (s_rbeg + 64'(s_len));
         minR = (qdR < rdR) ? qdR[31:0] : rdR[31:0];
-        wR = (cmg(minR) < p_w) ? cmg(minR) : p_w;
-        bandR_i = ((qdR - rdR) < 64'(wR)) && ((rdR - qdR) < 64'(wR));
     end
+
+    // ---- pipelined band-test registers (i held across S_BAND_MIN/DIV/DEC) ----
+    logic signed [63:0] qdL_r, rdL_r, qdR_r, rdR_r;
+    logic signed [31:0] minL_r, minR_r, pw_r, wL_r, wR_r;
 
     // ---- combinational view of seed t (vv conflict scan) ----
     logic signed [63:0] t_rbeg; logic signed [31:0] t_qbeg, t_len;
@@ -159,7 +168,8 @@ module orch_purge #(
 
     typedef enum logic [4:0] {
         S_IDLE, S_CH_START, S_SORT_SCAN, S_SORT_PLACE, S_K_INIT, S_K_SETUP,
-        S_SCAN, S_AFTER, S_VV_INIT, S_VV, S_VV_DONE, S_K_DEC, S_CH_NEXT, S_DONE
+        S_SCAN, S_BAND_MIN, S_BAND_DIV, S_BAND_DEC,
+        S_AFTER, S_VV_INIT, S_VV, S_VV_DONE, S_K_DEC, S_CH_NEXT, S_DONE
     } st_t;
     st_t state;
     assign busy = (state != S_IDLE);
@@ -225,9 +235,26 @@ module orch_purge #(
                     else if (purged_i)          i <= i + 16'd1;
                     else if (!contained_i)      begin v<=v+16'd1; i<=i+16'd1; end
                     else if (toolong_i)         begin v<=v+16'd1; i<=i+16'd1; end
-                    else if (bandL_i)           state <= S_AFTER;        // break (redundant)
-                    else if (bandR_i)           state <= S_AFTER;        // break
-                    else                        begin v<=v+16'd1; i<=i+16'd1; end
+                    else                        state <= S_BAND_MIN;     // contained && !toolong -> band test
+                end
+                // ---- band test, pipelined so the cmg DIVISION is a clean reg->reg path ----
+                // i is held across all three states; av[]/qd*/rd*/min* stay stable.
+                S_BAND_MIN: begin                       // latch the divide inputs + band operands
+                    qdL_r<=qdL; rdL_r<=rdL; minL_r<=minL;
+                    qdR_r<=qdR; rdR_r<=rdR; minR_r<=minR;
+                    pw_r <=p_w;
+                    state <= S_BAND_DIV;
+                end
+                S_BAND_DIV: begin                       // the divides: reg minL_r/minR_r -> reg wL_r/wR_r
+                    wL_r <= (cmg(minL_r) < pw_r) ? cmg(minL_r) : pw_r;
+                    wR_r <= (cmg(minR_r) < pw_r) ? cmg(minR_r) : pw_r;
+                    state <= S_BAND_DEC;
+                end
+                S_BAND_DEC: begin                       // band decision from registered operands
+                    if ((((qdL_r - rdL_r) < 64'(wL_r)) && ((rdL_r - qdL_r) < 64'(wL_r))) ||
+                        (((qdR_r - rdR_r) < 64'(wR_r)) && ((rdR_r - qdR_r) < 64'(wR_r))))
+                        state <= S_AFTER;               // break (redundant)
+                    else begin v<=v+16'd1; i<=i+16'd1; state<=S_SCAN; end
                 end
                 S_AFTER: begin
                     if (v < lim) begin vv <= k + 16'sd1; vv_broke<=1'b0; state<=S_VV_INIT; end
