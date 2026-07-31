@@ -30,9 +30,18 @@
 
 module bsw_seed_unit
     import bsw_pkg::*;
-(
+#(
+    // 0 = own a private bsw_top (default; every standalone tb keeps this).
+    // 1 = the core lives in a shared bsw_shared arbiter; expose the request channel
+    //     and take the response from it instead. Set by chaining_pe2_top.
+    parameter bit SHARED_CORE = 0
+)(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (used only when SHARED_CORE=1; else left dangling) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- memory load (host/TB) : write query_mem[addr]/ref_mem[addr] ----
     input  logic               ld_en,
@@ -112,13 +121,34 @@ module bsw_seed_unit
     bsw_config_t          bsw_cfg;
     bsw_result_t          bsw_res;
 
-    bsw_top u_bsw (
-        .clk(clk), .rst_n(rst_n),
-        .restart_mode(1'b0),                 // extension: banded SW, no fresh restart
-        .req_valid_i(bsw_req), .req_ready_o(bsw_req_rdy),
-        .query_i(bsw_q), .target_i(bsw_t), .cfg_i(bsw_cfg),
-        .result_valid_o(bsw_res_vld), .result_ready_i(1'b1), .result_o(bsw_res)
-    );
+    // Build the request channel from the same signals that drove the local core.
+    // restart_mode=0 (banded extension); result_ready=1 (FSM waits in S_?WAIT).
+    always_comb begin
+        sw_req_o.restart_mode = 1'b0;
+        sw_req_o.req_valid    = bsw_req;
+        sw_req_o.result_ready = 1'b1;
+        sw_req_o.cfg          = bsw_cfg;
+        sw_req_o.query        = bsw_q;
+        sw_req_o.target       = bsw_t;
+    end
+
+    generate
+        if (SHARED_CORE == 0) begin : g_local_core
+            // Private core (default): identical to the pre-sharing design.
+            bsw_top u_bsw (
+                .clk(clk), .rst_n(rst_n),
+                .restart_mode(1'b0),             // extension: banded SW, no fresh restart
+                .req_valid_i(bsw_req), .req_ready_o(bsw_req_rdy),
+                .query_i(bsw_q), .target_i(bsw_t), .cfg_i(bsw_cfg),
+                .result_valid_o(bsw_res_vld), .result_ready_i(1'b1), .result_o(bsw_res)
+            );
+        end else begin : g_shared_core
+            // Core lives in the arbiter; take the response off the channel.
+            assign bsw_req_rdy = sw_resp_i.req_ready;
+            assign bsw_res_vld = sw_resp_i.result_valid;
+            assign bsw_res     = sw_resp_i.result;
+        end
+    endgenerate
 
     // phase: 0 = left run, 1 = right run -> selects which buffers/cfg drive bsw
     logic phase_right;

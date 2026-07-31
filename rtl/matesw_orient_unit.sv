@@ -24,9 +24,15 @@
 
 module matesw_orient_unit
     import bsw_pkg::*;
-(
+#(
+    parameter bit SHARED_CORE = 0        // threaded to the inner matesw_top
+)(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- memory load (host/TB) -> forwarded to matesw_top ----
     input  logic               ld_en,
@@ -72,8 +78,9 @@ module matesw_orient_unit
     logic signed [31:0] mt_qlen, mt_tlen, mt_od, mt_ed, mt_oi, mt_ei, mt_subo;
     logic signed [31:0] mt_score, mt_te, mt_qe, mt_tb, mt_qb;
 
-    matesw_top u_mt (
+    matesw_top #(.SHARED_CORE(SHARED_CORE)) u_mt (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         .ld_en(ld_en), .ld_sel(ld_sel), .ld_addr(ld_addr), .ld_data(ld_data),
         .start(mt_start), .qlen(mt_qlen), .tlen(mt_tlen),
         .o_del(mt_od), .e_del(mt_ed), .o_ins(mt_oi), .e_ins(mt_ei),

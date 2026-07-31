@@ -134,13 +134,27 @@ module chaining_pe2_top
     output logic signed [31:0] o_score,
     output logic signed [31:0] o_cov
 );
+    // ---- shared banded-SW core: ONE bsw_top time-shared between the extend path
+    // (u_ce, channel A) and the mate-rescue path (u_sel, channel B). The host runs
+    // both extend passes to completion (ce_done) before sel_start, so A and B never
+    // overlap. This removes the second full 160-PE array (area lever). ----
+    bsw_creq_t  a_req, b_req;
+    bsw_cresp_t a_resp, b_resp;
+
+    bsw_shared u_swshared (
+        .clk(clk), .rst_n(rst_n),
+        .a_req_i(a_req), .a_resp_o(a_resp),      // extend
+        .b_req_i(b_req), .b_resp_o(b_resp)       // mate-rescue
+    );
+
     // ---- chaining_extend_top (reused for both runs) ----
     logic        ce_tvalid, ce_tlast, ce_done_i, ce_fb_chain, ce_fb_sort, ce_busy_i;
     logic        unused_ce_fb;   // the OR'd bit: deliberately unused, we report per stage
     rec_t        ce_tdata;
 
-    chaining_extend_top #(.NCHAIN(NCHAIN), .NSEED(NSEED), .NQ(NQ), .NS(NS)) u_ce (
+    chaining_extend_top #(.NCHAIN(NCHAIN), .NSEED(NSEED), .NQ(NQ), .NS(NS), .SHARED_CORE(1'b1)) u_ce (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(a_req), .sw_resp_i(a_resp),
         .w(wcfg), .max_chain_gap(max_chain_gap), .min_seed_len(min_seed_len),
         .max_chain_extend(max_chain_extend),
         .a(a), .o_del(o_del), .e_del(e_del), .o_ins(o_ins), .e_ins(e_ins),
@@ -207,8 +221,9 @@ module chaining_pe2_top
     assign s_ma_sc  = ce_tdata.score;
 
     // ---- matesw_pe_sel_top ----
-    matesw_pe_sel_top #(.MA_MAX(MA_MAX), .NSRC(NSRC)) u_sel (
+    matesw_pe_sel_top #(.MA_MAX(MA_MAX), .NSRC(NSRC), .SHARED_CORE(1'b1)) u_sel (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(b_req), .sw_resp_i(b_resp),
         // candidate source <- run 1 capture
         .src_ld_en(s_src_en), .src_ld_idx(s_src_idx),
         .src_ld_rb(s_src_rb), .src_ld_rid(s_src_rid), .src_ld_alt(s_src_alt), .src_ld_score(s_src_sc),

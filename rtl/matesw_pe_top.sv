@@ -22,10 +22,15 @@
 module matesw_pe_top
     import bsw_pkg::*;
 #(
-    parameter int MA_MAX = 256
+    parameter int MA_MAX = 256,
+    parameter bit SHARED_CORE = 0        // threaded to matesw_orch_top -> matesw_top
 )(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- pass-through loads to the inner orch_top (mate seq + ref windows) ----
     input  logic               ld_ms_en,
@@ -116,8 +121,9 @@ module matesw_pe_top
     logic [15:0]        ot_rd_idx;
     logic signed [63:0] ot_o_rb, ot_o_re; logic signed [31:0] ot_o_qb,ot_o_qe,ot_o_rid,ot_o_sc,ot_o_cov;
 
-    matesw_orch_top #(.MA_MAX(MA_MAX)) u_ot (
+    matesw_orch_top #(.MA_MAX(MA_MAX), .SHARED_CORE(SHARED_CORE)) u_ot (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         // ms/ref pass straight through from the wrapper ports
         .ld_ms_en(ld_ms_en), .ld_ms_addr(ld_ms_addr), .ld_ms_data(ld_ms_data),
         .ld_ref_en(ld_ref_en), .ld_ref_win(ld_ref_win), .ld_ref_addr(ld_ref_addr), .ld_ref_data(ld_ref_data),

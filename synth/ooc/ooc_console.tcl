@@ -45,7 +45,7 @@ puts "### using proxy part: $part ###"
 # Integrated top (THE JOIN): chaining -> extend -> sort -> mate-rescue, both directions.
 # 33 modules; the host-fed ref_req/ref_in_* ports are just unconnected in OOC. Big synth.
 set targets {
-  chaining_pe_pair_top {bsw_pkg.sv bsw_score_matrix.sv bsw_pe.sv bsw_systolic_array.sv bsw_max_tracker.sv bsw_ctrl_fsm.sv bsw_top.sv bsw_axis_adapter.sv orch_window.sv orch_assemble.sv orch_seedcov.sv bsw_seed_unit.sv orch_chain_unit.sv orch_purge.sv orch_read_top.sv msort_v2_pkg.sv msort_v2_top.sv accel_top.sv chain_store.sv chain_weight.sv chain_introsort.sv chain_flt.sv chain_flt_top.sv chaining_top.sv chain2aln_setup.sv bns_clamp_top.sv chaining_extend_top.sv matesw_top.sv matesw_orient_unit.sv matesw_dedup.sv matesw_orch_top.sv matesw_pe_top.sv matesw_pe_sel_top.sv chaining_pe2_top.sv chaining_pe_pair_top.sv}
+  chaining_pe_pair_top {bsw_pkg.sv bsw_score_matrix.sv bsw_pe.sv bsw_systolic_array.sv bsw_max_tracker.sv bsw_ctrl_fsm.sv bsw_top.sv bsw_shared.sv bsw_axis_adapter.sv orch_window.sv orch_assemble.sv orch_seedcov.sv bsw_seed_unit.sv orch_chain_unit.sv orch_purge.sv orch_read_top.sv msort_v2_pkg.sv msort_v2_top.sv accel_top.sv chain_store.sv chain_weight.sv chain_introsort.sv chain_flt.sv chain_flt_top.sv chaining_top.sv chain2aln_setup.sv bns_clamp_top.sv chaining_extend_top.sv matesw_top.sv matesw_orient_unit.sv matesw_dedup.sv matesw_orch_top.sv matesw_pe_top.sv matesw_pe_sel_top.sv chaining_pe2_top.sv chaining_pe_pair_top.sv}
 }
 
 proc ncells {pat} { return [llength [get_cells -hier -quiet -filter "REF_NAME =~ $pat"]] }

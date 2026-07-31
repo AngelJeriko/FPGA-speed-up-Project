@@ -215,15 +215,37 @@ folds to a subtract (`a=1`) — the divider **and** the DSP multiply vanish at e
 At **1.098M LUT** (~90% of this proxy) the design **will not place** on the real VU9P (F1),
 whose fabric is 3 SLRs of ~394K LUT each. Instance-area report:
 
-- `u_sel` / mate-rescue ≈ **970K cells** — contains a *second and third* full 160-PE Smith-
-  Waterman array (`matesw_orient_unit` + `matesw_top`).
+- `u_sel` / mate-rescue ≈ **970K cells** — one full 160-PE array (`matesw_top`) **plus** the
+  MA_MAX=256 register files (`matesw_pe_top` `w_rb/re/qb/qe/rid/sc/cov`, read combinationally →
+  distributed RAM) + dedup/orient/selection logic.
 - `orch_read_top` ≈ 499K (orch_purge 324K + orch_chain_unit/bsw_seed_unit 171K).
 
-The design instantiates ~3 complete SW arrays. Area needs a **structural** rework — share one
-SW engine across extend/mate-rescue, and BRAM-ify the big distributed-RAM register files
-(`av_qb/av_qe` 32,768 flops still unconverted, `sd_*`, `a_*`, `c_pos`) — not more per-module
-register-file conversion. The per-module timing grind has hit diminishing returns
-(eh_init 5.7×; orch_purge divide ~3%); the remaining wins are structural.
+**CORRECTION (2026-07-31): there are TWO physical 160-PE arrays, not three.** A source-of-truth
+trace found exactly two `bsw_top` instances in `chaining_pe_pair_top`: `bsw_seed_unit.u_bsw`
+(extend, restart=0) and `matesw_top.u_bsw` (mate, restart=1), both BAND_WIDTH=160. The earlier
+"second and third array" note double-counted; `matesw_orient_unit` contains no array of its own —
+it just wraps the one `matesw_top`. The `u_sel` bulk is **one array + big regfiles**, so array
+sharing removes ~one array (~150–170K LUT) but does not by itself reach the 394K/SLR target; it
+pairs with the regfile conversions below.
+
+Area needs a **structural** rework — share one SW engine across extend/mate-rescue (see
+"Shared SW core" below), and BRAM-ify the big distributed-RAM register files (`av_qb/av_qe` 32,768
+flops still unconverted, `matesw_pe_top` `w_*`, `sd_*`, `a_*`, `c_pos`) — not more per-module
+register-file conversion. The per-module timing grind has hit diminishing returns (eh_init 5.7×;
+orch_purge divide ~3%); the remaining wins are structural.
+
+### Shared SW core — one bsw_top time-shared across extend + mate-rescue (2026-07-31)
+
+The extend path (`bsw_seed_unit`) and the mate-rescue path (`matesw_top`) each instantiated a
+private `bsw_top`. They never run concurrently — the paired-end host runs both extend passes to
+completion (`ce_done`) before it pulses `sel_start` — so ONE core can serve both. Implemented as a
+`bsw_shared` arbiter (2 request channels A=extend/B=mate → one `bsw_top`, owner-latching, released
+on result handshake) placed in `chaining_pe2_top`; the request channel (`bsw_creq_t`/`bsw_cresp_t`)
+is threaded up through the 4+4 intermediate modules. `bsw_ctrl_fsm` latches query/target/cfg the
+cycle a request is accepted, so the wide channel is a **load-time** path, not the array's runtime
+critical path. Kept low-risk via a `SHARED_CORE` parameter: default 0 = each leaf owns its core
+(every standalone tb byte-identical), 1 = shared (only `chaining_pe2_top`). `bsw_top`/`bsw_ctrl_fsm`
+unchanged. Verified: tb_chaining_pe2_top (mode 1) + mutation. LUT delta: re-synth pending.
 
 ---
 

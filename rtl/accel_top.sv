@@ -22,9 +22,15 @@
 module accel_top
     import bsw_pkg::*;
     import msort_v2_pkg::*;
-(
+#(
+    parameter bit SHARED_CORE = 0        // threaded to orch_read_top -> bsw_seed_unit
+)(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- read-level cfg + control (-> orch_read_top) ----
     input  logic               read_start,
@@ -55,8 +61,9 @@ module accel_top
     logic        rt_ovf;                 // orchestrator buffers overflowed (earliest point)
     logic signed [63:0] rt_rb, rt_re; logic signed [31:0] rt_qb,rt_qe,rt_score,rt_truesc,rt_w,rt_scov,rt_sl0,rt_rid;
 
-    orch_read_top u_rt (
+    orch_read_top #(.SHARED_CORE(SHARED_CORE)) u_rt (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         .read_start(read_start),
         .l_query(l_query), .a(a), .o_del(o_del), .e_del(e_del), .o_ins(o_ins),
         .e_ins(e_ins), .zdrop(zdrop), .wcfg(wcfg), .pen5(pen5), .pen3(pen3),

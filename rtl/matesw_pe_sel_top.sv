@@ -27,10 +27,15 @@ module matesw_pe_sel_top
     import bsw_pkg::*;
 #(
     parameter int MA_MAX = 256,        // ma list bound (== matesw_pe_top)
-    parameter int NSRC   = 64         // candidate-source bound
+    parameter int NSRC   = 64,        // candidate-source bound
+    parameter bit SHARED_CORE = 0      // threaded to matesw_pe_top -> matesw_top
 )(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ======== candidate source (read i's alnregs, score-sorted DESC) ========
     input  logic               src_ld_en,
@@ -119,8 +124,9 @@ module matesw_pe_sel_top
     logic        pe_init, pe_cand_start, pe_busy, pe_cand_done;
     logic [15:0] pe_n_ma;
 
-    matesw_pe_top #(.MA_MAX(MA_MAX)) u_pe (
+    matesw_pe_top #(.MA_MAX(MA_MAX), .SHARED_CORE(SHARED_CORE)) u_pe (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         // mate seq + ref windows + entry ma load: straight through from wrapper ports
         .ld_ms_en(ld_ms_en), .ld_ms_addr(ld_ms_addr), .ld_ms_data(ld_ms_data),
         .ld_ref_en(ld_ref_en), .ld_ref_win(ld_ref_win), .ld_ref_addr(ld_ref_addr), .ld_ref_data(ld_ref_data),

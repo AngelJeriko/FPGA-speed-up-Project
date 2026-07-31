@@ -27,10 +27,15 @@ module orch_read_top
 #(
     parameter int NAV = 1024,
     parameter int NSD = 1024,
-    parameter int NCH = 1024
+    parameter int NCH = 1024,
+    parameter bit SHARED_CORE = 0        // threaded to orch_chain_unit -> bsw_seed_unit
 )(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- read-level cfg + control ----
     input  logic               read_start,
@@ -105,8 +110,9 @@ module orch_read_top
     assign cu_ld_addr = r_ld_en ? r_ld_addr : q_ld_addr;
     assign cu_ld_data = r_ld_en ? r_ld_data : q_ld_data;
 
-    orch_chain_unit u_chain (
+    orch_chain_unit #(.SHARED_CORE(SHARED_CORE)) u_chain (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         .ld_en(cu_ld_en), .ld_sel(cu_ld_sel), .ld_addr(cu_ld_addr), .ld_data(cu_ld_data),
         .sld_en(s_ld_en), .sld_idx(s_ld_idx), .sld_rbeg(s_ld_rbeg), .sld_qbeg(s_ld_qbeg),
         .sld_len(s_ld_len), .sld_score(s_ld_score),

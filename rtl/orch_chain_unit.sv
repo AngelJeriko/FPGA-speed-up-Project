@@ -23,10 +23,15 @@
 module orch_chain_unit
     import bsw_pkg::*;
 #(
-    parameter int MAXSEED = 128
+    parameter int MAXSEED = 128,
+    parameter bit SHARED_CORE = 0        // threaded to the inner bsw_seed_unit
 )(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- passthrough load of the inner bsw_seed_unit memories ----
     input  logic               ld_en,
@@ -100,8 +105,9 @@ module orch_chain_unit
     logic signed [63:0] u_rbeg;
     logic signed [63:0] u_rb, u_re;
     logic signed [31:0] u_qb, u_qe, u_score, u_truesc, u_w, u_rid;
-    bsw_seed_unit u_seed (
+    bsw_seed_unit #(.SHARED_CORE(SHARED_CORE)) u_seed (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         .ld_en(ld_en), .ld_sel(ld_sel), .ld_addr(ld_addr), .ld_data(ld_data),
         .start(u_start), .l_query(lq_r), .a(a_r), .o_del(od_r), .e_del(ed_r),
         .o_ins(oi_r), .e_ins(ei_r), .zdrop(zd_r), .wcfg(w_r), .pen5(p5_r), .pen3(p3_r),

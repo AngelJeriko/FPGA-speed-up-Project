@@ -85,6 +85,28 @@ package bsw_pkg;
         len_t    max_off;      // max |i - j| anti-diagonal offset
     } bsw_result_t;
 
+    // ---- Shared-core request/response channel (see bsw_shared) ----
+    // Bundles the full bsw_top request so ONE core can be time-shared between the
+    // extend path (bsw_seed_unit, restart=0) and the mate-rescue path (matesw_top,
+    // restart=1), which never run concurrently. Threading these two structs through
+    // the hierarchy replaces ~10 discrete ports per level. query/target are wide but
+    // bsw_ctrl_fsm latches them the cycle a request is accepted (accept_req), so the
+    // channel mux is a load-time path, NOT the array's runtime critical path.
+    typedef struct packed {
+        logic                 restart_mode;
+        logic                 req_valid;
+        logic                 result_ready;
+        bsw_config_t          cfg;
+        base_t [MAX_QLEN-1:0] query;
+        base_t [MAX_TLEN-1:0] target;
+    } bsw_creq_t;
+
+    typedef struct packed {
+        logic                 req_ready;
+        logic                 result_valid;
+        bsw_result_t          result;
+    } bsw_cresp_t;
+
     // ---- Score matrix (5x5, stored row-major, flat) ----
     // Index: mat[q*M_ALPHABET + t]. Matches the BWA-MEM2 convention.
     function automatic score_t default_score(input base_t q, input base_t t);

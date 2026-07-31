@@ -28,10 +28,15 @@ module chaining_extend_top
     parameter int NSEED  = 64,     // chain_store pool / raw seeds
     parameter int NQ     = 512,    // query length bound
     parameter int NS     = 64,     // per-chain seed buffer
-    parameter int NCTG   = 8       // max contigs for the on-chip clamp (5=chr1-5, ~3366 full hg38)
+    parameter int NCTG   = 8,      // max contigs for the on-chip clamp (5=chr1-5, ~3366 full hg38)
+    parameter bit SHARED_CORE = 0  // threaded to accel_top -> bsw_seed_unit
 )(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- config ----
     input  logic signed [31:0] w, max_chain_gap, min_seed_len, max_chain_extend,
@@ -111,7 +116,8 @@ module chaining_extend_top
     logic ac_r_ld_en; logic [15:0] ac_r_ld_addr; base_t ac_r_ld_data;
     logic ac_s_ld_en; logic [7:0] ac_s_ld_idx; logic signed [63:0] ac_s_ld_rbeg; logic signed [31:0] ac_s_ld_qbeg, ac_s_ld_len, ac_s_ld_score;
     logic [7:0] ac_ch_n; logic signed [31:0] ac_ch_rid; logic signed [63:0] ac_ch_rmax0, ac_ch_rmax1;
-    accel_top u_ac (.clk,.rst_n,
+    accel_top #(.SHARED_CORE(SHARED_CORE)) u_ac (.clk,.rst_n,
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         .read_start(ac_read_start),
         .l_query(l_query),.a(a),.o_del(o_del),.e_del(e_del),.o_ins(o_ins),.e_ins(e_ins),
         .zdrop(zdrop),.wcfg(w),.pen5(pen5),.pen3(pen3),

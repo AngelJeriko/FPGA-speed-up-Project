@@ -20,9 +20,17 @@
 
 module matesw_top
     import bsw_pkg::*;
-(
+#(
+    // 0 = own a private bsw_top (default; standalone tbs keep this).
+    // 1 = the core lives in a shared bsw_shared arbiter (set by chaining_pe2_top).
+    parameter bit SHARED_CORE = 0
+)(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (used only when SHARED_CORE=1; else left dangling) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- load query + reference window (before start) ----
     input  logic               ld_en,
@@ -96,12 +104,33 @@ module matesw_top
         bsw_cfg.tlen       = phase_rev ? len_t'(te_r + 1) : len_t'(tlen_r);
     end
 
-    bsw_top u_bsw (
-        .clk(clk), .rst_n(rst_n), .restart_mode(1'b1),
-        .req_valid_i(bsw_req), .req_ready_o(bsw_rdy),
-        .query_i(bsw_q), .target_i(bsw_t), .cfg_i(bsw_cfg),
-        .result_valid_o(bsw_vld), .result_ready_i(1'b1), .result_o(bsw_res)
-    );
+    // Build the request channel from the same signals that drove the local core.
+    // restart_mode=1 (local SW); result_ready=1 (FSM waits in M_FWDW/M_REVW).
+    always_comb begin
+        sw_req_o.restart_mode = 1'b1;
+        sw_req_o.req_valid    = bsw_req;
+        sw_req_o.result_ready = 1'b1;
+        sw_req_o.cfg          = bsw_cfg;
+        sw_req_o.query        = bsw_q;
+        sw_req_o.target       = bsw_t;
+    end
+
+    generate
+        if (SHARED_CORE == 0) begin : g_local_core
+            // Private core (default): identical to the pre-sharing design.
+            bsw_top u_bsw (
+                .clk(clk), .rst_n(rst_n), .restart_mode(1'b1),
+                .req_valid_i(bsw_req), .req_ready_o(bsw_rdy),
+                .query_i(bsw_q), .target_i(bsw_t), .cfg_i(bsw_cfg),
+                .result_valid_o(bsw_vld), .result_ready_i(1'b1), .result_o(bsw_res)
+            );
+        end else begin : g_shared_core
+            // Core lives in the arbiter; take the response off the channel.
+            assign bsw_rdy = sw_resp_i.req_ready;
+            assign bsw_vld = sw_resp_i.result_valid;
+            assign bsw_res = sw_resp_i.result;
+        end
+    endgenerate
 
     // bsw result -> te/qe (ksw: te = tle-1, qe = qle-1; -1 when no alignment)
     wire signed [31:0] s_score = $signed(bsw_res.score);

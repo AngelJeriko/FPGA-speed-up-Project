@@ -26,10 +26,15 @@
 module matesw_orch_top
     import bsw_pkg::*;
 #(
-    parameter int MA_MAX = 256
+    parameter int MA_MAX = 256,
+    parameter bit SHARED_CORE = 0        // threaded to matesw_orient_unit -> matesw_top
 )(
     input  logic               clk,
     input  logic               rst_n,
+
+    // ---- shared-core channel (pass-through; live only when SHARED_CORE=1) ----
+    output bsw_creq_t          sw_req_o,
+    input  bsw_cresp_t         sw_resp_i,
 
     // ---- load: mate sequence (ms) ----
     input  logic               ld_ms_en,
@@ -137,8 +142,9 @@ module matesw_orch_top
     logic               ou_isrev;
     logic signed [63:0] ou_rb;
 
-    matesw_orient_unit u_ou (
+    matesw_orient_unit #(.SHARED_CORE(SHARED_CORE)) u_ou (
         .clk(clk), .rst_n(rst_n),
+        .sw_req_o(sw_req_o), .sw_resp_i(sw_resp_i),
         .ld_en(ou_ld_en), .ld_sel(ou_ld_sel), .ld_addr(ou_ld_addr), .ld_data(ou_ld_data),
         .start(ou_start), .l_ms(lms_r), .tlen(ou_tlen),
         .o_del(od_r), .e_del(ed_r), .o_ins(oi_r), .e_ins(ei_r),

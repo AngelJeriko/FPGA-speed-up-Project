@@ -142,7 +142,7 @@ elif [[ "$TB" == tb_chain_flt_top ]]; then
 elif [[ "$TB" == tb_chaining_extend_top ]]; then
     RTL_FILES=(
         "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
-        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_shared.sv" "$RTL/bsw_axis_adapter.sv"
         "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
         "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
         "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
@@ -164,7 +164,7 @@ elif [[ "$TB" == tb_chaining_extend_fetch ]]; then
     # ref_fetch_top reading an HBM model (g(addr)=addr&3) instead of the host. Same golden.
     RTL_FILES=(
         "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
-        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_shared.sv" "$RTL/bsw_axis_adapter.sv"
         "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
         "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
         "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
@@ -187,7 +187,7 @@ elif [[ "$TB" == tb_chaining_extend_prefetch ]]; then
     # ping-pong window buffer. bit-exact 2000/0 proves the overlap doesn't change the result.
     RTL_FILES=(
         "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
-        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_shared.sv" "$RTL/bsw_axis_adapter.sv"
         "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
         "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
         "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
@@ -211,7 +211,7 @@ elif [[ "$TB" == tb_chaining_pe2_top ]]; then
     # chainingext_vectors.txt (chaining->extend golden) feeds gen_chaining_pe2_vectors.
     RTL_FILES=(
         "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
-        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_shared.sv" "$RTL/bsw_axis_adapter.sv"
         "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
         "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
         "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
@@ -241,7 +241,7 @@ elif [[ "$TB" == tb_chaining_pe_pair_top ]]; then
     # THE JOIN, both directions (full pair). Same RTL as tb_chaining_pe2_top + the pair wrapper.
     RTL_FILES=(
         "$RTL/bsw_pkg.sv" "$RTL/bsw_score_matrix.sv" "$RTL/bsw_pe.sv" "$RTL/bsw_systolic_array.sv"
-        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_axis_adapter.sv"
+        "$RTL/bsw_max_tracker.sv" "$RTL/bsw_ctrl_fsm.sv" "$RTL/bsw_top.sv" "$RTL/bsw_shared.sv" "$RTL/bsw_axis_adapter.sv"
         "$RTL/orch_window.sv" "$RTL/orch_assemble.sv" "$RTL/orch_seedcov.sv" "$RTL/bsw_seed_unit.sv"
         "$RTL/orch_chain_unit.sv" "$RTL/orch_purge.sv" "$RTL/orch_read_top.sv"
         "$RTL/msort_v2_pkg.sv" "$RTL/msort_v2_top.sv" "$RTL/accel_top.sv"
@@ -598,6 +598,7 @@ if command -v verilator >/dev/null 2>&1; then
     verilator --binary --timing --top-module "$TB" \
               --timescale 1ns/1ps --unroll-count 4096 --unroll-stmts 200000 \
               -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Wno-INITIALDLY \
+              -Wno-PINMISSING \
               -I"$RTL" -Mdir "$OBJ" \
               "${RTL_FILES[@]}" "$TB_FILE"
     "$OBJ/V$TB" "${PLUSARGS[@]}"
