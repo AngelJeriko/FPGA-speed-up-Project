@@ -150,18 +150,42 @@ module matesw_pe_top
 
     assign busy = (state != P_IDLE);
 
+    // ---- single muxed write port for the ma regfile ----
+    // Two temporally-disjoint writers (host entry-ma load via ld_ma_en, before the
+    // candidate loop; and the P_RD1 readback from orch_top, during a candidate) were
+    // two writes in one process -> Vivado dissolved w_* into 16,384 flops each (x7).
+    // Fold them onto ONE write port so they infer distributed RAM. P_RD1 has priority
+    // (it was the later statement, so it won a same-index tie); the two never overlap
+    // in the real protocol (host loads at init/P_IDLE, readback runs mid-candidate).
+    logic               maw_we;
+    logic [15:0]        maw_addr;
+    logic signed [63:0] maw_rb, maw_re;
+    logic signed [31:0] maw_qb, maw_qe, maw_rid, maw_sc, maw_cov;
+    always_comb begin
+        maw_we = 1'b0; maw_addr = '0;
+        maw_rb='0; maw_re='0; maw_qb='0; maw_qe='0; maw_rid='0; maw_sc='0; maw_cov='0;
+        if (state == P_RD1) begin
+            maw_we=1'b1; maw_addr=k[15:0];
+            maw_rb=ot_o_rb; maw_re=ot_o_re; maw_qb=ot_o_qb; maw_qe=ot_o_qe;
+            maw_rid=ot_o_rid; maw_sc=ot_o_sc; maw_cov=ot_o_cov;
+        end else if (ld_ma_en && ld_ma_idx < MA_MAX[15:0]) begin
+            maw_we=1'b1; maw_addr=ld_ma_idx;
+            maw_rb=ld_ma_rb; maw_re=ld_ma_re; maw_qb=ld_ma_qb; maw_qe=ld_ma_qe;
+            maw_rid=ld_ma_rid; maw_sc=ld_ma_score; maw_cov=ld_ma_cov;
+        end
+    end
+    always_ff @(posedge clk) if (maw_we) begin
+        w_rb[maw_addr]<=maw_rb; w_re[maw_addr]<=maw_re; w_qb[maw_addr]<=maw_qb;
+        w_qe[maw_addr]<=maw_qe; w_rid[maw_addr]<=maw_rid; w_sc[maw_addr]<=maw_sc; w_cov[maw_addr]<=maw_cov;
+    end
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             state<=P_IDLE; cand_done<=1'b0; ot_start<=1'b0; n_r<='0; tie<=1'b0; overflow<=1'b0;
         end else begin
             cand_done<=1'b0; ot_start<=1'b0;
 
-            // ma writes: host init-load OR readback from orch_top (P_RD1)
-            if (ld_ma_en && ld_ma_idx < MA_MAX[15:0]) begin
-                w_rb[ld_ma_idx]<=ld_ma_rb; w_re[ld_ma_idx]<=ld_ma_re; w_qb[ld_ma_idx]<=ld_ma_qb;
-                w_qe[ld_ma_idx]<=ld_ma_qe; w_rid[ld_ma_idx]<=ld_ma_rid; w_sc[ld_ma_idx]<=ld_ma_score;
-                w_cov[ld_ma_idx]<=ld_ma_cov;
-            end
+            // ma regfile writes are handled by the dedicated muxed write port above.
             if (init) begin n_r <= n_ma_init; tie <= 1'b0; overflow <= 1'b0; end  // new direction
 
             case (state)
@@ -201,9 +225,7 @@ module matesw_pe_top
                     end
                 end
                 P_RD0: state<=P_RD1;                // ot_rd_idx=k registered into orch_top read
-                P_RD1: begin
-                    w_rb[k]<=ot_o_rb; w_re[k]<=ot_o_re; w_qb[k]<=ot_o_qb; w_qe[k]<=ot_o_qe;
-                    w_rid[k]<=ot_o_rid; w_sc[k]<=ot_o_sc; w_cov[k]<=ot_o_cov;
+                P_RD1: begin                        // w_* readback done by the muxed write port
                     if (k+1 >= n_r) state<=P_DONE;
                     else begin k<=k+1; state<=P_RD0; end
                 end
