@@ -269,6 +269,31 @@ regfiles to ONE muxed write port (the matesw_dedup 573K→3.1K pattern). Bigger 
 Secondary: matesw_orch_top ma regfile, matesw_dedup (124K). TIMING still `bsw_max_tracker` glob_max
 (−14.5 ns, 77% routing) — pipeline the reduction.
 
+### 🎯 Re-synth #5 (2026-07-31) — w_* + m_* regfile folds: AREA WALL DEMOLISHED
+
+MEASURED `chaining_pe_pair_top`, same Virtex-7 proxy, 3.0 ns:
+
+| metric | #4 (shared core) | #5 (+ w_* + m_* folds) | delta |
+|--------|-----------------:|-----------------------:|-------|
+| LUT    | 768,458          | **199,065**            | −569,393 (−74.1%) |
+| FF     | 227,041          | **79,362**             | −147,679 (−65.0%) |
+| DSP    | 154              | 154                    | unchanged |
+| Fmax   | 57.2 MHz         | 57.2 MHz               | unchanged (area-only) |
+| WNS    | −14.49 ns        | −14.49 ns              | unchanged |
+| err/crit | 0/0            | 0/0                    | clean |
+
+The seven `matesw_pe_top` `w_*` and seven `matesw_orch_top` `m_*` regfiles now infer **RAM64M
+distributed RAM** (Distributed-RAM report), and the "dissolved into 16,384 registers" warnings are
+GONE. The win is far larger than the flop count alone: LUT6 collapsed **359,617 → 64,913** and FDRE
+**226,909 → 79,230**. A 256-deep array read/written at RUNTIME indices, when dissolved, needs a
+256:1 read-mux tree per read port + a write decoder — ×14 arrays that was the DOMINANT LUT cost, not
+the flops. Distributed RAM eliminates all of it.
+
+**Area wall demolished.** Journey: **869K (re-synth #3) → 768K (shared core, #4) → 199K LUT (#5)**;
+overall F1 synth-prep ≈ **1.1M → 199K LUT (−82%)**, 2.4 → 57.2 MHz. The design now sits **well under
+one VU9P SLR (~394K)** with headroom. AREA is no longer the constraint — TIMING (the `bsw_max_tracker`
+glob_max reduction, −14.49 ns, 77% routing) is the remaining wall to lift Fmax.
+
 ---
 
 ## Integrated re-synth #3 (2026-07-31) — constant-fold + av_qb/av_qe BRAM-fold batch
