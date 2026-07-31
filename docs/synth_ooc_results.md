@@ -224,3 +224,39 @@ SW engine across extend/mate-rescue, and BRAM-ify the big distributed-RAM regist
 (`av_qb/av_qe` 32,768 flops still unconverted, `sd_*`, `a_*`, `c_pos`) — not more per-module
 register-file conversion. The per-module timing grind has hit diminishing returns
 (eh_init 5.7×; orch_purge divide ~3%); the remaining wins are structural.
+
+---
+
+## Integrated re-synth #3 (2026-07-31) — constant-fold + av_qb/av_qe BRAM-fold batch
+
+MEASURED `chaining_pe_pair_top`, same Virtex-7 proxy, 3.0 ns target:
+
+| metric | #2 (divide-pipeline) | **#3 (this batch)** | delta |
+|--------|---------------------:|--------------------:|-------|
+| Fmax   | 14.1 MHz             | **55.8 MHz**        | **+41.7 MHz (4×)** |
+| WNS    | −67.9 ns             | **−14.9 ns**        | +53 ns |
+| LUT    | 1,097,558            | **868,967**         | **−228,591 (−21%)** |
+| FF     | 320,481              | 254,618             | −65,863 |
+| DSP    | 308                  | 296                 | −12 |
+| errors / crit-warn | 0 / 0    | 0 / 0               | clean |
+
+**The batch worked exactly as predicted — the biggest single jump since eh_init.**
+- **cmg constant-fold** (`0c76968`): the integer divide is gone at all four sites — the −68 ns
+  wall vanished, taking WNS from −67.9 to −14.9 ns.
+- **av_qb/av_qe write-fold** (`a6edbbf`): folding the two writers into one made them RAM-inferable.
+  They dropped from 32,768 dissolved flops + two 1024:1 read-mux trees to `RAM64M` distributed RAM
+  (final mapping report: `u_purge/av_qb_reg`, `av_qe_reg` → RAM64M×352 each) — that is most of the
+  −66K FF and a large share of the −228K LUT. (They landed in distributed RAM, not BRAM, because
+  they have two combinational readers — `av[i]` and the `rd_idx` readback; a true-BRAM conversion
+  would need a registered-read present→consume port, a later option.)
+
+Method fully validated: measure the path, fix the actual cause, re-measure. Fmax 2.4 → 55.8 MHz
+overall (23× from the start of F1 synth-prep).
+
+### Next
+- **Timing**: new worst path is −14.9 ns. Vivado still flags "not enough pipeline registers after
+  wide multiplier" at `bsw_max_tracker.sv:380` (rec. 2 levels) and `bsw_seed_unit.sv:225/188`
+  (rec. 4) — now the likely top paths since the divide that masked them is gone. Confirm from the
+  re-uploaded timing report, then pipeline those multipliers.
+- **Area**: 869K LUT — much better but still over one VU9P SLR (~394K). The structural lever
+  (share ONE SW engine across extend/mate-rescue; the design still carries ~3) remains the big win.
