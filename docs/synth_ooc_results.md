@@ -245,7 +245,29 @@ is threaded up through the 4+4 intermediate modules. `bsw_ctrl_fsm` latches quer
 cycle a request is accepted, so the wide channel is a **load-time** path, not the array's runtime
 critical path. Kept low-risk via a `SHARED_CORE` parameter: default 0 = each leaf owns its core
 (every standalone tb byte-identical), 1 = shared (only `chaining_pe2_top`). `bsw_top`/`bsw_ctrl_fsm`
-unchanged. Verified: tb_chaining_pe2_top (mode 1) + mutation. LUT delta: re-synth pending.
+unchanged. Verified: tb_chaining_pe2_top (mode 1) + mutation.
+
+**MEASURED (re-synth #4, same Virtex-7 proxy, 3.0 ns): shared core delivered.**
+
+| metric | #3 (pre-share) | #4 (shared core) | delta |
+|--------|---------------:|-----------------:|-------|
+| Fmax   | 55.8 MHz       | 57.2 MHz         | +1.4 (flat, expected — timing path is inside the one remaining bsw_top) |
+| WNS    | −14.9 ns       | −14.49 ns        | ~same |
+| LUT    | 868,967        | 768,458          | −100,509 (−11.6%) |
+| FF     | 254,618        | 227,041          | −27,577 (−10.8%) |
+| DSP    | 296            | 154              | −142 (−48%; one bsw_top's eh_init lanes gone) |
+| err/crit | 0/0          | 0/0              | clean |
+
+The arbiter is essentially free: `u_swshared` = 133,709 cells vs the `bsw_top` inside it = 133,706
+— **3 cells** of muxing overhead. One core now: 133.7K cells (array `u_array` = 89.7K).
+
+**Instance-area report confirms the next lever.** `u_sel` (mate-rescue) is still **826,527 cells =
+74% of the design** with its array removed — the bulk is REGFILES, not the array: `matesw_pe_top`
+`w_rb/re/qb/qe/rid/sc/cov` (MA_MAX=256) each "dissolved into 16,384 registers" (synth flagged: RAM
+has multiple writes via different ports in same process). NEXT AREA = fold those multi-write w_*
+regfiles to ONE muxed write port (the matesw_dedup 573K→3.1K pattern). Bigger prize than the array.
+Secondary: matesw_orch_top ma regfile, matesw_dedup (124K). TIMING still `bsw_max_tracker` glob_max
+(−14.5 ns, 77% routing) — pipeline the reduction.
 
 ---
 
