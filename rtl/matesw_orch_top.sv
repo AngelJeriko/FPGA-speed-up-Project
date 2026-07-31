@@ -185,9 +185,9 @@ module matesw_orch_top
     assign dd_ld_en  = (state == T_DD_LD);
     assign dd_ld_idx = k[15:0];
 
-    // ---- ma load ---- folded into the FSM block below: it writes the SAME m_* arrays the
-    // FSM drives (copy_ma / capture / readback), so a separate load always_ff would make
-    // them MULTI-DRIVEN (a synthesis error). Single driver -> load lives in that block.
+    // ---- ma load ---- and every other m_* write (shift / insert / dedup readback) are folded
+    // into the single muxed write port below, so m_* has exactly ONE driver (required to avoid
+    // MULTI-DRIVEN, and to let it infer distributed RAM instead of dissolving to flops).
 
     typedef enum logic [4:0] {
         T_IDLE, T_SKIP, T_SKIPCHK, T_ORI, T_LDQ, T_LDR, T_RUN, T_RWAIT,
@@ -197,10 +197,43 @@ module matesw_orch_top
     st_t state;
     assign busy = (state != T_IDLE);
 
-    task automatic copy_ma(input integer dst, input integer src);
-        m_rb[dst]<=m_rb[src]; m_re[dst]<=m_re[src]; m_qb[dst]<=m_qb[src]; m_qe[dst]<=m_qe[src];
-        m_rid[dst]<=m_rid[src]; m_sc[dst]<=m_sc[src]; m_cov[dst]<=m_cov[src];
-    endtask
+    // ---- single muxed write port for the ma regfile ----
+    // m_* had FOUR writers in one process (host ld_ma load; insertion-shift m_*[ii]<=m_*[ii-1];
+    // insert-b m_*[ip]<=ou_b_*; dedup readback m_*[k]<=dd_o_*) -> Vivado can't infer RAM and
+    // dissolves each of the 7 arrays to 256 flops + mux trees. Writers 2-4 are distinct FSM
+    // states/branches (mutually exclusive); the host load is disjoint by protocol (before start).
+    // Fold onto ONE write port so they infer distributed RAM; FSM writes have priority over the
+    // host load (they were later in source order -> won a same-index tie). The top-down shift has
+    // no RAW hazard (reads ii-1, writes ii).
+    logic               maw_we;
+    logic [15:0]        maw_addr;
+    logic signed [63:0] maw_rb, maw_re;
+    logic signed [31:0] maw_qb, maw_qe, maw_rid, maw_sc, maw_cov;
+    always_comb begin
+        maw_we = 1'b0; maw_addr = '0;
+        maw_rb='0; maw_re='0; maw_qb='0; maw_qe='0; maw_rid='0; maw_sc='0; maw_cov='0;
+        if (state == T_INS_SH && ii > ip) begin        // shift: m_*[ii] <= m_*[ii-1]
+            maw_we=1'b1; maw_addr=ii[15:0];
+            maw_rb=m_rb[ii-1]; maw_re=m_re[ii-1]; maw_qb=m_qb[ii-1]; maw_qe=m_qe[ii-1];
+            maw_rid=m_rid[ii-1]; maw_sc=m_sc[ii-1]; maw_cov=m_cov[ii-1];
+        end else if (state == T_INS_SH) begin          // place b at ip (ii <= ip)
+            maw_we=1'b1; maw_addr=ip[15:0];
+            maw_rb=ou_b_rb; maw_re=ou_b_re; maw_qb=ou_b_qb; maw_qe=ou_b_qe;
+            maw_rid=ou_b_rid; maw_sc=ou_b_sc; maw_cov=ou_b_cov;
+        end else if (state == T_DD_RD1) begin          // dedup readback: m_*[k] <= dd_o_*
+            maw_we=1'b1; maw_addr=k[15:0];
+            maw_rb=dd_o_rb; maw_re=dd_o_re; maw_qb=dd_o_qb; maw_qe=dd_o_qe;
+            maw_rid=dd_o_rid; maw_sc=dd_o_sc; maw_cov=dd_o_cov;
+        end else if (ld_ma_en && ld_ma_idx < MA_MAX[15:0]) begin   // host entry-ma load
+            maw_we=1'b1; maw_addr=ld_ma_idx;
+            maw_rb=ld_ma_rb; maw_re=ld_ma_re; maw_qb=ld_ma_qb; maw_qe=ld_ma_qe;
+            maw_rid=ld_ma_rid; maw_sc=ld_ma_score; maw_cov=ld_ma_cov;
+        end
+    end
+    always_ff @(posedge clk) if (maw_we) begin
+        m_rb[maw_addr]<=maw_rb; m_re[maw_addr]<=maw_re; m_qb[maw_addr]<=maw_qb;
+        m_qe[maw_addr]<=maw_qe; m_rid[maw_addr]<=maw_rid; m_sc[maw_addr]<=maw_sc; m_cov[maw_addr]<=maw_cov;
+    end
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
@@ -208,12 +241,8 @@ module matesw_orch_top
             ou_start<=1'b0; ou_ld_en<=1'b0; dd_start<=1'b0;
         end else begin
             done<=1'b0; ou_start<=1'b0; dd_start<=1'b0; ou_ld_en<=1'b0;
-            // host ma load -- same block that drives m_* (single driver)
-            if (ld_ma_en && ld_ma_idx < MA_MAX[15:0]) begin
-                m_rb[ld_ma_idx]<=ld_ma_rb; m_re[ld_ma_idx]<=ld_ma_re; m_qb[ld_ma_idx]<=ld_ma_qb;
-                m_qe[ld_ma_idx]<=ld_ma_qe; m_rid[ld_ma_idx]<=ld_ma_rid; m_sc[ld_ma_idx]<=ld_ma_score;
-                m_cov[ld_ma_idx]<=ld_ma_cov;
-            end
+            // m_* regfile writes (host load + shift + insert + dedup readback) are handled
+            // by the dedicated muxed write port above.
             case (state)
                 T_IDLE: if (start) begin
                     lms_r<=l_ms; msl_r<=min_seed_len; a_r<=a;
@@ -291,11 +320,9 @@ module matesw_orch_top
                     end else ip<=ip+1;
                 end
                 // shift [ip..n-1] up by one, then place b at ip
-                T_INS_SH: begin
-                    if (ii > ip) begin copy_ma(ii, ii-1); ii<=ii-1; end
+                T_INS_SH: begin                       // m_* shift/insert via the muxed write port
+                    if (ii > ip) begin ii<=ii-1; end
                     else begin
-                        m_rb[ip]<=ou_b_rb; m_re[ip]<=ou_b_re; m_qb[ip]<=ou_b_qb; m_qe[ip]<=ou_b_qe;
-                        m_rid[ip]<=ou_b_rid; m_sc[ip]<=ou_b_sc; m_cov[ip]<=ou_b_cov;
                         n<=n+1; k<=0; state<=T_DD_LD;
                     end
                 end
@@ -312,9 +339,7 @@ module matesw_orch_top
                     if (dd_n_out==0) state<=T_NEXTR; else state<=T_DD_RD0;
                 end
                 T_DD_RD0: state<=T_DD_RD1;   // settle cycle: dd_rd_idx=k (comb) -> dd_o_* valid next
-                T_DD_RD1: begin
-                    m_rb[k]<=dd_o_rb; m_re[k]<=dd_o_re; m_qb[k]<=dd_o_qb; m_qe[k]<=dd_o_qe;
-                    m_rid[k]<=dd_o_rid; m_sc[k]<=dd_o_sc; m_cov[k]<=dd_o_cov;
+                T_DD_RD1: begin                       // m_* readback via the muxed write port
                     if (k+1 >= n) state<=T_NEXTR;
                     else begin k<=k+1; state<=T_DD_RD0; end
                 end
