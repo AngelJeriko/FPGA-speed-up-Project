@@ -108,66 +108,108 @@ module bsw_max_tracker
     len_t   glob_max_j;
     len_t   glob_max_off;
 
-    // Reduction: pick the strict-greatest active cell, ties -> lowest PE index,
-    // incumbent glob_max wins ties vs the cells. Implemented as a BALANCED TREE
-    // (was a 160-deep serial scan -- the module's critical path, ~280 ns / 3.5 MHz
-    // on the proxy part). Combinational, and it registers on the same cycle with
-    // identical values -> BIT-EXACT with the serial version; depth drops from
-    // N_PE to log2(N_PE) (~8). NOTE: glob_max feeds the score VALUE and max_off
-    // only; the reported argmax (qle/tle) comes from the row pipeline below.
-    score_t reduced_h;
-    len_t   reduced_i;
-    len_t   reduced_j;
-    logic   any_valid;
-
     localparam int     RLEVELS   = $clog2(N_PE);                       // 8 for 160
     localparam int     RNPOW     = 1 << RLEVELS;                       // 256, pad up
     localparam score_t SCORE_MIN = score_t'({1'b1, {(SCORE_WIDTH-1){1'b0}}}); // -2^(W-1)
 
-    // level 0 = padded leaves; each level halves; root at [RLEVELS][0]
-    score_t rt_h [RLEVELS+1][RNPOW];
-    len_t   rt_i [RLEVELS+1][RNPOW];
-    len_t   rt_j [RLEVELS+1][RNPOW];
+    // Reduction: pick the strict-greatest active cell, ties -> lowest PE index.
+    // The per-cycle max over all N_PE cells is a balanced tree of 16-bit compares
+    // (RLEVELS deep). At N_PE=160 spread across the die that comb tree funneling
+    // into glob_max was the routing-dominated critical path (-14.5 ns, 77% route).
+    // PIPELINED into two stages: stage 1 reduces the leaves to MIDNODES partial
+    // maxima (its registers land near the PE clusters -> local routing); stage 2
+    // combines those; then the result accumulates into glob_max. glob_max is still
+    // a plain running max, so its FINAL value is BIT-IDENTICAL to the comb version;
+    // only its in-run latency grows by the 2 pipeline stages (bsw_ctrl_fsm drains
+    // 2 extra cycles to match). glob_max feeds the score VALUE / max_off / zdrop
+    // only; the reported argmax (qle/tle) comes from the row pipeline below.
+    localparam int MIDLEV   = 4;                 // levels reduced in stage 1
+    localparam int MIDNODES = RNPOW >> MIDLEV;   // 256>>4 = 16 partial-max nodes
+    localparam int S2LEV    = RLEVELS - MIDLEV;  // 4 more levels in stage 2
 
+    // ---- stage 1 (comb): leaves + levels 0..MIDLEV-1 -> MIDNODES partials ----
+    score_t s1_h [MIDLEV+1][RNPOW];
+    len_t   s1_i [MIDLEV+1][RNPOW];
+    len_t   s1_j [MIDLEV+1][RNPOW];
     always_comb begin
-        // leaves: an active lane contributes its cell; padding/inactive lanes get
-        // -inf so they never win. row index and PE index ride along.
         for (int k = 0; k < RNPOW; k++) begin
             if (k < N_PE && cell_valid_i[k]) begin
-                rt_h[0][k] = h_cells_i[k];
-                rt_i[0][k] = row_of_pe[k];
-                rt_j[0][k] = len_t'(k);
+                s1_h[0][k] = h_cells_i[k];
+                s1_i[0][k] = row_of_pe[k];
+                s1_j[0][k] = len_t'(k);
             end else begin
-                rt_h[0][k] = SCORE_MIN;
-                rt_i[0][k] = '0;
-                rt_j[0][k] = '0;
+                s1_h[0][k] = SCORE_MIN;
+                s1_i[0][k] = '0;
+                s1_j[0][k] = '0;
             end
         end
         // combine adjacent pairs; the LEFT (lower-index) operand wins ties (>=),
         // giving the lowest-PE-index max -- matching the serial scan's strict '>'.
-        for (int lev = 0; lev < RLEVELS; lev++) begin
+        for (int lev = 0; lev < MIDLEV; lev++) begin
             for (int m = 0; m < (RNPOW >> (lev+1)); m++) begin
-                if (rt_h[lev][2*m] >= rt_h[lev][2*m+1]) begin
-                    rt_h[lev+1][m] = rt_h[lev][2*m];
-                    rt_i[lev+1][m] = rt_i[lev][2*m];
-                    rt_j[lev+1][m] = rt_j[lev][2*m];
+                if (s1_h[lev][2*m] >= s1_h[lev][2*m+1]) begin
+                    s1_h[lev+1][m] = s1_h[lev][2*m];
+                    s1_i[lev+1][m] = s1_i[lev][2*m];
+                    s1_j[lev+1][m] = s1_j[lev][2*m];
                 end else begin
-                    rt_h[lev+1][m] = rt_h[lev][2*m+1];
-                    rt_i[lev+1][m] = rt_i[lev][2*m+1];
-                    rt_j[lev+1][m] = rt_j[lev][2*m+1];
+                    s1_h[lev+1][m] = s1_h[lev][2*m+1];
+                    s1_i[lev+1][m] = s1_i[lev][2*m+1];
+                    s1_j[lev+1][m] = s1_j[lev][2*m+1];
                 end
             end
         end
-        // fold in the incumbent: cells must STRICTLY exceed glob_max to replace it.
-        any_valid = |cell_valid_i;
-        if (rt_h[RLEVELS][0] > glob_max) begin
-            reduced_h = rt_h[RLEVELS][0];
-            reduced_i = rt_i[RLEVELS][0];
-            reduced_j = rt_j[RLEVELS][0];
+    end
+
+    // ---- stage-1 registers: the MIDNODES partial maxima ----
+    score_t pr_h [MIDNODES];
+    len_t   pr_i [MIDNODES];
+    len_t   pr_j [MIDNODES];
+    always_ff @(posedge clk) begin
+        if (!rst_n || clear_i) begin
+            for (int m = 0; m < MIDNODES; m++) begin
+                pr_h[m] <= SCORE_MIN; pr_i[m] <= '0; pr_j[m] <= '0;
+            end
         end else begin
-            reduced_h = glob_max;
-            reduced_i = glob_max_i;
-            reduced_j = glob_max_j;
+            for (int m = 0; m < MIDNODES; m++) begin
+                pr_h[m] <= s1_h[MIDLEV][m];
+                pr_i[m] <= s1_i[MIDLEV][m];
+                pr_j[m] <= s1_j[MIDLEV][m];
+            end
+        end
+    end
+
+    // ---- stage 2 (comb): combine the MIDNODES partials down to the root ----
+    score_t s2_h [S2LEV+1][MIDNODES];
+    len_t   s2_i [S2LEV+1][MIDNODES];
+    len_t   s2_j [S2LEV+1][MIDNODES];
+    always_comb begin
+        for (int m = 0; m < MIDNODES; m++) begin
+            s2_h[0][m] = pr_h[m]; s2_i[0][m] = pr_i[m]; s2_j[0][m] = pr_j[m];
+        end
+        for (int lev = 0; lev < S2LEV; lev++) begin
+            for (int m = 0; m < (MIDNODES >> (lev+1)); m++) begin
+                if (s2_h[lev][2*m] >= s2_h[lev][2*m+1]) begin
+                    s2_h[lev+1][m] = s2_h[lev][2*m];
+                    s2_i[lev+1][m] = s2_i[lev][2*m];
+                    s2_j[lev+1][m] = s2_j[lev][2*m];
+                end else begin
+                    s2_h[lev+1][m] = s2_h[lev][2*m+1];
+                    s2_i[lev+1][m] = s2_i[lev][2*m+1];
+                    s2_j[lev+1][m] = s2_j[lev][2*m+1];
+                end
+            end
+        end
+    end
+
+    // ---- stage-2 register: the per-cycle max (2 cycles behind its cells) ----
+    score_t cm_h; len_t cm_i, cm_j;
+    always_ff @(posedge clk) begin
+        if (!rst_n || clear_i) begin
+            cm_h <= SCORE_MIN; cm_i <= '0; cm_j <= '0;
+        end else begin
+            cm_h <= s2_h[S2LEV][0];
+            cm_i <= s2_i[S2LEV][0];
+            cm_j <= s2_j[S2LEV][0];
         end
     end
 
@@ -177,6 +219,9 @@ module bsw_max_tracker
         else        return b - a;
     endfunction
 
+    // ---- accumulate the pipelined per-cycle max into glob_max ----
+    // Cells must STRICTLY exceed glob_max to replace it (same as the comb version;
+    // cm now just arrives 2 cycles later). Final value identical after the drain.
     always_ff @(posedge clk) begin
         if (!rst_n || clear_i) begin
             glob_max     <= h0_i;       // initialised to h0 like C++ line 159
@@ -187,12 +232,12 @@ module bsw_max_tracker
             // On start, latch h0 once
             if (start_i) glob_max <= h0_i;
 
-            if (reduced_h > glob_max) begin
-                glob_max     <= reduced_h;
-                glob_max_i   <= reduced_i;
-                glob_max_j   <= reduced_j;
-                if (abs_diff(reduced_j, reduced_i) > glob_max_off)
-                    glob_max_off <= abs_diff(reduced_j, reduced_i);
+            if (cm_h > glob_max) begin
+                glob_max     <= cm_h;
+                glob_max_i   <= cm_i;
+                glob_max_j   <= cm_j;
+                if (abs_diff(cm_j, cm_i) > glob_max_off)
+                    glob_max_off <= abs_diff(cm_j, cm_i);
             end
         end
     end

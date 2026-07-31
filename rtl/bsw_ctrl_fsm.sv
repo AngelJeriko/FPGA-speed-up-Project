@@ -121,11 +121,12 @@ module bsw_ctrl_fsm
     len_t t_idx;        // target stream index 0..tlen-1
     len_t drain_cnt;    // remaining drain cycles
 
-    // Margin: 1 cycle of PE input register + N_PE stages of row pipeline + 1.
-    // We don't strictly need N_PE; we need qlen-1 stages of the row pipeline to
-    // graduate. Use cfg_q.qlen + 4 as a safe margin (covers PE latency and 1
-    // tracker register).
-    wire len_t drain_total = cfg_q.qlen + len_t'(4);
+    // Margin: 1 cycle of PE input register + N_PE stages of row pipeline + 1
+    // tracker register + 2 stages of the pipelined glob_max reduction. We don't
+    // strictly need N_PE; we need qlen-1 stages of the row pipeline to graduate,
+    // plus the last cells' contribution to reach glob_max (2 extra cycles now that
+    // the reduction tree is pipelined). Use cfg_q.qlen + 6 as a safe margin.
+    wire len_t drain_total = cfg_q.qlen + len_t'(6);
 
     always_ff @(posedge clk) begin
         if (!rst_n) begin
