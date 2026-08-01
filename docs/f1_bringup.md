@@ -70,3 +70,30 @@ at all. Current OOC estimate is ~77 MHz on a 7-series proxy and timing does not
 yet close — so **the `main` timing track is a hard prerequisite for this bring-up**,
 not just a nice-to-have. (Escape hatch: derive a slower divided clock in the CL,
 but that adds a clock-domain crossing; 125 MHz is the practical target.)
+
+---
+
+## Progress update (2026-08-01) — B1 + B2 built & verified
+
+- **B1 DONE — `rtl/f1/cl_bsw_top.sv`**: the CL wrapper. OCL AXI4-Lite → `bsw_axil_regs`;
+  all other Shell IFs tied off via the HDK `unused_*_template.inc` includes (cl_hello_world
+  pattern, so it tracks the user's HDK version); rst_main_n → CL reset synchroniser.
+  Verified: `tb_cl_bsw_ocl` drives the exact OCL port set (sh_ocl_*/ocl_sh_*), DUT vs bare
+  bsw_top REF → **13/13, ACGT/ACGT→score=5**. (`+define+CL_BSW_LINT` gives a self-contained
+  OCL port list so the glue sims without the HDK; the real build uses the HDK includes.)
+- **B2 DONE — `host/f1/test_bsw.c`**: `fpga_pci` peek/poke host. Marshals query/target/config
+  into the 32-bit word registers (layout mirrors bsw_axil_regs + bsw_pkg packed structs, and
+  was round-trip-checked in C against the RTL bit ranges), pulses GO, polls STATUS, reads the
+  result. Built-in golden self-check: ACGT/ACGT must return **score=5**.
+
+### Remaining (needs AWS + Vivado + HDK — user side)
+- **B3**: drop rtl/ into `$CL_DIR/design`, set `CL_SH_ID0/1`, `aws_build_dcp_from_cl.sh
+  -clock_recipe_a A1` (125 MHz). ← gated on bsw_top closing 125 MHz at P&R (see the
+  `impl_bsw_top.tcl` truth-check on `main`).
+- **B4**: DCP → S3 → `create-fpga-image` → AFI → `fpga-load-local-image` → `sudo ./test_bsw`.
+
+### ⚠️ 125 MHz prerequisite — measured, NOT yet cleared
+Re-synth #10 showed bsw_top alone at **~102 MHz on the OOC *synthesis* proxy**, limited by the
+max_tracker 160-PE reduction (74% routing, unplaced estimate). Run `synth/ooc/impl_bsw_top.tcl`
+(real place+route) for the true number before committing to the AWS build — routing-dominated
+paths often move a lot after placement, and VU9P is faster than the 7-series proxy.
