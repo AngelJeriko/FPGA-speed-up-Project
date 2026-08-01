@@ -329,6 +329,12 @@ else
         "$RTL/bsw_top.sv"
         "$RTL/bsw_axis_adapter.sv"
     )
+    # tb_bsw_axil (board-bringup): the AXI4-Lite register-file wrapper around
+    # bsw_top for AWS F1 minimal bring-up. Self-checking (drives AXI-Lite, compares
+    # to a bare bsw_top reference); no external vectors.
+    if [[ "$TB" == tb_bsw_axil ]]; then
+        RTL_FILES+=("$RTL/f1/bsw_axil_regs.sv")
+    fi
     # tb_bsw_ext checks bsw_top against real-data ksw vectors; bootstrap them
     # from the committed capture (.bin.gz) via the C++ generator if missing.
     if [[ "$TB" == tb_bsw_ext ]]; then
