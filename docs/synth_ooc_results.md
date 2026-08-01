@@ -382,3 +382,25 @@ sort-key mutation → 1696 FAIL). Coverage gap noted: the dedup EXCLUSION decisi
 on the current corpus (excl_p=excl_q=0 is a no-op) — wants a directed overlapping-alignment vector.
 
 **Awaiting re-synth #8** (HEAD 578147d) to measure the WNS gain and reveal the next worst path.
+
+---
+
+## 🎯 Re-synth #8 (2026-08-01) — merge-sorter dedup pipeline (`578147d`)
+
+Measures the dedup two-stage split (T_DD_JLAT registers the four 64-bit diffs; T_DD_JWR
+does the scaled compares + write).
+
+| metric | #7 | #8 | Δ |
+|--------|---:|---:|---|
+| WNS    | −9.935 ns | **−9.196 ns** | +0.74 ns |
+| Fmax   | 77.3 MHz | **82.0 MHz** | +4.7 (+6%) |
+| LUT    | 195,702 | 195,589 | ~flat |
+| FF     | 79,817 | 80,256 | +439 (pipeline regs) |
+| DSP    | 152 | 152 | — |
+
+Real but modest — the dedup path and the next-worst path were close, so shortening one moved
+WNS only partway. **Journey: 2.4 → 82.0 MHz (≈34×).** Still short of the F1 125 MHz floor.
+
+Leading next candidates (need the #8 worst-path block to confirm): the `bsw_seed_unit.sv:255/:218`
+wide multipliers (the standing `[Synth 8-12192] not enough pipeline registers after wide multiplier`,
+MREG=0/PREG=0), the row-tail 160:1 mux front-half, or `chain_introsort`.
