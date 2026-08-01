@@ -442,3 +442,33 @@ exercised — has teeth); `tb_matesw_orch_top` 3000/0. **NEXT: re-synth #9 to me
 - **Fix (worklist #10):** pipeline D_LOOP into D_LOAD (read seed → register b_val/e_val) +
   D_ACC (compare registered b_val<rmax0 → update). Splits BRAM-read→arith from
   arith→accumulator. +1 cyc/seed (n small). Same shape as #8/#9.
+
+---
+
+## 🎯 Re-synth #10 (2026-08-01) — chain2aln_setup rmax pipeline + bsw_top standalone
+
+| target | WNS | Fmax | note |
+|--------|----:|-----:|------|
+| chaining_pe_pair_top (#10) | **−6.772 ns** | **102.3 MHz** | was −8.465 / 87.2 → **+15 MHz, crossed 100** |
+| bsw_top (standalone, NEW)  | **−6.776 ns** | **102.3 MHz** | ~130K LUT |
+
+**Journey: 2.4 → 102.3 MHz (≈43×).**
+
+### ⚠️ THE TWO TRACKS CONVERGED — same critical path
+The full-design worst path and the bsw_top-alone worst path are the **same net**, inside bsw_top:
+- Source: `.../u_bsw/u_array/g_pe[151].u_pe/H_curr_reg_reg[7]/C` (a systolic PE's H_curr score)
+- Dest:   `.../u_bsw/u_tracker/pr_i_reg[9][13]/D` (a `bsw_max_tracker` stage-1 partial-max reg)
+- 9.64 ns, 24 levels, 12 CARRY4, **~74% ROUTING** (2.5 ns logic / 7.1 ns route)
+
+This is the max-tracker's stage-1 reduction gathering h_cells from 160 physically-spread PEs.
+Two consequences:
+1. **bsw_top does NOT auto-close 125 MHz on the OOC proxy** — the "small kernel is fine" premise
+   was wrong; good thing we measured. bsw_top IS the shared bottleneck.
+2. **One fix helps both tracks** — the full design's limiter now lives entirely in bsw_top.
+
+### ⚠️ FIDELITY CAVEAT — this is a routing-dominated path on UNPLACED synthesis estimates
+The 74% "route" is a synth estimate (paths show "unplaced"). Pre-P&R routing numbers on a
+160-PE gather are unreliable — real placement/floorplanning can move this a lot, either way,
+and VU9P is faster than the xc7v2000t proxy. **We've hit the point where the next high-value
+signal is a real place-and-route, not another OOC synth.** → do a bsw_top IMPLEMENTATION run
+(local proxy P&R for a truth-check, and/or the F1 HDK for the real VU9P number).
