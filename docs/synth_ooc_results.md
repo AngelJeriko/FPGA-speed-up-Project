@@ -362,3 +362,23 @@ Instance-area highlights (from #7 synth report): `u_swshared/u_bsw` = 130K cells
 [the eh_init DSP closed-form = 143 `C'+A'*B` DSPs] + u_tracker 13K); `u_sel/u_pe` matesw = 72K; `u_ce`
 chaining-extend = 103K (u_s chain_introsort = 32K, u_seed bsw_seed_unit = 24K). chain_store `p_next_reg`
 still flagged "cannot infer RAM — multiple writes via different ports" (area, not timing).
+
+---
+
+## 🎯 Re-synth #8 target set (2026-08-01) — merge-sorter dedup pipeline (`578147d`)
+
+Re-synth #7 worst path (WNS −9.935 ns) = the **merge sorter dedup**, NOT bsw_seed_unit:
+`u_ms` (msort_v2_top) state T_DD_JLAT read a block-RAM record and ran the redundancy cone
+(four 64-bit subtracts or_/oq/mr/mq + two min() + RED_NUM/RED_DEN scaled 64-bit compares) →
+excl_p/excl_q → `wr_addr` → RAM address, all combinational in one cycle (37 levels, 27× CARRY4,
+46% logic / 54% route). (Confirming from timing.rpt mattered — the bsw_seed_unit 8-12192 wide-mult
+warning is real but OFF the critical path; pipelining it would not have moved WNS.)
+
+**Fix (`578147d`): split the cone across two FSM states.** T_DD_JLAT registers the raw 64-bit
+differences; new T_DD_JWR does the scaled compares + write from the registered values. Bit-exact
+values, +1 cycle/dedup-compare, done/busy handshake unchanged. Verified tb_msort_v2 2480/0,
+tb_msort_dedup 1696/0, tb_accel_top + tb_chaining_pe2_top PASS (tb_msort_v2 proven to catch a
+sort-key mutation → 1696 FAIL). Coverage gap noted: the dedup EXCLUSION decision is output-neutral
+on the current corpus (excl_p=excl_q=0 is a no-op) — wants a directed overlapping-alignment vector.
+
+**Awaiting re-synth #8** (HEAD 578147d) to measure the WNS gain and reveal the next worst path.
