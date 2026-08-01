@@ -103,10 +103,23 @@ module matesw_dedup #(parameter int MA_MAX = 256) (
     logic signed [31:0] p_qb, p_qe, p_rid, p_sc, p_cov;
     integer n, m, i, j;
 
+    // two-stage redundancy pipeline: stage 1 (S_REDIN_U) registers the four fully-reduced
+    // overlap/len diffs + the branch predicates + an a_* snapshot; stage 2 (S_REDIN_W) does
+    // the scaled 20/19 multiply-compare and the write. Splits the former one-cycle
+    // RAM-read -> 64b arith -> RAM-write-addr path (the -9.2ns critical path). Bit-exact;
+    // adds one cycle per redundancy inner-loop iteration.
+    logic signed [63:0] or_q, mr_q, oq_q, mq_q;
+    logic               red_inwin_q, red_qexcl_q, red_psclt_q;
+    logic signed [63:0] rr_rb, rr_re;
+    logic signed [31:0] rr_qb, rr_rid, rr_sc, rr_cov;
+    // stage-2 combinational decision (from registered stage-1 diffs)
+    logic red2_redun;
+    always_comb red2_redun = (64'sd20*or_q > 64'sd19*mr_q) && (64'sd20*oq_q > 64'sd19*mq_q);
+
     typedef enum logic [4:0] {
         S_IDLE,
         S_ROUT_A, S_ROUT_U, S_RIN_A, S_RIN_U, S_RPLACE,
-        S_REDOUT_A, S_REDOUT_U, S_REDIN_A, S_REDIN_U,
+        S_REDOUT_A, S_REDOUT_U, S_REDIN_A, S_REDIN_U, S_REDIN_W,
         S_C1_A, S_C1_U,
         S_SOUT_A, S_SOUT_U, S_SIN_A, S_SIN_U, S_SPLACE,
         S_ID_A, S_ID_U,
@@ -137,15 +150,16 @@ module matesw_dedup #(parameter int MA_MAX = 256) (
 
     // ---- redundancy surrogate (p=element[i] latched, q=element[j] on port A) ----
     logic signed [63:0] or_, mr_, mr_a, mr_b, oq_, mq_, mq_a, mq_b;
-    logic redun, q_excluded, in_window;
+    logic q_excluded, in_window;
     always_comb begin
+        // stage-1 reduced diffs (registered at S_REDIN_U); the scaled 20/19 compare that was
+        // here is now red2_redun (stage 2), off the RAM-read -> RAM-write-addr path.
         or_   = a_re - p_rb;
         mr_a  = a_re - a_rb; mr_b = p_re - p_rb;
         mr_   = (mr_a < mr_b) ? mr_a : mr_b;
         oq_   = (a_qb < p_qb) ? (a_qe - p_qb) : (p_qe - a_qb);
         mq_a  = a_qe - a_qb; mq_b = p_qe - p_qb;
         mq_   = (mq_a < mq_b) ? mq_a : mq_b;
-        redun = (64'sd20*or_ > 64'sd19*mr_) && (64'sd20*oq_ > 64'sd19*mq_);
         q_excluded = (a_qe == a_qb);
         in_window  = (j >= 0) && (p_rid == a_rid) && (p_rb < a_re + GAP);
     end
@@ -180,14 +194,15 @@ module matesw_dedup #(parameter int MA_MAX = 256) (
                     we=1'b1; wa=16'(j+1);
                     w_rb=k_rb; w_re=k_re; w_qb=k_qb; w_qe=k_qe; w_rid=k_rid; w_sc=k_sc; w_cov=k_cov;
                 end
-                // redundancy: exclude p (qe[i]<=qb[i], element[i]=p_*) or q (qe[j]<=qb[j], element[j]=a_*)
-                S_REDIN_U: if (in_window && !q_excluded && redun) begin
-                    if (p_sc < a_sc) begin
+                // redundancy (stage 2): exclude p (qe[i]<=qb[i], element[i]=p_*) or
+                // q (qe[j]<=qb[j], element[j]=a_* snapshot rr_*), from registered predicates
+                S_REDIN_W: if (red_inwin_q && !red_qexcl_q && red2_redun) begin
+                    if (red_psclt_q) begin
                         we=1'b1; wa=i[15:0];
                         w_rb=p_rb; w_re=p_re; w_qb=p_qb; w_qe=p_qb; w_rid=p_rid; w_sc=p_sc; w_cov=p_cov;
                     end else begin
                         we=1'b1; wa=(j >= 0) ? j[15:0] : 16'd0;
-                        w_rb=a_rb; w_re=a_re; w_qb=a_qb; w_qe=a_qb; w_rid=a_rid; w_sc=a_sc; w_cov=a_cov;
+                        w_rb=rr_rb; w_re=rr_re; w_qb=rr_qb; w_qe=rr_qb; w_rid=rr_rid; w_sc=rr_sc; w_cov=rr_cov;
                     end
                 end
                 // compact: copy element[i] -> [m]
@@ -256,10 +271,17 @@ module matesw_dedup #(parameter int MA_MAX = 256) (
                         end
                     end
                 S_REDIN_A: state <= S_REDIN_U;
-                S_REDIN_U: if (!in_window) begin i <= i + 1; state <= S_REDOUT_A; end
-                    else if (q_excluded) begin j <= j - 1; state <= S_REDIN_A; end
-                    else if (redun) begin
-                        if (p_sc < a_sc) begin i <= i + 1; state <= S_REDOUT_A; end   // p excluded; break
+                S_REDIN_U: begin
+                    // stage 1: latch reduced diffs + branch predicates + a_* snapshot; decide next cycle
+                    or_q <= or_; mr_q <= mr_; oq_q <= oq_; mq_q <= mq_;
+                    red_inwin_q <= in_window; red_qexcl_q <= q_excluded; red_psclt_q <= (p_sc < a_sc);
+                    rr_rb<=a_rb; rr_re<=a_re; rr_qb<=a_qb; rr_rid<=a_rid; rr_sc<=a_sc; rr_cov<=a_cov;
+                    state <= S_REDIN_W;
+                end
+                S_REDIN_W: if (!red_inwin_q) begin i <= i + 1; state <= S_REDOUT_A; end
+                    else if (red_qexcl_q) begin j <= j - 1; state <= S_REDIN_A; end
+                    else if (red2_redun) begin
+                        if (red_psclt_q) begin i <= i + 1; state <= S_REDOUT_A; end   // p excluded; break
                         else begin j <= j - 1; state <= S_REDIN_A; end                // q excluded; continue
                     end else begin j <= j - 1; state <= S_REDIN_A; end
 

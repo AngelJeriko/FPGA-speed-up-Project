@@ -404,3 +404,22 @@ WNS only partway. **Journey: 2.4 → 82.0 MHz (≈34×).** Still short of the F1
 Leading next candidates (need the #8 worst-path block to confirm): the `bsw_seed_unit.sv:255/:218`
 wide multipliers (the standing `[Synth 8-12192] not enough pipeline registers after wide multiplier`,
 MREG=0/PREG=0), the row-tail 160:1 mux front-half, or `chain_introsort`.
+
+### #8 worst-path diagnosis → fix (matesw_dedup redundancy pipeline)
+
+The #8 −9.196 ns path is entirely inside `matesw_dedup` (`u_pe2/u_sel/u_pe/u_ot/u_dd`),
+the **mate-rescue** dedup (distinct from the merge-sorter dedup fixed in #8):
+
+- Source: `u_dd/rb_reg_2` RAMB36 read (`DOADO`)
+- Dest:   `u_dd/cov_reg` / `qb_reg` **write address** (`ADDRBWRADDR`)
+- 11.718 ns, **43 logic levels, 34 CARRY4** — registered RAM read → two 64-bit subtracts
+  → min → `20×or_ > 19×mr_` scaled compares → `redun` → selects write-back `wa`, all one cycle.
+
+**Fix (worklist #9, same shape as the #8 msort split):** two-stage the redundancy inner loop.
+New state `S_REDIN_W`; stage 1 (`S_REDIN_U`) registers the four reduced diffs (or_/mr_/oq_/mq_)
++ branch predicates (in_window/q_excluded/p_sc<a_sc) + an `a_*` snapshot; stage 2 (`S_REDIN_W`)
+does the scaled 20/19 multiply-compare (`red2_redun`) and the write. Breaks RAM-read → 64b arith
+→ RAM-write-addr into two register-bounded halves. Bit-exact (+1 cycle per redundancy iteration).
+
+Verify: `tb_matesw_dedup` 6000/0 pass; mutation (red2_redun≡0) → 1432 fail (redundancy path IS
+exercised — has teeth); `tb_matesw_orch_top` 3000/0. **NEXT: re-synth #9 to measure.**
