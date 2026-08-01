@@ -472,3 +472,31 @@ The 74% "route" is a synth estimate (paths show "unplaced"). Pre-P&R routing num
 and VU9P is faster than the xc7v2000t proxy. **We've hit the point where the next high-value
 signal is a real place-and-route, not another OOC synth.** → do a bsw_top IMPLEMENTATION run
 (local proxy P&R for a truth-check, and/or the F1 HDK for the real VU9P number).
+
+---
+
+## 🎯 bsw_top REAL PLACE-AND-ROUTE (impl_bsw_top.tcl) — ground truth
+
+Full opt+place+route on the 7-series proxy (xc7v2000t-2), period 5.0 ns.
+
+| metric | value |
+|--------|------:|
+| WNS (@5.0 ns) | −3.382 ns |
+| min period | 8.382 ns → **Fmax ≈ 119.3 MHz** |
+| slack vs 125 MHz (8.0 ns) | **−0.38 ns (just short)** |
+| worst path | `u_array/g_pe[134].u_pe/active_q` → `u_tracker/pr_i_reg[8][13]` (PE→tracker reduction), 8.40 ns, 21 levels, 9 CARRY4, **72% route** |
+| FF | 27,338 (1.1%) · DSP 140 · BRAM 0 |
+
+### Read
+- **Real placement beat the OOC synth estimate by ~17 MHz** (102 est → 119 placed) — exactly the
+  expected behaviour for a routing-dominated path once the placer resolves it. The OOC number was
+  pessimistic; the truth-check did its job.
+- **Only 0.38 ns short of 125 MHz, and that's on the SLOW 7-series proxy.** The real target VU9P is
+  UltraScale+ (16 nm vs 28 nm) — meaningfully faster fabric; a 5% improvement covers the gap. So bsw_top
+  is **very likely to close 125 MHz on the real VU9P.**
+- **Residual risk:** the AWS Shell confines the CL to a region + adds congestion, which the standalone
+  proxy P&R does not model. So "likely, not certain" — the definitive test is the real VU9P build
+  (`aws_build_dcp_from_cl.sh -clock_recipe_a A1`, which P&Rs at 125 and reports pass/fail).
+- Still the same shared bottleneck: the max_tracker 160-PE reduction (PE→pr_i). The effective fix
+  (register the leaf gather) is a latency-rebalance of a latency-matched pipeline (higher risk); the
+  cheap knob (MIDLEV rebalance) won't move the leaf-gather routing much.
