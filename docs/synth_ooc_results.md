@@ -423,3 +423,22 @@ does the scaled 20/19 multiply-compare (`red2_redun`) and the write. Breaks RAM-
 
 Verify: `tb_matesw_dedup` 6000/0 pass; mutation (red2_redun≡0) → 1432 fail (redundancy path IS
 exercised — has teeth); `tb_matesw_orch_top` 3000/0. **NEXT: re-synth #9 to measure.**
+
+---
+
+## 🎯 Re-synth #9 (2026-08-01) — matesw_dedup redundancy pipeline
+
+| metric | #8 | #9 | Δ |
+|--------|---:|---:|---|
+| WNS    | −9.196 ns | **−8.465 ns** | +0.73 ns |
+| Fmax   | 82.0 MHz | **87.2 MHz** | +5.2 |
+
+**Journey: 2.4 → 87.2 MHz (≈36×).** Still short of the F1 125 MHz floor.
+
+**#9 worst path (−8.465 ns): `chain2aln_setup` (`u_pe2/u_ce/u_c2`).**
+- Source: `u_c2/b_qbeg_reg` BRAM read → Dest: `u_c2/rmax0_reg[0]/CE`
+- 11.203 ns, 38 levels, **31 CARRY4** — per-seed BRAM read → `b_val=rb-(qb+gqb)` / `e_val`
+  64-bit arith → compare vs accumulated `rmax0/rmax1` → register, all in one `D_LOOP` cycle.
+- **Fix (worklist #10):** pipeline D_LOOP into D_LOAD (read seed → register b_val/e_val) +
+  D_ACC (compare registered b_val<rmax0 → update). Splits BRAM-read→arith from
+  arith→accumulator. +1 cyc/seed (n small). Same shape as #8/#9.
