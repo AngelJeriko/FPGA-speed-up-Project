@@ -421,10 +421,16 @@ module bsw_max_tracker
         z_di    = $signed({16'b0, row_tail_idx}) - $signed({16'b0, glob_max_i});
         z_dj    = $signed({16'b0, row_tail_mj})  - $signed({16'b0, glob_max_j});
         z_gap   = $signed({16'b0, glob_max})     - $signed({16'b0, row_tail_m});
+        // e_del/e_ins are FIXED at 1 in bwa-mem2 scoring (bsw_pkg W_E_DEL/W_E_INS,
+        // and the tb drives cfg.e_del/e_ins = those). Folding the runtime e_del_i/
+        // e_ins_i ports to the compile-time constants collapses this gap-drift
+        // multiply to identity, removing the 2x DSP48E1 (4.0 ns) that dominated the
+        // zdrop critical path. Bit-exact while e_del==e_ins==1; stays correct (real
+        // multiply) if scoring is ever un-fixed. Mirrors the cmg fold (0c76968).
         if (z_di > z_dj)
-            z_drift = (z_di - z_dj) * $signed({16'b0, e_del_i});
+            z_drift = (z_di - z_dj) * W_E_DEL;
         else
-            z_drift = (z_dj - z_di) * $signed({16'b0, e_ins_i});
+            z_drift = (z_dj - z_di) * W_E_INS;
         z_thr   = z_gap - z_drift;
         z_should_break = (z_thr > $signed({16'b0, zdrop_i}))
                       && ($signed(zdrop_i) > 0)
