@@ -15,6 +15,7 @@ TBDIR="$ROOT/tb"
 
 # Select the RTL file list + any plusargs based on the testbench.
 PLUSARGS=()
+VDEFINES=()
 if [[ "$TB" == tb_msort ]]; then
     RTL_FILES=(
         "$RTL/msort_pkg.sv"
@@ -329,6 +330,19 @@ else
         "$RTL/bsw_top.sv"
         "$RTL/bsw_axis_adapter.sv"
     )
+    # tb_bsw_axil (board-bringup): the AXI4-Lite register-file wrapper around
+    # bsw_top for AWS F1 minimal bring-up. Self-checking (drives AXI-Lite, compares
+    # to a bare bsw_top reference); no external vectors.
+    if [[ "$TB" == tb_bsw_axil ]]; then
+        RTL_FILES+=("$RTL/f1/bsw_axil_regs.sv")
+    fi
+    # tb_cl_bsw_ocl (board-bringup): the F1 CL wrapper cl_bsw_top exercised through its
+    # OCL AXI4-Lite ports. CL_BSW_LINT selects cl_bsw_top's self-contained port list
+    # (no HDK Shell includes needed for sim).
+    if [[ "$TB" == tb_cl_bsw_ocl ]]; then
+        RTL_FILES+=("$RTL/f1/bsw_axil_regs.sv" "$RTL/f1/cl_bsw_top.sv")
+        VDEFINES+=("+define+CL_BSW_LINT")
+    fi
     # tb_bsw_ext checks bsw_top against real-data ksw vectors; bootstrap them
     # from the committed capture (.bin.gz) via the C++ generator if missing.
     if [[ "$TB" == tb_bsw_ext ]]; then
@@ -599,6 +613,7 @@ if command -v verilator >/dev/null 2>&1; then
               --timescale 1ns/1ps --unroll-count 4096 --unroll-stmts 200000 \
               -Wno-WIDTH -Wno-UNOPTFLAT -Wno-TIMESCALEMOD -Wno-DECLFILENAME -Wno-INITIALDLY \
               -Wno-PINMISSING \
+              ${VDEFINES[@]+"${VDEFINES[@]}"} \
               -I"$RTL" -Mdir "$OBJ" \
               "${RTL_FILES[@]}" "$TB_FILE"
     "$OBJ/V$TB" "${PLUSARGS[@]}"
