@@ -329,3 +329,36 @@ overall (23× from the start of F1 synth-prep).
   re-uploaded timing report, then pipeline those multipliers.
 - **Area**: 869K LUT — much better but still over one VU9P SLR (~394K). The structural lever
   (share ONE SW engine across extend/mate-rescue; the design still carries ~3) remains the big win.
+
+---
+
+## 🎯 Re-synth #7 (2026-08-01) — zdrop DSP fold + row-tail register: WNS −12.5 → −9.9 ns
+
+Measures TWO commits, both attacking the same zdrop_break critical path:
+- `a12c6f7` zdrop gap-drift multiply constant-fold (e_del/e_ins → W_E_DEL/W_E_INS=1): **DSP 154 → 152** (the 2× DSP48E1 gap-drift multiply is gone — confirmed).
+- `cf5665f` register the 160-wide row-tail selection before the zdrop/gscore/rmax arithmetic (worklist #2, 2nd half): splits `qlen → tail_idx → 160:1 mux → zdrop CARRY4 cone → break` into two shorter cones.
+
+| metric | #6 | #7 | Δ |
+|--------|---:|---:|---|
+| WNS    | −12.488 ns | **−9.935 ns** | +2.55 ns |
+| Fmax   | ~64.6 MHz | **77.3 MHz** | +12.7 (+20%) |
+| LUT    | 190,184 | 195,702 | +5,518 (registered-mux expansion) |
+| FF     | 79,563 | 79,817 | +254 (the new _q/_s registers) |
+| DSP    | 154 | **152** | −2 (zdrop fold) |
+| RAMB36 / RAMB18 | 28 / — | 28 / 28 | — |
+
+Synth wall-clock: **~14.5 min** (matches the ~15–30 min estimate; the old 65-min run predated the area demolition).
+
+**Journey: 2.4 MHz → 77.3 MHz (≈32×) across F1 synth-prep.**
+
+**Vivado explicitly flagged the likely NEXT target in this run:**
+`[Synth 8-12192] Not enough pipeline registers after wide multiplier ... bsw_seed_unit.sv:255` and `:218`
+(recommended 4 pipeline levels, present 0). The DSP final report shows `bsw_seed_unit__GB4` A''*B''
+17×17/17×18 multipliers with MREG=0, PREG=0 — the multiplier output is unregistered. That's the h0/score
+seed-scoring path. **Next: get the #7 worst-path from the fresh timing.rpt to confirm, then pipeline the
+bsw_seed_unit multipliers (register MREG/PREG).**
+
+Instance-area highlights (from #7 synth report): `u_swshared/u_bsw` = 130K cells (u_array 88K + u_fsm 29K
+[the eh_init DSP closed-form = 143 `C'+A'*B` DSPs] + u_tracker 13K); `u_sel/u_pe` matesw = 72K; `u_ce`
+chaining-extend = 103K (u_s chain_introsort = 32K, u_seed bsw_seed_unit = 24K). chain_store `p_next_reg`
+still flagged "cannot infer RAM — multiple writes via different ports" (area, not timing).
