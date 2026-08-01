@@ -106,7 +106,11 @@ module chain2aln_setup #(parameter int NSEED = 256) (
         end
     end
 
-    typedef enum logic [1:0] { D_IDLE, D_LOOP, D_FIN, D_DONE } st_t;
+    // #10 pipeline: register per-seed b_val/e_val (D_LOAD), then accumulate into rmax (D_ACC),
+    // splitting the BRAM-read -> 64b arith -> rmax accumulator path (was the -8.465 ns critical path).
+    logic signed [63:0] bv_q, ev_q;
+
+    typedef enum logic [2:0] { D_IDLE, D_LOAD, D_ACC, D_FIN, D_DONE } st_t;
     st_t state;
     assign busy = (state != D_IDLE);
 
@@ -120,13 +124,19 @@ module chain2aln_setup #(parameter int NSEED = 256) (
                     a_r<=a; od_r<=o_del; ed_r<=e_del; oi_r<=o_ins; ei_r<=e_ins; w_r<=wband;
                     lq_r<=l_query; lpac_r<=l_pac; lpac2_r<=l_pac<<<1; s0_rbeg<=b_rbeg[0];
                     rmax0<=l_pac<<<1; rmax1<=64'sd0; n<=n_in; j<=16'd0;
-                    state <= (n_in==16'd0) ? D_DONE : D_LOOP;
+                    state <= (n_in==16'd0) ? D_DONE : D_LOAD;
                 end
-                D_LOOP: begin
-                    if (b_val < rmax0) rmax0 <= b_val;
-                    if (e_val > rmax1) rmax1 <= e_val;
-                    if (j + 16'd1 >= n) state<=D_FIN;
-                    else j <= j + 16'd1;
+                // stage 1: read seed[j] (BRAM) -> register the 64b b_val/e_val
+                D_LOAD: begin
+                    bv_q <= b_val; ev_q <= e_val;
+                    state <= D_ACC;
+                end
+                // stage 2: accumulate registered values into rmax; advance
+                D_ACC: begin
+                    if (bv_q < rmax0) rmax0 <= bv_q;
+                    if (ev_q > rmax1) rmax1 <= ev_q;
+                    if (j + 16'd1 >= n) state <= D_FIN;
+                    else begin j <= j + 16'd1; state <= D_LOAD; end
                 end
                 D_FIN: begin rmax0<=fc0; rmax1<=fc1; state<=D_DONE; end
                 D_DONE: begin done<=1'b1; state<=D_IDLE; end

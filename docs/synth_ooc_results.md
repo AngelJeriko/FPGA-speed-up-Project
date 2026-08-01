@@ -382,3 +382,93 @@ sort-key mutation → 1696 FAIL). Coverage gap noted: the dedup EXCLUSION decisi
 on the current corpus (excl_p=excl_q=0 is a no-op) — wants a directed overlapping-alignment vector.
 
 **Awaiting re-synth #8** (HEAD 578147d) to measure the WNS gain and reveal the next worst path.
+
+---
+
+## 🎯 Re-synth #8 (2026-08-01) — merge-sorter dedup pipeline (`578147d`)
+
+Measures the dedup two-stage split (T_DD_JLAT registers the four 64-bit diffs; T_DD_JWR
+does the scaled compares + write).
+
+| metric | #7 | #8 | Δ |
+|--------|---:|---:|---|
+| WNS    | −9.935 ns | **−9.196 ns** | +0.74 ns |
+| Fmax   | 77.3 MHz | **82.0 MHz** | +4.7 (+6%) |
+| LUT    | 195,702 | 195,589 | ~flat |
+| FF     | 79,817 | 80,256 | +439 (pipeline regs) |
+| DSP    | 152 | 152 | — |
+
+Real but modest — the dedup path and the next-worst path were close, so shortening one moved
+WNS only partway. **Journey: 2.4 → 82.0 MHz (≈34×).** Still short of the F1 125 MHz floor.
+
+Leading next candidates (need the #8 worst-path block to confirm): the `bsw_seed_unit.sv:255/:218`
+wide multipliers (the standing `[Synth 8-12192] not enough pipeline registers after wide multiplier`,
+MREG=0/PREG=0), the row-tail 160:1 mux front-half, or `chain_introsort`.
+
+### #8 worst-path diagnosis → fix (matesw_dedup redundancy pipeline)
+
+The #8 −9.196 ns path is entirely inside `matesw_dedup` (`u_pe2/u_sel/u_pe/u_ot/u_dd`),
+the **mate-rescue** dedup (distinct from the merge-sorter dedup fixed in #8):
+
+- Source: `u_dd/rb_reg_2` RAMB36 read (`DOADO`)
+- Dest:   `u_dd/cov_reg` / `qb_reg` **write address** (`ADDRBWRADDR`)
+- 11.718 ns, **43 logic levels, 34 CARRY4** — registered RAM read → two 64-bit subtracts
+  → min → `20×or_ > 19×mr_` scaled compares → `redun` → selects write-back `wa`, all one cycle.
+
+**Fix (worklist #9, same shape as the #8 msort split):** two-stage the redundancy inner loop.
+New state `S_REDIN_W`; stage 1 (`S_REDIN_U`) registers the four reduced diffs (or_/mr_/oq_/mq_)
++ branch predicates (in_window/q_excluded/p_sc<a_sc) + an `a_*` snapshot; stage 2 (`S_REDIN_W`)
+does the scaled 20/19 multiply-compare (`red2_redun`) and the write. Breaks RAM-read → 64b arith
+→ RAM-write-addr into two register-bounded halves. Bit-exact (+1 cycle per redundancy iteration).
+
+Verify: `tb_matesw_dedup` 6000/0 pass; mutation (red2_redun≡0) → 1432 fail (redundancy path IS
+exercised — has teeth); `tb_matesw_orch_top` 3000/0. **NEXT: re-synth #9 to measure.**
+
+---
+
+## 🎯 Re-synth #9 (2026-08-01) — matesw_dedup redundancy pipeline
+
+| metric | #8 | #9 | Δ |
+|--------|---:|---:|---|
+| WNS    | −9.196 ns | **−8.465 ns** | +0.73 ns |
+| Fmax   | 82.0 MHz | **87.2 MHz** | +5.2 |
+
+**Journey: 2.4 → 87.2 MHz (≈36×).** Still short of the F1 125 MHz floor.
+
+**#9 worst path (−8.465 ns): `chain2aln_setup` (`u_pe2/u_ce/u_c2`).**
+- Source: `u_c2/b_qbeg_reg` BRAM read → Dest: `u_c2/rmax0_reg[0]/CE`
+- 11.203 ns, 38 levels, **31 CARRY4** — per-seed BRAM read → `b_val=rb-(qb+gqb)` / `e_val`
+  64-bit arith → compare vs accumulated `rmax0/rmax1` → register, all in one `D_LOOP` cycle.
+- **Fix (worklist #10):** pipeline D_LOOP into D_LOAD (read seed → register b_val/e_val) +
+  D_ACC (compare registered b_val<rmax0 → update). Splits BRAM-read→arith from
+  arith→accumulator. +1 cyc/seed (n small). Same shape as #8/#9.
+
+---
+
+## 🎯 Re-synth #10 (2026-08-01) — chain2aln_setup rmax pipeline + bsw_top standalone
+
+| target | WNS | Fmax | note |
+|--------|----:|-----:|------|
+| chaining_pe_pair_top (#10) | **−6.772 ns** | **102.3 MHz** | was −8.465 / 87.2 → **+15 MHz, crossed 100** |
+| bsw_top (standalone, NEW)  | **−6.776 ns** | **102.3 MHz** | ~130K LUT |
+
+**Journey: 2.4 → 102.3 MHz (≈43×).**
+
+### ⚠️ THE TWO TRACKS CONVERGED — same critical path
+The full-design worst path and the bsw_top-alone worst path are the **same net**, inside bsw_top:
+- Source: `.../u_bsw/u_array/g_pe[151].u_pe/H_curr_reg_reg[7]/C` (a systolic PE's H_curr score)
+- Dest:   `.../u_bsw/u_tracker/pr_i_reg[9][13]/D` (a `bsw_max_tracker` stage-1 partial-max reg)
+- 9.64 ns, 24 levels, 12 CARRY4, **~74% ROUTING** (2.5 ns logic / 7.1 ns route)
+
+This is the max-tracker's stage-1 reduction gathering h_cells from 160 physically-spread PEs.
+Two consequences:
+1. **bsw_top does NOT auto-close 125 MHz on the OOC proxy** — the "small kernel is fine" premise
+   was wrong; good thing we measured. bsw_top IS the shared bottleneck.
+2. **One fix helps both tracks** — the full design's limiter now lives entirely in bsw_top.
+
+### ⚠️ FIDELITY CAVEAT — this is a routing-dominated path on UNPLACED synthesis estimates
+The 74% "route" is a synth estimate (paths show "unplaced"). Pre-P&R routing numbers on a
+160-PE gather are unreliable — real placement/floorplanning can move this a lot, either way,
+and VU9P is faster than the xc7v2000t proxy. **We've hit the point where the next high-value
+signal is a real place-and-route, not another OOC synth.** → do a bsw_top IMPLEMENTATION run
+(local proxy P&R for a truth-check, and/or the F1 HDK for the real VU9P number).
