@@ -67,7 +67,7 @@ module msort_v2_top
     typedef enum logic [4:0] {
         T_IDLE, T_LOAD,
         T_PASS_CHECK, T_PAIR_INIT, T_PRIME_L, T_PRIME_R, T_MERGE_STEP, T_MERGE_LATCH,
-        T_DD_RDP, T_DD_LATP, T_DD_PREV, T_DD_JRD, T_DD_JLAT,
+        T_DD_RDP, T_DD_LATP, T_DD_PREV, T_DD_JRD, T_DD_JLAT, T_DD_JWR,
         T_CMP_RD, T_CMP_LAT,
         T_OUT_RD, T_OUT_LAT, T_OUT_BEAT,
         T_DONE
@@ -85,6 +85,14 @@ module msort_v2_top
     // dedup regs
     cnt_t i, j;
     rec_t p;
+    // dedup decision pipeline (T_DD_JLAT stage-1 -> T_DD_JWR stage-2). The redundancy
+    // cone (four 64-bit subtracts + RED_NUM/RED_DEN scaled compares) used to run
+    // RAM-read -> arith -> RAM-write-address in ONE cycle (re-synth #7 worst path,
+    // 27 CARRY4 / -9.935 ns). Split it: stage-1 registers the raw 64-bit differences,
+    // stage-2 does the scaled compares + write. Same values, +1 cycle per dedup step.
+    logic signed [63:0] or_r, oq_r, mr_r, mq_r;
+    logic               cont_r, q_excl_r;
+    rec_t               q_r;
     // compact / output regs
     cnt_t ck, cw, ok;
     rec_t out_reg;
@@ -111,9 +119,12 @@ module msort_v2_top
     assign take_left = lvalid && (!rvalid || rec_le(hL, hR, second_sort));
     assign emit      = take_left ? hL : hR;
 
-    // dedup decision (valid in T_DD_JLAT; p and rd_q=q)
+    // dedup decision, PIPELINED across T_DD_JLAT (stage-1) and T_DD_JWR (stage-2).
+    // ---- stage-1 (combinational from RAM read `rd_q` and previous `p`): the raw
+    //      64-bit overlap/min differences. These are registered at the T_DD_JLAT
+    //      clock edge into {or_r,oq_r,mr_r,mq_r,cont_r,q_excl_r,q_r}. ----
     logic signed [63:0] or_, oq, mr, mq;
-    logic cont, q_excl, redundant, excl_p, excl_q;
+    logic cont, q_excl;
     always_comb begin
         or_ = rd_q.re - p.rb;
         oq  = (rd_q.qb < p.qb) ? (64'(rd_q.qe) - 64'(p.qb)) : (64'(p.qe) - 64'(rd_q.qb));
@@ -121,9 +132,15 @@ module msort_v2_top
         mq  = ((rd_q.qe - rd_q.qb) < (p.qe - p.qb)) ? (64'(rd_q.qe) - 64'(rd_q.qb)) : (64'(p.qe) - 64'(p.qb));
         cont      = (p.rid == rd_q.rid) && (p.rb < (rd_q.re + GAP));
         q_excl    = (rd_q.qe == rd_q.qb);
-        redundant = (RED_NUM*or_ > RED_DEN*mr) && (RED_NUM*oq > RED_DEN*mq);
-        excl_p    = cont && !q_excl && redundant && (p.score <  rd_q.score);
-        excl_q    = cont && !q_excl && redundant && (p.score >= rd_q.score);
+    end
+    // ---- stage-2 (combinational from the REGISTERED stage-1 outputs, valid in
+    //      T_DD_JWR): the RED_NUM/RED_DEN scaled compares -> exclusion decision.
+    //      p is stable; q_r is the registered copy of the j-record read in stage-1. ----
+    logic redundant, excl_p, excl_q;
+    always_comb begin
+        redundant = (RED_NUM*or_r > RED_DEN*mr_r) && (RED_NUM*oq_r > RED_DEN*mq_r);
+        excl_p    = cont_r && !q_excl_r && redundant && (p.score <  q_r.score);
+        excl_q    = cont_r && !q_excl_r && redundant && (p.score >= q_r.score);
     end
 
     // ---- combinational read address (per state at issue time) ----
@@ -157,10 +174,10 @@ module msort_v2_top
             wr_en = 1'b1; wr_addr = wptr[IDX_W-1:0]; wr_bank = 1'b0; wr_data = in_rec;   // load->A
         end else if (state == T_MERGE_STEP) begin
             wr_en = 1'b1; wr_addr = k[IDX_W-1:0]; wr_bank = ~data_in_b; wr_data = emit;  // sort dst
-        end else if (state == T_DD_JLAT && excl_p) begin
-            wr_en = 1'b1; wr_addr = i[IDX_W-1:0]; wr_bank = cur_b; wr_data = p;    wr_data.qe = p.qb;
-        end else if (state == T_DD_JLAT && excl_q) begin
-            wr_en = 1'b1; wr_addr = j[IDX_W-1:0]; wr_bank = cur_b; wr_data = rd_q; wr_data.qe = rd_q.qb;
+        end else if (state == T_DD_JWR && excl_p) begin
+            wr_en = 1'b1; wr_addr = i[IDX_W-1:0]; wr_bank = cur_b; wr_data = p;   wr_data.qe = p.qb;
+        end else if (state == T_DD_JWR && excl_q) begin
+            wr_en = 1'b1; wr_addr = j[IDX_W-1:0]; wr_bank = cur_b; wr_data = q_r; wr_data.qe = q_r.qb;
         end else if (state == T_CMP_LAT && (rd_q.qe > rd_q.qb)) begin
             wr_en = 1'b1; wr_addr = cw[IDX_W-1:0]; wr_bank = ~cur_b; wr_data = rd_q;     // survivor->other
         end
@@ -177,6 +194,8 @@ module msort_v2_top
             state <= T_IDLE; wptr <= '0; n <= '0; data_in_b <= 1'b0; cur_b <= 1'b0;
             second_sort <= 1'b0; fallback <= 1'b0; done <= 1'b0; prev_valid <= 1'b0;
             ovf <= 1'b0;
+            or_r <= '0; oq_r <= '0; mr_r <= '0; mq_r <= '0;
+            cont_r <= 1'b0; q_excl_r <= 1'b0; q_r <= '0;
         end else begin
             done <= 1'b0;
             case (state)
@@ -269,8 +288,17 @@ module msort_v2_top
                     end
                 end
                 T_DD_JRD:  state <= T_DD_JLAT;
+                // stage-1: register the raw 64-bit differences (RAM read -> subtracts
+                // -> flop). The scaled compares + write happen next cycle in T_DD_JWR.
                 T_DD_JLAT: begin
-                    if (!cont || excl_p) begin
+                    or_r <= or_; oq_r <= oq; mr_r <= mr; mq_r <= mq;
+                    cont_r <= cont; q_excl_r <= q_excl; q_r <= rd_q;
+                    state <= T_DD_JWR;
+                end
+                // stage-2: exclusion decision from the registered differences, then the
+                // (registered-source) write + branch. Same branch as the old T_DD_JLAT.
+                T_DD_JWR: begin
+                    if (!cont_r || excl_p) begin
                         if (i + 1'b1 >= n) begin ck <= '0; cw <= '0; state <= T_CMP_RD; end
                         else begin i <= i + 1'b1; state <= T_DD_RDP; end
                     end else begin
