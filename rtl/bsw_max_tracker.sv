@@ -349,6 +349,52 @@ module bsw_max_tracker
     end
 
     // ------------------------------------------------------------
+    // Registered row-tail (worklist #2, second half). The selection above is a
+    // 160-wide mux driven by tail_idx (= qlen-1). Feeding it straight into the
+    // zdrop / gscore / rmax arithmetic put the whole
+    //   cfg_q.qlen -> tail_idx -> 160:1 mux -> zdrop CARRY4 cone -> zdrop_break
+    // chain in ONE cycle -- exactly the post-glob_max-pipeline critical path
+    // (WNS -12.5 ns at re-synth #6, Source cfg_q_reg[qlen] -> Dest
+    // zdrop_break_q_reg). Registering the selected tail splits that chain: the
+    // mux resolves in one cycle, the arithmetic in the next. glob_max/i/j are
+    // snapshot ONE cycle at the same time, so the zdrop math still sees the
+    // *same* (row_tail, glob_max) pair it saw before -- just one cycle later:
+    //   (row_tail_*_q, glob_max_*_s) @ T+1  ==  (row_tail_*, glob_max_*) @ T.
+    // Every consumer (gscore/rmax/zdrop/dead_row) reads the _q/_s copies, so the
+    // whole post-row update shifts uniformly by +1 cycle; the drain margin
+    // absorbs it (cfg_q.qlen + 7 in bsw_ctrl_fsm). Bit-exact on the corpus.
+    // ------------------------------------------------------------
+    logic   row_tail_valid_q;
+    score_t row_tail_m_q;
+    len_t   row_tail_mj_q;
+    len_t   row_tail_idx_q;
+    score_t row_tail_h_last_q;
+    score_t glob_max_s;
+    len_t   glob_max_i_s, glob_max_j_s;
+
+    always_ff @(posedge clk) begin
+        if (!rst_n || clear_i) begin
+            row_tail_valid_q  <= 1'b0;
+            row_tail_m_q      <= '0;
+            row_tail_mj_q     <= '0;
+            row_tail_idx_q    <= '0;
+            row_tail_h_last_q <= '0;
+            glob_max_s        <= h0_i;
+            glob_max_i_s      <= '1;
+            glob_max_j_s      <= '1;
+        end else begin
+            row_tail_valid_q  <= row_tail_valid;
+            row_tail_m_q      <= row_tail_m;
+            row_tail_mj_q     <= row_tail_mj;
+            row_tail_idx_q    <= row_tail_idx;
+            row_tail_h_last_q <= row_tail_h_last;
+            glob_max_s        <= glob_max;
+            glob_max_i_s      <= glob_max_i;
+            glob_max_j_s      <= glob_max_j;
+        end
+    end
+
+    // ------------------------------------------------------------
     // gscore + gtle: best H reaching the end of the query (j = qlen-1).
     // Updated each time a row tail graduates.
     // ------------------------------------------------------------
@@ -361,14 +407,14 @@ module bsw_max_tracker
             gscore_r <= '1;     // -1 sentinel (C++ initialises gscore=-1)
             gtle_r   <= '0;
             max_ie_r <= '1;
-        end else if (row_tail_valid) begin
+        end else if (row_tail_valid_q) begin
             // ksw updates on h1 >= gscore (max_ie = gscore>h1 ? max_ie : i), i.e.
             // ties go to the LATER row. Rows graduate in increasing order, so use
             // >= here (strict > kept the earlier row and gave a wrong gtle).
-            if ($signed(row_tail_h_last) >= $signed(gscore_r)) begin
-                gscore_r <= row_tail_h_last;
-                gtle_r   <= row_tail_idx + len_t'(1);   // +1 like C++ "tle = max_i + 1"
-                max_ie_r <= row_tail_idx;
+            if ($signed(row_tail_h_last_q) >= $signed(gscore_r)) begin
+                gscore_r <= row_tail_h_last_q;
+                gtle_r   <= row_tail_idx_q + len_t'(1);   // +1 like C++ "tle = max_i + 1"
+                max_ie_r <= row_tail_idx_q;
             end
         end
     end
@@ -389,10 +435,10 @@ module bsw_max_tracker
             rmax_j     <= '1;
         end else begin
             if (start_i) rmax_score <= h0_i;
-            if (row_tail_valid && ($signed(row_tail_m) > $signed(rmax_score))) begin
-                rmax_score <= row_tail_m;
-                rmax_i     <= row_tail_idx;
-                rmax_j     <= row_tail_mj;
+            if (row_tail_valid_q && ($signed(row_tail_m_q) > $signed(rmax_score))) begin
+                rmax_score <= row_tail_m_q;
+                rmax_i     <= row_tail_idx_q;
+                rmax_j     <= row_tail_mj_q;
             end
         end
     end
@@ -418,9 +464,9 @@ module bsw_max_tracker
     logic               z_should_break;
 
     always_comb begin
-        z_di    = $signed({16'b0, row_tail_idx}) - $signed({16'b0, glob_max_i});
-        z_dj    = $signed({16'b0, row_tail_mj})  - $signed({16'b0, glob_max_j});
-        z_gap   = $signed({16'b0, glob_max})     - $signed({16'b0, row_tail_m});
+        z_di    = $signed({16'b0, row_tail_idx_q}) - $signed({16'b0, glob_max_i_s});
+        z_dj    = $signed({16'b0, row_tail_mj_q})  - $signed({16'b0, glob_max_j_s});
+        z_gap   = $signed({16'b0, glob_max_s})     - $signed({16'b0, row_tail_m_q});
         // e_del/e_ins are FIXED at 1 in bwa-mem2 scoring (bsw_pkg W_E_DEL/W_E_INS,
         // and the tb drives cfg.e_del/e_ins = those). Folding the runtime e_del_i/
         // e_ins_i ports to the compile-time constants collapses this gap-drift
@@ -434,16 +480,16 @@ module bsw_max_tracker
         z_thr   = z_gap - z_drift;
         z_should_break = (z_thr > $signed({16'b0, zdrop_i}))
                       && ($signed(zdrop_i) > 0)
-                      && ($signed(row_tail_m) <= $signed(glob_max));
+                      && ($signed(row_tail_m_q) <= $signed(glob_max_s));
     end
 
     always_ff @(posedge clk) begin
         if (!rst_n || clear_i) begin
             zdrop_break_q <= 1'b0;
             dead_row_q    <= 1'b0;
-        end else if (row_tail_valid) begin
-            if (row_tail_m == '0)  dead_row_q    <= 1'b1;
-            if (z_should_break)    zdrop_break_q <= 1'b1;
+        end else if (row_tail_valid_q) begin
+            if (row_tail_m_q == '0)  dead_row_q    <= 1'b1;
+            if (z_should_break)      zdrop_break_q <= 1'b1;
         end
     end
 
