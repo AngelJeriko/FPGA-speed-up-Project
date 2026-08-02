@@ -40,38 +40,40 @@ puts "### impl bsw_top on proxy part: $part  (period ${period} ns) ###"
 set files {bsw_pkg.sv bsw_score_matrix.sv bsw_pe.sv bsw_systolic_array.sv \
            bsw_max_tracker.sv bsw_ctrl_fsm.sv bsw_top.sv}
 
-if {[catch {
-    catch { close_project }
-    create_project -in_memory -part $part -force
-    foreach f $files { read_verilog -sv $rtl/$f }
-    synth_design -top bsw_top -part $part -mode out_of_context
-    create_clock -name clk -period $period [get_ports clk]
+# MIDLEV sweep: where the max_tracker 2-stage reduction registers. LATENCY-NEUTRAL +
+# bit-identical for every value (verified in sim), so this is a pure routing rebalance of
+# the 160-PE gather (the -0.38 ns-vs-125 path). Each value gets a full place+route; the
+# best Fmax wins and becomes the committed default. Edit the list to trim runtime.
+set midlevs {4 3 2}
 
-    # ---- REAL implementation ----
-    opt_design
-    place_design
-    route_design
-
-    report_timing_summary -delay_type max -max_paths 20 -file $out/bsw_top_impl_timing.rpt
-    report_utilization -file $out/bsw_top_impl_util.rpt
-
-    set wns 0.0
-    set tp [get_timing_paths -max_paths 1 -nworst 1 -setup -quiet]
-    if {[llength $tp] > 0} { set wns [get_property SLACK $tp] }
-    set fmax "n/a"
-    catch { set fmax [format "%.1f" [expr {1000.0/($period - $wns)}]] }
-    set dpd [format "%.3f" [expr {$period - $wns}]]
-
-    puts "======== SUMMARY: bsw_top (PLACED + ROUTED) ========"
-    puts "PART        : $part"
-    puts "PERIOD      : $period ns"
-    puts "WNS         : $wns ns"
-    puts "DATA DELAY  : $dpd ns   (<= 8.000 ns  => clears 125 MHz)"
-    puts "FMAX        : $fmax MHz"
-    puts "125 MHz?    : [expr {$dpd <= 8.0 ? {YES - closes 125} : {NO - short of 125}}]"
-    puts "===================================================="
-} errmsg]} {
-    puts "!!! bsw_top impl FAILED: $errmsg"
+foreach ml $midlevs {
+  puts "\n#################### MIDLEV = $ml ####################"
+  if {[catch {
+      catch { close_project }
+      create_project -in_memory -part $part -force
+      foreach f $files { read_verilog -sv $rtl/$f }
+      synth_design -top bsw_top -part $part -mode out_of_context -verilog_define MIDLEV_LVL=$ml
+      create_clock -name clk -period $period [get_ports clk]
+      opt_design
+      place_design
+      route_design
+      report_timing_summary -delay_type max -max_paths 20 -file $out/bsw_top_impl_ml${ml}_timing.rpt
+      report_utilization -file $out/bsw_top_impl_ml${ml}_util.rpt
+      set wns 0.0
+      set tp [get_timing_paths -max_paths 1 -nworst 1 -setup -quiet]
+      if {[llength $tp] > 0} { set wns [get_property SLACK $tp] }
+      set fmax "n/a"; catch { set fmax [format "%.1f" [expr {1000.0/($period - $wns)}]] }
+      set dpd [format "%.3f" [expr {$period - $wns}]]
+      puts "======== SUMMARY: bsw_top PLACED+ROUTED  MIDLEV=$ml ========"
+      puts "WNS        : $wns ns   (period $period ns)"
+      puts "DATA DELAY : $dpd ns   (<= 8.000 ns => clears 125 MHz)"
+      puts "FMAX       : $fmax MHz"
+      puts "125 MHz?   : [expr {$dpd <= 8.0 ? {YES} : {NO}}]"
+      puts "==========================================================="
+  } errmsg]} {
+      puts "!!! bsw_top impl (MIDLEV=$ml) FAILED: $errmsg"
+  }
 }
 catch { close_project }
-puts "\n### done. Copy the SUMMARY + the top worst-path from bsw_top_impl_timing.rpt. ###"
+puts "\n### done. Copy the per-MIDLEV SUMMARY blocks (best FMAX wins); worst paths in"
+puts "### bsw_top_impl_ml<N>_timing.rpt. ###"

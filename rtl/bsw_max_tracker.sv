@@ -123,9 +123,19 @@ module bsw_max_tracker
     // only its in-run latency grows by the 2 pipeline stages (bsw_ctrl_fsm drains
     // 2 extra cycles to match). glob_max feeds the score VALUE / max_off / zdrop
     // only; the reported argmax (qle/tle) comes from the row pipeline below.
-    localparam int MIDLEV   = 4;                 // levels reduced in stage 1
-    localparam int MIDNODES = RNPOW >> MIDLEV;   // 256>>4 = 16 partial-max nodes
-    localparam int S2LEV    = RLEVELS - MIDLEV;  // 4 more levels in stage 2
+    // MIDLEV = how many tree levels are reduced in stage 1 (the rest in stage 2), i.e. where the
+    // 2-stage reduction registers. LATENCY-NEUTRAL for ANY value: the reduction is always exactly
+    // 2 registers deep (pr, cm), so glob_max's cycle-alignment with the row pipeline in the zdrop
+    // logic is UNCHANGED, and the max is bit-identical (associative max, left/lowest-index tie-break).
+    // Only the comb-tree split point moves -> pure routing/logic rebalance of the 160-PE gather that
+    // is the post-#10 near-critical path (impl pr_i, -0.38 ns vs 125 MHz). Sweep via
+    // +define+MIDLEV_LVL=n (synth/ooc/impl_bsw_top.tcl tries 4/3/2/1) to find the best split.
+`ifndef MIDLEV_LVL
+ `define MIDLEV_LVL 4
+`endif
+    localparam int MIDLEV   = `MIDLEV_LVL;       // stage-1 levels (default 4 = prior behaviour)
+    localparam int MIDNODES = RNPOW >> MIDLEV;   // partial-max nodes registered at pr
+    localparam int S2LEV    = RLEVELS - MIDLEV;  // remaining levels in stage 2
 
     // ---- stage 1 (comb): leaves + levels 0..MIDLEV-1 -> MIDNODES partials ----
     score_t s1_h [MIDLEV+1][RNPOW];
