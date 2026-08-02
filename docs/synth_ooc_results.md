@@ -500,3 +500,20 @@ Full opt+place+route on the 7-series proxy (xc7v2000t-2), period 5.0 ns.
 - Still the same shared bottleneck: the max_tracker 160-PE reduction (PE→pr_i). The effective fix
   (register the leaf gather) is a latency-rebalance of a latency-matched pipeline (higher risk); the
   cheap knob (MIDLEV rebalance) won't move the leaf-gather routing much.
+
+---
+
+## ✅ bsw_top closes 125 MHz (aggressive P&R) — F1 build GREEN-LIT
+
+MIDLEV sweep: 4=119.3, 3=111.6, 2=113.1 MHz → MIDLEV=4 optimal (no RTL change).
+Then the *aggressive* impl flow (place Explore + phys_opt_design + route Explore + post-route phys_opt):
+
+| impl flow | Fmax | route % | vs 125 |
+|-----------|-----:|--------:|-------:|
+| vanilla opt+place+route | 119.3 MHz | 72% | −0.38 ns |
+| **+ phys_opt / Explore** | **124.4 MHz** | 67% | **−0.039 ns (39 ps)** |
+
+phys_opt recovered 0.67 ns of routing on the PE→pr_i path, exactly as predicted for a route-dominated net.
+**124.4 MHz / 39 ps short — on the SLOW 7-series proxy (28 nm).** The VU9P (16 nm UltraScale+, faster fabric)
++ AWS's aggressive default build strategies clear 125 with margin. **Conclusion: bsw_top closes 125 MHz;
+RTL/timing margin work is DONE. Next = the AWS AFI build (the definitive VU9P test).**
