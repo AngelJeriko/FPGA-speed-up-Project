@@ -17,10 +17,18 @@ from collections import Counter
 src = sys.argv[1] if len(sys.argv) > 1 else "vectors/alnreg_v2_vectors.bin"
 dst = sys.argv[2] if len(sys.argv) > 2 else "../../tb/vectors/msort_dedup_vectors.hex"
 PER_N = int(sys.argv[3]) if len(sys.argv) > 3 else 2
+# EXCL_MAX: additionally keep this many redundancy-EXCLUSION-observable tie-free arrays
+# (final output depends on the excl_p/excl_q decision), regardless of the PER_N size cap.
+# Closes the dedup-exclusion coverage gap: without these the mutation "excl_p=excl_q=0"
+# stays green because no array in the size-diversity sample exercises the decision.
+EXCL_MAX = int(sys.argv[4]) if len(sys.argv) > 4 else 300
 GAP = 10000
 KEY = struct.Struct('<qqiiii')   # rb,re(int64) qb,qe,rid,score(int32) = 32 bytes
 
-def dedup(recs):
+def dedup(recs, excl=True):
+    # excl=True: the real branch-A behaviour. excl=False: mirrors the RTL "disable
+    # exclusion" mutation (redundant, but drop nothing) — used only to detect whether
+    # an array's OUTPUT actually depends on the exclusion decision (coverage targeting).
     a = [list(r) for r in recs]
     a.sort(key=lambda r: r[1])                 # stable re-sort (Python sort is stable)
     n = len(a)
@@ -37,7 +45,7 @@ def dedup(recs):
             oq = (q[3] - p[2]) if q[2] < p[2] else (p[3] - q[2])
             mr = min(q[1] - q[0], p[1] - p[0])
             mq = min(q[3] - q[2], p[3] - p[2])
-            if 20*or_ > 19*mr and 20*oq > 19*mq:
+            if 20*or_ > 19*mr and 20*oq > 19*mq and excl:
                 if p[5] < q[5]:
                     p[3] = p[2]; break
                 else:
@@ -45,6 +53,14 @@ def dedup(recs):
             j -= 1
     survivors = [r for r in a if r[3] > r[2]]
     return a, survivors
+
+def excl_observable(recs):
+    # True iff the final output DEPENDS on the redundancy-exclusion decision, i.e. a tb
+    # that includes this array can turn the "excl_p=excl_q=0" RTL mutation RED. (Was: the
+    # size-diversity PER_N sample never included such arrays -> exclusion coverage gap.)
+    _, sv_on  = dedup(recs, excl=True)
+    _, sv_off = dedup(recs, excl=False)
+    return final_chain(sv_on) != final_chain(sv_off)
 
 def final_chain(survivors):
     s = sorted(survivors, key=lambda r: (-r[5], r[0], r[2]))   # score desc, rb asc, qb asc
@@ -63,16 +79,27 @@ with open(src, 'rb') as f:
 
 off, L = 0, len(data)
 quota = Counter()
-out_records, kept, validated, valfail = [], 0, 0, 0
+out_records, kept, validated, valfail, excl_kept = [], 0, 0, 0, 0
 while off < L:
     (n,) = struct.unpack_from('<i', data, off); off += 4
     has_tie = data[off]; off += 1
     (m,) = struct.unpack_from('<i', data, off); off += 4
     inp = [KEY.unpack_from(data, off + i*32) for i in range(n)]; off += n*32
     exp = [KEY.unpack_from(data, off + i*32) for i in range(m)]; off += m*32
-    if has_tie or quota[n] >= PER_N:
+    if has_tie:
         continue
-    sorted_in, survivors = dedup(inp)
+    want_size = quota[n] < PER_N
+    want_excl = (excl_kept < EXCL_MAX) and excl_observable(inp)  # exclusion-coverage
+    if not (want_size or want_excl):
+        continue
+    _mutated_in, survivors = dedup(inp)
+    # EMIT the re-sorted ORIGINAL input (unmutated) — NOT dedup's in-place-mutated array.
+    # dedup() sets qe=qb on excluded losers; emitting that pre-bakes the exclusion into
+    # the RTL input (losers arrive already qe==qb), so the RTL just skips them and the
+    # exclusion decision is bypassed & untestable (the mutation excl_p=excl_q=0 stays
+    # green regardless). The RTL must be fed the ORIGINAL qe and perform the exclusion
+    # itself. Python's sort is stable, so this matches the RTL's stable re-sort.
+    resorted_in = sorted([list(r) for r in inp], key=lambda r: r[1])
     # validate the dedup against the captured real output via the rest of the chain
     fin = final_chain(survivors)
     ok = (len(fin) == m) and all(tuple(a)==tuple(b) for a,b in zip(fin, exp))
@@ -81,8 +108,10 @@ while off < L:
         valfail += 1
         continue                              # don't emit unvalidated vectors
     quota[n] += 1; kept += 1
+    if want_excl:
+        excl_kept += 1
     lines = ["%d %d" % (n, len(survivors))]
-    lines += [rec_hex(r) for r in sorted_in]
+    lines += [rec_hex(r) for r in resorted_in]
     lines += [rec_hex(r) for r in survivors]
     out_records.append("\n".join(lines))
 
@@ -91,3 +120,4 @@ with open(dst, 'w') as f:
     f.write("\n".join(out_records) + "\n")
 print("validated %d tie-free arrays vs real output (%d failed); emitted %d to %s" %
       (validated, valfail, kept, dst))
+print("  of which exclusion-OBSERVABLE (close the coverage gap): %d" % excl_kept)

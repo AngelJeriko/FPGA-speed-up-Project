@@ -2,3 +2,4 @@
 vectors/*.bin
 test_sorter
 *.o
+dedup_probe
