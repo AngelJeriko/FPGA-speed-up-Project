@@ -66,10 +66,10 @@ your AWS + Vivado + HDK side.
 
 The Shell's main clock `clk_main_a0` is **125 MHz** in its slowest common recipe.
 The kernel must **close timing at ≥125 MHz post-place-and-route** to load and run
-at all. Current OOC estimate is ~77 MHz on a 7-series proxy and timing does not
-yet close — so **the `main` timing track is a hard prerequisite for this bring-up**,
-not just a nice-to-have. (Escape hatch: derive a slower divided clock in the CL,
-but that adds a clock-domain crossing; 125 MHz is the practical target.)
+at all. **CLEARED (2026-08-02):** real P&R closed bsw_top at 124.4 MHz / −39 ps on the
+slow 7-series proxy → the faster VU9P clears 125 with margin (see the cleared-prerequisite
+note below). (Escape hatch, no longer needed: a slower divided CL clock, at the cost of a
+CDC.)
 
 ---
 
@@ -86,14 +86,37 @@ but that adds a clock-domain crossing; 125 MHz is the practical target.)
   was round-trip-checked in C against the RTL bit ranges), pulses GO, polls STATUS, reads the
   result. Built-in golden self-check: ACGT/ACGT must return **score=5**.
 
-### Remaining (needs AWS + Vivado + HDK — user side)
-- **B3**: drop rtl/ into `$CL_DIR/design`, set `CL_SH_ID0/1`, `aws_build_dcp_from_cl.sh
-  -clock_recipe_a A1` (125 MHz). ← gated on bsw_top closing 125 MHz at P&R (see the
-  `impl_bsw_top.tcl` truth-check on `main`).
-- **B4**: DCP → S3 → `create-fpga-image` → AFI → `fpga-load-local-image` → `sudo ./test_bsw`.
+### ✅ 125 MHz prerequisite — CLEARED (2026-08-02)
+`synth/ooc/impl_bsw_top.tcl` real place-and-route (aggressive: place Explore + phys_opt +
+route Explore + post-route phys_opt) closed bsw_top at **124.4 MHz — just 39 ps short of 125
+on the SLOW 7-series proxy (28 nm)**. The real VU9P (16 nm UltraScale+, faster fabric) plus
+AWS's default build strategies clear 125 with margin. **bsw_top is green-lit for the AWS
+build.** (See docs/synth_ooc_results.md "bsw_top closes 125 MHz".)
 
-### ⚠️ 125 MHz prerequisite — measured, NOT yet cleared
-Re-synth #10 showed bsw_top alone at **~102 MHz on the OOC *synthesis* proxy**, limited by the
-max_tracker 160-PE reduction (74% routing, unplaced estimate). Run `synth/ooc/impl_bsw_top.tcl`
-(real place+route) for the true number before committing to the AWS build — routing-dominated
-paths often move a lot after placement, and VU9P is faster than the 7-series proxy.
+### Remaining (needs AWS + Vivado + HDK — user side)
+
+**Pre-flight (do these before spending build time):**
+1. **Source list** — enumerate the CL RTL from **`scripts/cl_bsw_files.f`** (the exact 9-file
+   ordered set: bsw_pkg → compute core → bsw_axil_regs → cl_bsw_top, +incdir rtl rtl/f1).
+   Do NOT use the old `scripts/file_list.f` (targets plain bsw_top, omits rtl/f1/*, pulls the
+   unused axis adapter). A missing module here fails elaboration hours in.
+2. **Clock** — `-clock_recipe_a A1` = 125 MHz `clk_main_a0`. The kernel is single-clock (the
+   whole chain runs on `clk_main_a0`; the only sequential element outside it is the 2-FF reset
+   synchroniser) — **no CDC constraints needed**.
+3. **IDs** — set `CL_SH_ID0/1` in `cl_id_defines.vh` for your AFI.
+4. **Host↔CL contract** — VERIFIED by static cross-check of test_bsw.c against bsw_axil_regs.sv
+   + bsw_pkg (offsets, the 0x2xx/0x3xx target `addr[8]` split, and the result unpack
+   error[96]…max_off[15:0] with 16-bit fields all line up). If the AFI builds, `score=5` is
+   wired to the right bits — no host rework expected.
+
+**B3 — build the DCP:** drop `rtl/` into `$CL_DIR/design`, wire the sources per (1) above, then
+`cd $CL_DIR/build/scripts && aws_build_dcp_from_cl.sh -clock_recipe_a A1`.
+- **⚠️ TIMING GATE — check BEFORE creating the AFI.** The build's own post-route
+  `*.timing_summary` (in `$CL_DIR/build/reports/`) must show **0 failing endpoints / WNS ≥ 0 on
+  `clk_main_a0`**. If it fails there, the AFI would load but the kernel would be metastable —
+  stop and fix timing first. AFI ingestion (B4) takes ~1 hr, so this gate saves a wasted round-trip.
+
+**B4 — DCP → AFI → run:** `create-fpga-image` (DCP → S3 → AGFI, ~1 hr) →
+`fpga-load-local-image -S 0 -I <agfi>` → `sudo ./test_bsw`. Expect
+`GOLDEN OK (ACGT/ACGT -> score=5)`. Anything else = layout/AFI mismatch (re-check the source
+list and that the loaded AGFI is the one you just built).
