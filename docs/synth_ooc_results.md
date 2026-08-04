@@ -517,3 +517,40 @@ phys_opt recovered 0.67 ns of routing on the PE→pr_i path, exactly as predicte
 **124.4 MHz / 39 ps short — on the SLOW 7-series proxy (28 nm).** The VU9P (16 nm UltraScale+, faster fabric)
 + AWS's aggressive default build strategies clear 125 with margin. **Conclusion: bsw_top closes 125 MHz;
 RTL/timing margin work is DONE. Next = the AWS AFI build (the definitive VU9P test).**
+
+---
+
+## 🎯 chaining_pe_pair_top REAL PLACE-AND-ROUTE (#10 result) → fix #11 (2026-08-04)
+
+The **full design** (`chaining_pe_pair_top`, ~305K LUT — the on-chip pipeline, distinct from the
+`bsw_top` standalone above) was taken through real aggressive P&R
+(`synth/ooc/impl_chaining_pe_pair_top.tcl`: opt + place Explore + phys_opt + route Explore + post
+phys_opt) on the 7-series proxy:
+
+| metric | value |
+|--------|------:|
+| WNS (@8.0 ns / 125 MHz) | **−1.367 ns** |
+| min period | 9.367 ns → **Fmax ≈ 106.8 MHz** |
+| failing endpoints | 11,364 (TNS −3650 ns) — all one worst-path shape |
+
+Real P&R beat the #10 OOC estimate (102.3 → 106.8 MHz) as expected, but still short of 125.
+
+### #10 full-design worst path (−1.367 ns): the target-base mux fused into the DP recurrence
+`u_pe2/u_swshared/u_bsw/u_fsm/t_idx_reg[3]` → **`target_q[t_idx]` MUXF7/MUXF8 tree (~3.9 ns)** →
+`u_array/g_pe[0].u_pe` **H→E→F recurrence CARRY4s (~5.2 ns)** → `F_out_reg_reg[11]/D`.
+Data path 9.339 ns (logic 2.55 / **route 6.79 = 73%**), 20 logic levels. One clock did BOTH the
+MAX_TLEN-way "select the target base indexed by `t_idx`" AND the full Smith-Waterman cell update —
+two independent operations needlessly in the same cycle.
+
+- **Fix (worklist #11, `bsw_ctrl_fsm.sv`):** register the target mux and **read one index ahead**.
+  `sa_target_o` was `target_q[t_idx]` combinational; now a `tgt_r` flop is loaded with
+  `target_q[t_idx+1]` each S_RUN cycle and primed with `target_q[0]` during the otherwise-idle
+  S_LOAD cycle, so it delivers `target_q[t_idx]` on the SAME cycle the array consumes it.
+  **Zero latency added** — array/tracker/drain alignment unchanged; the ~3.9 ns select and the
+  ~5.2 ns DP update become two separate sub-8 ns paths. `target_q` is stable from `accept_req`
+  (latched in S_IDLE/S_DONE, not S_LOAD) so the S_LOAD read is race-free.
+- **Verified (bit-exact + mutation):** `tb_bsw_ext` (15887 real bwa-mem2 extension vectors) —
+  baseline 0 fail, **fix #11 byte-identical 0 fail**. Mutation (drop the `+1` read-ahead → `tgt_r`
+  lags 1 cyc): **RED, 13675/15887 fail** (off-by-one target misalignment, e.g. score 133/140,
+  tle 131/130) — the tb has teeth for target alignment. **NEXT: user re-runs
+  impl_chaining_pe_pair_top.tcl to measure #11 (expect the worst path to move off the target mux).**

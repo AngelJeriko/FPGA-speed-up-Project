@@ -152,6 +152,34 @@ module bsw_ctrl_fsm
         end
     end
 
+    // ---- Read-ahead target base (timing fix #11) ----
+    // sa_target_o was a combinational MAX_TLEN-way mux target_q[t_idx] (a
+    // MUXF7/MUXF8 tree, ~3.9 ns on the VU9P proxy) driven STRAIGHT into PE_0's
+    // H/E/F recurrence (~5.2 ns), fusing select+update into one ~9.3 ns path
+    // (full-design real P&R: WNS -1.367 ns @ 125 MHz -> Fmax 106.8 MHz; the worst
+    // path ran t_idx_reg -> target_q mux -> F_out_reg; see docs/synth_ooc_results.md #11).
+    // Register the mux and read ONE index ahead: the otherwise-idle S_LOAD cycle
+    // primes tgt_r, and each S_RUN cycle loads target_q[t_idx+1] so tgt_r delivers
+    // target_q[t_idx] on the SAME cycle the array consumes it. Array/tracker/drain
+    // alignment is UNCHANGED (no latency added) -- the mux now feeds a flop instead
+    // of the recurrence, so the ~3.9 ns select and the ~5.2 ns DP update become two
+    // separate sub-8 ns paths. target_q is stable from accept_req onward (latched in
+    // S_IDLE/S_DONE, not S_LOAD), so reading it during S_LOAD is race-free.
+    len_t  tgt_ra_idx;
+    always_comb begin
+        unique case (state)
+            S_LOAD:  tgt_ra_idx = '0;                                    // prime target_q[0]
+            S_RUN:   tgt_ra_idx = (t_idx < cfg_q.tlen - len_t'(1))
+                                  ? (t_idx + len_t'(1)) : t_idx;          // read one ahead (clamped)
+            default: tgt_ra_idx = '0;
+        endcase
+    end
+    base_t tgt_r;
+    always_ff @(posedge clk) begin
+        if (!rst_n) tgt_r <= base_t'(0);
+        else        tgt_r <= target_q[tgt_ra_idx[$clog2(MAX_TLEN)-1:0]];
+    end
+
     // ---- Next-state ----
     always_comb begin
         state_n = state;
@@ -299,8 +327,7 @@ module bsw_ctrl_fsm
 
     // Streaming
     assign sa_active_o    = (state == S_RUN) && (t_idx < cfg_q.tlen);
-    assign sa_target_o    = (state == S_RUN) ? target_q[t_idx[$clog2(MAX_TLEN)-1:0]]
-                                              : base_t'(0);
+    assign sa_target_o    = (state == S_RUN) ? tgt_r : base_t'(0);
     assign sa_h_diag_o    = bound_reg;   // first-column boundary for PE_0
     assign sa_f_o         = '0;          // F(i, -1) = 0
 
