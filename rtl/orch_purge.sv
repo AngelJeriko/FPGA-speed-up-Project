@@ -164,26 +164,29 @@ module orch_purge #(
     logic signed [63:0] qdL_r, rdL_r, qdR_r, rdR_r;
     logic signed [31:0] minL_r, minR_r, pw_r, wL_r, wR_r;
 
-    // ---- combinational view of seed t (vv conflict scan) ----
-    logic signed [63:0] t_rbeg; logic signed [31:0] t_qbeg, t_len;
+    // ---- seed t (vv conflict scan), pipelined (timing fix #12) ----
+    // The double-indirect read sd_*[sbase_r+srt2[vv]] (two dependent dist-RAM lookups)
+    // FUSED with the 64-bit c1/c2 arithmetic in one S_VV cycle was the -1.463 ns path.
+    // t_rbeg/t_qbeg/t_len are now REGISTERED (latched in S_VV_RD, reg-to-reg through the
+    // RAMs == the S_K_SETUP path, never critical); the comparators below run reg-to-reg
+    // off those registers in S_VV_CMP with NO RAM in the cone. Bit-exact: identical
+    // algebra on identical values, evaluated one cycle after the read instead of same-cycle.
+    logic signed [63:0] t_rbeg_r; logic signed [31:0] t_qbeg_r, t_len_r;
     logic vv_short, vv_c1, vv_c2;
     always_comb begin
-        t_rbeg = sd_rbeg[sbase_r + srt2[vv[7:0]]];
-        t_qbeg = sd_qbeg[sbase_r + srt2[vv[7:0]]];
-        t_len  = sd_len [sbase_r + srt2[vv[7:0]]];
-        vv_short = (t_len * 32'sd100) < (s_len * 32'sd95);
-        vv_c1 = (s_qbeg <= t_qbeg) &&
-                ((s_qbeg + s_len - t_qbeg) >= (s_len >>> 2)) &&
-                ((64'(t_qbeg) - 64'(s_qbeg)) != (t_rbeg - s_rbeg));
-        vv_c2 = (t_qbeg <= s_qbeg) &&
-                ((t_qbeg + t_len - s_qbeg) >= (s_len >>> 2)) &&
-                ((64'(s_qbeg) - 64'(t_qbeg)) != (s_rbeg - t_rbeg));
+        vv_short = (t_len_r * 32'sd100) < (s_len * 32'sd95);
+        vv_c1 = (s_qbeg <= t_qbeg_r) &&
+                ((s_qbeg + s_len - t_qbeg_r) >= (s_len >>> 2)) &&
+                ((64'(t_qbeg_r) - 64'(s_qbeg)) != (t_rbeg_r - s_rbeg));
+        vv_c2 = (t_qbeg_r <= s_qbeg) &&
+                ((t_qbeg_r + t_len_r - s_qbeg) >= (s_len >>> 2)) &&
+                ((64'(s_qbeg) - 64'(t_qbeg_r)) != (s_rbeg - t_rbeg_r));
     end
 
     typedef enum logic [4:0] {
         S_IDLE, S_CH_START, S_SORT_SCAN, S_SORT_PLACE, S_K_INIT, S_K_SETUP,
         S_SCAN, S_BAND_MIN, S_BAND_DIV, S_BAND_DEC,
-        S_AFTER, S_VV_INIT, S_VV, S_VV_DONE, S_K_DEC, S_CH_NEXT, S_DONE
+        S_AFTER, S_VV_INIT, S_VV_RD, S_VV_CMP, S_VV_DONE, S_K_DEC, S_CH_NEXT, S_DONE
     } st_t;
     st_t state;
     assign busy = (state != S_IDLE);
@@ -296,14 +299,26 @@ module orch_purge #(
                     if (v < lim) begin vv <= k + 16'sd1; vv_broke<=1'b0; state<=S_VV_INIT; end
                     else         begin lim <= lim + 16'd1; state <= S_K_DEC; end
                 end
-                S_VV_INIT: state <= S_VV;     // vv was latched in S_AFTER
-                S_VV: begin
+                S_VV_INIT: state <= S_VV_RD;  // vv was latched in S_AFTER
+                // ---- pipelined vv conflict scan (timing fix #12), two cycles/seed ----
+                // S_VV_RD: cheap vv>=n / srt_inv skips resolve from vv (no RAM); otherwise
+                // latch the double-indirect seed-t reads (reg->RAM->RAM->reg, no arith).
+                S_VV_RD: begin
                     if (vv >= $signed(n_r))      state <= S_VV_DONE;     // vv==n, completed
-                    else if (srt_inv[vv[7:0]])   vv <= vv + 16'sd1;      // continue (INVALID)
-                    else if (vv_short)           vv <= vv + 16'sd1;      // continue
-                    else if (vv_c1)              begin vv_broke<=1'b1; state<=S_VV_DONE; end
-                    else if (vv_c2)              begin vv_broke<=1'b1; state<=S_VV_DONE; end
-                    else                         vv <= vv + 16'sd1;
+                    else if (srt_inv[vv[7:0]])   vv <= vv + 16'sd1;      // continue (INVALID), stay in RD
+                    else begin
+                        t_rbeg_r <= sd_rbeg[sbase_r + srt2[vv[7:0]]];
+                        t_qbeg_r <= sd_qbeg[sbase_r + srt2[vv[7:0]]];
+                        t_len_r  <= sd_len [sbase_r + srt2[vv[7:0]]];
+                        state    <= S_VV_CMP;
+                    end
+                end
+                // S_VV_CMP: c1/c2/short arithmetic from the REGISTERED seed-t (no RAM in cone).
+                S_VV_CMP: begin
+                    if      (vv_short)  begin vv <= vv + 16'sd1; state <= S_VV_RD; end   // continue
+                    else if (vv_c1)     begin vv_broke<=1'b1;    state <= S_VV_DONE; end
+                    else if (vv_c2)     begin vv_broke<=1'b1;    state <= S_VV_DONE; end
+                    else                begin vv <= vv + 16'sd1; state <= S_VV_RD; end   // continue
                 end
                 S_VV_DONE: begin
                     if (!vv_broke) begin                                 // vv==n -> purge

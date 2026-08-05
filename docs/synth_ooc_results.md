@@ -554,3 +554,42 @@ two independent operations needlessly in the same cycle.
   lags 1 cyc): **RED, 13675/15887 fail** (off-by-one target misalignment, e.g. score 133/140,
   tle 131/130) — the tb has teeth for target alignment. **NEXT: user re-runs
   impl_chaining_pe_pair_top.tcl to measure #11 (expect the worst path to move off the target mux).**
+
+---
+
+## #11 real P&R MEASURED (2026-08-05) → fix #12 (orch_purge S_VV)
+
+Full `chaining_pe_pair_top` real place-and-route on the slow 7-series proxy
+(`xc7v2000tfhg1761-2`), Explore + phys_opt + Explore + post-route phys_opt, period 8.0 ns:
+
+| metric | value |
+|---|---|
+| WNS (@8.0 ns / 125 MHz) | **−1.463 ns** |
+| min period | 9.463 ns → **Fmax ≈ 105.7 MHz** |
+| failing endpoints | TNS −3792 ns |
+
+**Fix #11 CONFIRMED working — but global Fmax flat (106.8 → 105.7, P&R noise).** The number
+barely moved because the target mux was never the *sole* ceiling; `orch_purge` was co-limiting.
+Proof: post-route `phys_opt_design` spent **100% of its critical-path effort on
+`u_pe2/u_ce/u_ac/u_rt/u_purge/*` nets** (`vv[15]_i_*`, `t_rbeg`, `t_len`, `sd_len_reg_r1_*`,
+`state20_in`) and **zero on any bsw_top `sa_init`/`target` net** — fix #11's path is off the list.
+
+### #11 full-design worst path (−1.463 ns): orch_purge S_VV double-indirect read + c1/c2 arithmetic
+One `S_VV` cycle did, in series: `vv` reg → `srt2[vv]` (dist-RAM read #1) → `sbase_r + …` add →
+`sd_rbeg/sd_qbeg/sd_len[…]` (dist-RAM read #2, three 1K-deep RAM64M cascades) → `t_len*100` +
+64-bit `vv_c1/vv_c2` subs/compares → S_VV priority-mux next-state. Two **dependent** distributed-RAM
+lookups THEN a 64-bit arithmetic cone, all reg-to-reg in one clock — the same fuse-two-ops-in-one-cycle
+shape as #10, and the same shape this file already pipelined for the `cmg` band divides (S_BAND_MIN/DIV/DEC).
+
+- **Fix (worklist #12, `orch_purge.sv`):** split `S_VV` → **`S_VV_RD` + `S_VV_CMP`**. RD resolves the
+  cheap `vv≥n_r` / `srt_inv[vv]` skips from `vv` (no RAM), else latches `t_rbeg_r/t_qbeg_r/t_len_r
+  <= sd_*[sbase_r+srt2[vv]]` (reg→RAM→RAM→reg, **no arithmetic** = the S_K_SETUP path length, never
+  critical). CMP runs `vv_short/vv_c1/vv_c2` off the **registered** seed-t (reg→arith→next-state,
+  **no RAM** in cone). 2 cycles/seed in the purge inner loop (off the throughput-critical path).
+  Bit-exact: identical algebra on identical values, deferred one cycle; loop control + S_VV_DONE
+  exclusion unchanged.
+- **Verified (bit-exact + mutation):** `tb_orch_purge` (200 reads vs extend+purge integer model)
+  **0 fail**; `tb_orch_read_top` **200/0**; `tb_chaining_pe_pair_top` **100/0**. Mutation (weaken the
+  `vv_c1` band threshold `s_len>>>2` → `>>>3` in the now-registered CMP path): **RED, read=42 fails**
+  (qe 150 vs −1) — the tb has teeth on the relocated arithmetic. **NEXT: user re-runs
+  impl_chaining_pe_pair_top.tcl to measure #12 (expect the worst path to move off orch_purge S_VV).**
