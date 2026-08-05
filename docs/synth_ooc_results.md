@@ -593,3 +593,35 @@ shape as #10, and the same shape this file already pipelined for the `cmg` band 
   `vv_c1` band threshold `s_len>>>2` → `>>>3` in the now-registered CMP path): **RED, read=42 fails**
   (qe 150 vs −1) — the tb has teeth on the relocated arithmetic. **NEXT: user re-runs
   impl_chaining_pe_pair_top.tcl to measure #12 (expect the worst path to move off orch_purge S_VV).**
+
+---
+
+## #12 real P&R MEASURED (2026-08-05) → 115.6 MHz (fix #12 WORKED, +10 MHz)
+
+Full `chaining_pe_pair_top` real P&R, slow 7-series proxy, Explore + phys_opt, period 8.0 ns:
+
+| metric | value |
+|---|---|
+| WNS (@8.0 ns / 125 MHz) | **−0.651 ns** |
+| min period | 8.651 ns → **Fmax ≈ 115.6 MHz** |
+
+**Fix #12 CONFIRMED, two ways:** (1) `orch_purge` cell count 11,510 → **8,384** (the fused RAM+arith
+collapsed when split across S_VV_RD/S_VV_CMP). (2) Post-route `phys_opt` touches ZERO `orch_purge/vv`
+nets — all its effort is now `u_bsw/u_tracker/pr_i…`, `u_bsw/u_array/…/H_curr`, `u_ot/skip…`. orch_purge
+S_VV is off the critical list, and this time Fmax moved +10 MHz (it was the tallest, not merely tied).
+
+### #12 worst path (−0.651 ns): bsw_top max-tracker pr_i reduction + matesw u_ot/skip
+The critical path walked OUT of the orchestrator glue INTO the compute core: `bsw_max_tracker`'s `pr_i`
+partial-max reduction (the 160-PE H-cell gather) + the mate-rescue `matesw u_ot/skip` decision.
+**Routing/congestion-dominated** (routed congestion North 98% / East 87% vs. near-empty for bsw_top
+alone; phys_opt recovered WNS −0.96→−0.65 by re-placement alone, no logic change). KEY: this tracker
+path ALREADY closes 125 MHz for bsw_top standalone (124.4) — so the residual gap is largely full-design
+congestion ON THE SLOW PROXY, on a path whose logic already meets 125. Real VU9P (faster fabric + 3 SLRs
+= more room) has strong margin to close.
+
+**Timing journey (full-design real P&R): 106.8 (#10) → 105.7 (#11) → 115.6 (#12).**
+
+**DECISION POINT (not auto-grind #13):** (1) run the real AWS VU9P build (`aws_build_dcp_from_cl.sh
+-clock_recipe_a A1`) — definitive, bottleneck is now the already-125-closing core + proxy congestion;
+(2) fix #13 on the tractable `matesw u_ot/skip` fan-in tree (the tracker is routing-bound, RTL won't help);
+(3) ship a 100 MHz (recipe A0) full-pipeline AFI now, grind to 125 in parallel. Recommended: (1).
