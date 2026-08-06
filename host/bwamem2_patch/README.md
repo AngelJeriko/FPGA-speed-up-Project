@@ -27,22 +27,19 @@ Two kinds of snippet are indexed here:
   | [`../mate_rescue/capture/orch_capture.inc`](../mate_rescue/capture/orch_capture.inc) | `src/bwamem_pair.cpp` | `ALNREG_ORCH_OUT` | `mem_matesw_batch_post` orchestration → `host/mate_rescue/orch.h` |
   | [`../mate_rescue/capture/sel_capture.inc`](../mate_rescue/capture/sel_capture.inc) | `src/bwamem_pair.cpp` | `ALNREG_SEL_OUT` | mate candidate selection → `host/mate_rescue/pe.h` |
 
-- **RECONSTRUCTED (verified against source).** The extend-orchestrator capture
-  (instrument #5, which produced the `host/extend_orchestrator/` golden) was reverted
-  before it was committed. [`ext_capture.inc`](ext_capture.inc) reproduces its
-  **documented** behaviour, rebuilt from the byte format in
-  [`../extend_orchestrator/README.md`](../extend_orchestrator/README.md) and the doc
-  anchors. It was then checked against the local bwa-mem2 checkout **@ commit `97978f9`**:
-  the format is byte-exact vs the reader `host/extend_orchestrator/parse.h`, and the
-  anchors + local names are the real ones at that commit (line refs are in the file).
-  The checkout also surfaced a structural fact the spec alone didn't: the cross-chain
-  purge (`mem_sort_dedup_patch`) runs in the **caller**, not inside `mem_chain2aln`, so
-  this snippet has **two sites in `src/bwamem.cpp`** — HEADER+CHAIN inside
-  `mem_chain2aln_across_reads_V2` (~:2108/:2172), and the post-purge OUTPUT in the
-  caller's purge loop (~:1155), joined by a thread-local read_id. The one thing static
-  review cannot prove — the value bindings + the two-site join — is exactly what the
-  **acceptance test** (regenerate the golden, confirm `30000/30000` bit-exact) validates.
-  Run it before trusting a fresh capture.
+- **RECONSTRUCTED and ✅ VALIDATED.** The extend-orchestrator capture (instrument #5,
+  which produced the `host/extend_orchestrator/` golden) was reverted before it was
+  committed. [`ext_capture.inc`](ext_capture.inc) reproduces its behaviour, rebuilt from
+  the byte format in [`../extend_orchestrator/README.md`](../extend_orchestrator/README.md)
+  + `parse.h`, then **applied to bwa-mem2 @ commit `97978f9`, built, and run**: a fresh
+  capture (50k HG00733 pairs) replayed through `test_orch` gave **30000/30000 reads
+  bit-exact, 0 field failures** — so format, value bindings, and the two-site join are
+  all proven. It has **two sites in `src/bwamem.cpp`**: HEADER+CHAIN inside
+  `mem_chain2aln_across_reads_V2` (~:2108/:2172), and OUTPUT in the caller
+  `mem_kernel2_core` immediately after that call returns (~:1147) — **before** the
+  caller's `mem_sort_dedup_patch`, because the model's purge only *marks* contained regs
+  (it doesn't remove them), so the golden OUTPUT is the full post-`mem_chain2aln` array.
+  The two sites join by a thread-local read_id (one worker thread runs a whole batch).
 
 - **DOCUMENTED-ONLY (not reconstructed here).** The merge-sorter family — histogram
   (`ALNREG_HIST_OUT`, always-on), score-sort vector dumper (`ALNREG_VEC_OUT`), tie-order
