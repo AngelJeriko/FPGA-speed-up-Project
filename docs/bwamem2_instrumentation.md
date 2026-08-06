@@ -1,10 +1,17 @@
 # bwa-mem2 Instrumentation — Status & Inventory
 
+> **Apply-able patch:** the instrumentation hooks are now assembled as a paste-ready
+> patch in [`../host/bwamem2_patch/`](../host/bwamem2_patch/) (master guide + the five
+> committed authoritative `.inc` snippets + a reconstructed `ext_capture.inc` with an
+> acceptance test). This doc remains the **inventory/reference**; use the patch dir to
+> actually apply and capture. Later captures (chaining, clamp, mate-rescue) also touch
+> `src/bwamem_pair.cpp` — the patch README lists which snippet goes in which file.
+
 All measurements driving the merge-sorter design came from temporary
 instrumentation added to **one file**: `bwa-mem2/src/bwamem.cpp` (the production
-aligner, NOT in this repo — it lives on the remote `ccloud@216.227.218.169` and the
-local Desktop checkout). This documents what is currently in that file, how to
-drive it, its overhead, and how to revert to a clean binary.
+aligner, NOT in this repo — it lived on the remote `ccloud@216.227.218.169` and the
+local Desktop checkout, reverted after capture). This documents what was in that file,
+how to drive it, its overhead, and how to revert to a clean binary.
 
 Pristine backup: `bwamem.cpp.orig` (LF, 116,545 B). Instrumented: `bwamem.cpp`
 (125,908 B, ~+9.4 KB ≈ ~200 lines). All additions are tagged `/* INSTRUMENTATION */`

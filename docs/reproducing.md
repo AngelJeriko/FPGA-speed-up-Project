@@ -93,13 +93,17 @@ documents them exactly — the env-gated dumpers and their line ranges:
 | `ALNREG_EXT_OUT=out.bin` (`ALNREG_EXT_MAX` caps reads) | extend-orchestrator capture |
 | `ALNREG_TIE_TEST=1` | dedup tie-order test |
 
-To reproduce capture: re-apply those hooks to a clean bwa-mem2 checkout per the doc,
-rebuild, and run with the env var set (e.g.
-`ALNREG_VEC_OUT=out.bin ./bwa-mem2 mem -t16 hg38_chr1-5.fa r1 r2 >/dev/null`).
-`scripts/remote_ext_capture.sh` / `scripts/remote_batched_capture.sh` show the capture
-harness used. **Gap flagged:** committing `bwamem.cpp.orig` + the instrumentation diff
-to this repo would make this step fully self-contained; today it is re-derivable from
-the documentation but not one-command.
+The hooks are now **assembled as an apply-able patch** in
+[`../host/bwamem2_patch/`](../host/bwamem2_patch/) — a master apply/build/capture/revert
+guide that indexes the five committed authoritative snippets (chaining, clamp, matesw,
+orch, sel) and adds a reconstructed `ext_capture.inc` for the extend-orchestrator
+capture (with an acceptance test that regenerates the `30000/30000` golden). Apply per
+that README, rebuild, and run with the env var set (e.g.
+`ALNREG_EXT_OUT=ext_vec.bin ./bwa-mem2 mem -t16 hg38_chr1-5.fa r1 r2 >/dev/null`);
+`scripts/remote_ext_capture.sh` / `scripts/remote_batched_capture.sh` automate the
+capture harness. **Remaining caveat:** the snippets are anchored to bwa-mem2 code
+landmarks (not a fixed-commit `.diff`), so confirm the `⟨BIND⟩` local names against your
+checkout before building — the acceptance test then proves the capture is byte-correct.
 
 ## Stage 3 — Synthesis / timing (needs local Vivado)
 
