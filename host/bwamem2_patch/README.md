@@ -41,14 +41,21 @@ Two kinds of snippet are indexed here:
   (it doesn't remove them), so the golden OUTPUT is the full post-`mem_chain2aln` array.
   The two sites join by a thread-local read_id (one worker thread runs a whole batch).
 
-- **DOCUMENTED-ONLY (not reconstructed here).** The merge-sorter family — histogram
-  (`ALNREG_HIST_OUT`, always-on), score-sort vector dumper (`ALNREG_VEC_OUT`), tie-order
-  test (`ALNREG_TIE_TEST`), v2 dedup dumper (`ALNREG_V2_OUT`) — is fully described with
-  line ranges in [`../../docs/bwamem2_instrumentation.md`](../../docs/bwamem2_instrumentation.md)
-  §1–4, and its outputs are committed (`host/merge_sorter/vectors/alnreg_vectors.bin.gz`).
-  Those `.gz` vectors are what the sim actually consumes, so re-capture is rarely needed;
-  if it is, reconstruct the same way as `ext_capture.inc` from the doc + the format in
-  `host/merge_sorter/`.
+- **RECONSTRUCTED and ✅ VALIDATED (merge-sorter goldens).** The two merge-sorter
+  vector dumpers were rebuilt from their captured formats and proven end-to-end against
+  bwa-mem2 @ `97978f9` (both hooks live in `src/bwamem.cpp` fn `mem_sort_dedup_patch` @ :292):
+  | Snippet | Env var | Validated | Verifies |
+  |---------|---------|-----------|----------|
+  | [`vec_capture.inc`](vec_capture.inc) | `ALNREG_VEC_OUT` | `test_sorter` → **7698/7698 bit-exact** | v1 score-sort model + `rtl/msort_*` (`tb_msort`) |
+  | [`v2_capture.inc`](v2_capture.inc) | `ALNREG_V2_OUT` | `test_v2` → **tie-free 5872/5872 bit-exact** | v2 dedup model + `rtl/msort_v2_*` (`tb_msort_v2`) |
+  Their committed `.gz` goldens (`host/merge_sorter/vectors/*.gz`) are what the sim
+  actually consumes, so re-capture is rarely needed — but it is now one command.
+
+- **DOCUMENTED-ONLY (stats, not bit-exact goldens).** The histogram
+  (`ALNREG_HIST_OUT`, always-on — array-size counts, produced the N=1024 sizing) and the
+  tie-order test (`ALNREG_TIE_TEST` — divergence %) are counting/measurement instruments,
+  not golden captures, so there is nothing to replay bit-exact. Described with line ranges
+  in [`../../docs/bwamem2_instrumentation.md`](../../docs/bwamem2_instrumentation.md) §1,3.
 
 ## Which base bwa-mem2?
 
