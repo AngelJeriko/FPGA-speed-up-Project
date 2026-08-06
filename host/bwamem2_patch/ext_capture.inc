@@ -2,35 +2,32 @@
  * ext_capture.inc — PASTE-READY instrumentation for the EXTEND-ORCHESTRATOR
  *   capture (instrument #5 of docs/bwamem2_instrumentation.md; env ALNREG_EXT_OUT).
  *
- *   ⚠️ RECONSTRUCTED (2026-08-06). The original hook was applied on the remote
- *   bwa-mem2 checkout, used to capture the golden, then reverted and never
- *   committed. This file reproduces its DOCUMENTED behaviour, in the exact idiom
- *   of the committed chain_capture.inc / clamp_capture.inc, from:
- *     - the byte format in host/extend_orchestrator/README.md, and
- *     - the anchors in docs/bwamem2_instrumentation.md (#5).
- *   The infra + fwrite sequences below are exact to the format spec; the bwa-mem2
- *   LOCAL NAMES at each hook are marked "⟨BIND⟩" — confirm them against your
- *   bwamem.cpp before building (they vary slightly by bwa-mem2 version).
+ *   RECONSTRUCTED (2026-08-06). The original hook was applied on the capture
+ *   machine, used to produce the golden, then reverted (the local checkout's
+ *   src/bwamem.cpp is back to its pristine 116,545 B), so the original code is not
+ *   recoverable. This reproduces its DOCUMENTED behaviour, rebuilt from the byte
+ *   format in host/extend_orchestrator/README.md and the anchors in the
+ *   instrumentation doc, in the idiom of the committed chain_/clamp_capture.inc.
  *
- *   ACCEPTANCE TEST (do this before trusting the capture):
- *     1) apply this + build (see host/bwamem2_patch/README.md),
- *     2) ALNREG_EXT_OUT=ext_vec.bin ALNREG_EXT_MAX=30000 \
- *          ./bwa-mem2 mem -t16 hg38_chr1-5.fa r1 r2 >/dev/null
- *     3) gzip -c ext_vec.bin > host/extend_orchestrator/vectors/ext_vec.bin.gz
- *     4) cd host/extend_orchestrator && make run
- *   Expect: **30000/30000 reads bit-exact, 565,446 alnregs**. If it matches the
- *   committed golden, this reconstruction is byte-correct.
+ *   VERIFIED against the local bwa-mem2 checkout @ commit 97978f9:
+ *     - format is byte-exact vs the reader host/extend_orchestrator/parse.h,
+ *     - anchors + local names below are the REAL ones at that commit (line refs
+ *       cited per hook); confirm them if you use a different bwa-mem2 commit.
+ *   STRUCTURE NOTE (found via the checkout): the cross-chain redundancy purge is
+ *   NOT inside mem_chain2aln_across_reads_V2 — it runs in the CALLER via
+ *   mem_sort_dedup_patch(). So HEADER+CHAIN are captured inside mem_chain2aln, but
+ *   the post-purge type-2 OUTPUT is captured at the caller (two sites, joined by a
+ *   thread-local read_id — same worker thread handles a batch end to end).
  *
- * Captures the inputs + output of mem_chain2aln_across_reads_V2. Three record
- * types, joined by read_id (records from concurrent threads interleave):
- *   type 0 HEADER: per read  — query + 10 opt SW-config fields
- *   type 1 CHAIN : per chain — rmax window, seeds, and the fetched ref bytes
- *   type 2 OUTPUT: per read  — assembled alnreg array, AFTER the redundancy purge
+ *   ACCEPTANCE TEST (proves the ⟨value bindings⟩ + read_id join, which static
+ *   review cannot): apply + build, then
+ *     ALNREG_EXT_OUT=ext_vec.bin ALNREG_EXT_MAX=30000 \
+ *       ./bwa-mem2 mem -t16 hg38_chr1-5.fa r1 r2 >/dev/null
+ *     gzip -c ext_vec.bin > host/extend_orchestrator/vectors/ext_vec.bin.gz
+ *     ( cd host/extend_orchestrator && make run )
+ *   Expect: **30000/30000 reads bit-exact, 565,446 alnregs** (the committed golden).
  *
- * TARGET FILE: src/bwamem.cpp (same file as chain_/clamp_capture.inc).
- * Env ALNREG_EXT_OUT / ALNREG_EXT_MAX (default 30000 reads).
- *
- * Record format (binary, native LE) — MUST equal host/extend_orchestrator/README.md:
+ * Record format (binary, native LE) — byte-exact vs host/extend_orchestrator/parse.h:
  *   type 0 HEADER: i32 type=0; i64 read_id; i32 l_query; i32 n_chains;
  *                  i32 cfg[10]={a,b,o_del,e_del,o_ins,e_ins,w,zdrop,pen_clip5,pen_clip3};
  *                  u8 query[l_query]
@@ -43,11 +40,12 @@
  *                         i32 w; i32 seedcov; i32 seedlen0; i32 rid}
  * ============================================================================
  *
- * --- STEP 1: INFRA — paste at file scope near the other *Dumper blocks in
- *     bwamem.cpp (e.g. just after the ExtDumper/ChnDumper infra). ------------- */
+ * --- STEP 1: INFRA — paste at file scope in src/bwamem.cpp, near the other
+ *     *Dumper blocks. Needs <vector> (already included by bwamem.cpp). ------- */
 /* --- INSTRUMENTATION (temporary): extend-orchestrator (mem_chain2aln) capture */
+#include <vector>
 static FILE *g_ext_fp=NULL; static int g_ext_enabled=-1;
-static long  g_ext_reads=0, g_ext_max=30000;
+static long  g_ext_rid_next=0, g_ext_max=30000;
 static volatile int g_ext_lock=0;
 static inline void ext_lock(void){ while(__sync_lock_test_and_set(&g_ext_lock,1)){} }
 static inline void ext_unlock(void){ __sync_lock_release(&g_ext_lock); }
@@ -63,23 +61,34 @@ static void ext_init_once(void){
 }
 struct ExtCapDumper{ ~ExtCapDumper(){ if(g_ext_fp) fclose(g_ext_fp); } };
 static ExtCapDumper g_ext_cap_dumper;
+/* per-read id for the CURRENT batch, indexed by l; set at HEADER (inside
+ * mem_chain2aln), read at OUTPUT (in the caller). thread_local because one worker
+ * thread processes a whole batch end-to-end (mem_chain2aln + the purge loop). */
+static thread_local std::vector<long> g_ext_tl_rid;
 /* --- end instrumentation infra --------------------------------------------- */
 
 
-/*
- * --- STEP 2: HOOK-H (HEADER) — at the TOP of the per-read body of
- *     mem_chain2aln_across_reads_V2, where the read's encoded query and its
- *     chain list are in scope. Declare `long ext_rid` HERE (HOOK-C/O reuse it).
- *     ⟨BIND⟩ l_query = read length; query = const uint8_t* 2-bit-encoded bases;
- *            n_chains = number of chains for this read; opt = const mem_opt_t*.
- */
+/* ============================ SITE 1 — mem_chain2aln_across_reads_V2 =========
+ * (commit 97978f9: function at bwamem.cpp:2069; per-read loop `for (int l...)`
+ *  at :2108; query/l_query at :2116-2117; chn/av at :2119-2120; per-chain loop
+ *  `for (int j...)` at :2133 with `c=&chn->a[j]`; rmax[] at :2145-2166; rseq from
+ *  bns_fetch_seq_v2 at :2172.)
+ *
+ * --- STEP 2a: at the TOP of the per-read loop body (just after :2117 where
+ *     `l_query` is set), size the id vector once for this batch: --------------- */
+/* INSTRUMENTATION */ ext_init_once();
+/* INSTRUMENTATION */ if (g_ext_enabled>0 && (int)g_ext_tl_rid.size() < nseq) g_ext_tl_rid.assign(nseq, -1);
+
+/* --- STEP 2b: HOOK-H (HEADER) — same spot, right after STEP 2a. `query`,
+ *     `l_query`, `chn` (chn->n = n_chains) and `opt` are all in scope here.
+ *     Declares `long ext_rid` used by HOOK-C below (same per-read scope). ------ */
 long ext_rid = -1;
-ext_init_once();
 if (g_ext_enabled>0) {
     ext_lock();
-    if (g_ext_reads < g_ext_max) ext_rid = g_ext_reads++;
+    if (g_ext_rid_next < g_ext_max) ext_rid = g_ext_rid_next++;
+    g_ext_tl_rid[l] = ext_rid;                       /* carry to OUTPUT (SITE 2) */
     if (ext_rid >= 0) {
-        int32_t type=0, lq=(int32_t)/*⟨BIND⟩*/l_query, nch=(int32_t)/*⟨BIND⟩*/n_chains;
+        int32_t type=0, lq=(int32_t)l_query, nch=(int32_t)chn->n;
         int64_t rid64=ext_rid;
         int32_t cfg[10] = { opt->a, opt->b, opt->o_del, opt->e_del,
                             opt->o_ins, opt->e_ins, opt->w, opt->zdrop,
@@ -87,57 +96,55 @@ if (g_ext_enabled>0) {
         fwrite(&type,4,1,g_ext_fp); fwrite(&rid64,8,1,g_ext_fp);
         fwrite(&lq,4,1,g_ext_fp);   fwrite(&nch,4,1,g_ext_fp);
         fwrite(cfg,4,10,g_ext_fp);
-        fwrite(/*⟨BIND⟩*/query,1,(size_t)lq,g_ext_fp);  /* one byte per encoded base */
+        fwrite(query,1,(size_t)lq,g_ext_fp);          /* one byte per encoded base */
     }
     ext_unlock();
 }
 /* --- end HOOK-H ------------------------------------------------------------ */
 
-
-/*
- * --- STEP 3: HOOK-C (CHAIN) — inside the per-chain loop, AFTER rmax[0]/rmax[1]
- *     are computed and the reference window is fetched (right after the
- *     bns_fetch_seq_v2 call that clamp_capture.inc wraps, ~bwamem.cpp:2172).
- *     ⟨BIND⟩ chain_idx = loop index; c = const mem_chain_t* (c->rid, c->n,
- *            c->frac_rep, c->seeds[]); rmax = int64_t[2]; rseq = uint8_t*
- *            reference window of length (rmax[1]-rmax[0]).
- */
+/* --- STEP 3: HOOK-C (CHAIN) — inside the per-chain loop, AFTER rseq is fetched
+ *     (i.e. right after the bns_fetch_seq_v2 block, :2172-2177). `j` = chain_idx,
+ *     `c` = mem_chain_t*, `rmax[0]/rmax[1]`, `rseq` = uint8_t[rmax1-rmax0]. ---- */
 if (g_ext_enabled>0 && ext_rid >= 0) {
     ext_lock();
-    int32_t type=1, cidx=(int32_t)/*⟨BIND⟩*/chain_idx, crid=/*⟨BIND⟩*/c->rid, ns=/*⟨BIND⟩*/c->n;
-    int64_t rid64=ext_rid, rm0=/*⟨BIND⟩*/rmax[0], rm1=/*⟨BIND⟩*/rmax[1];
-    float fr=/*⟨BIND⟩*/c->frac_rep;
+    int32_t type=1, cidx=(int32_t)j, crid=c->rid, ns=c->n;
+    int64_t rid64=ext_rid, rm0=rmax[0], rm1=rmax[1];
+    float fr=c->frac_rep;
     fwrite(&type,4,1,g_ext_fp);  fwrite(&rid64,8,1,g_ext_fp);
     fwrite(&cidx,4,1,g_ext_fp);  fwrite(&crid,4,1,g_ext_fp);
     fwrite(&fr,4,1,g_ext_fp);
     fwrite(&rm0,8,1,g_ext_fp);   fwrite(&rm1,8,1,g_ext_fp);
     fwrite(&ns,4,1,g_ext_fp);
-    for (int si=0; si<ns; ++si){
-        int64_t rb=c->seeds[si].rbeg;
-        int32_t qb=c->seeds[si].qbeg, ln=c->seeds[si].len, sc=c->seeds[si].score;
+    for (int i=0; i<ns; ++i){
+        int64_t rb=c->seeds[i].rbeg;
+        int32_t qb=c->seeds[i].qbeg, ln=c->seeds[i].len, sc=c->seeds[i].score;
         fwrite(&rb,8,1,g_ext_fp); fwrite(&qb,4,1,g_ext_fp);
         fwrite(&ln,4,1,g_ext_fp); fwrite(&sc,4,1,g_ext_fp);
     }
     int64_t rlen=rm1-rm0;
     fwrite(&rlen,8,1,g_ext_fp);
-    fwrite(/*⟨BIND⟩*/rseq,1,(size_t)rlen,g_ext_fp);
+    fwrite(rseq,1,(size_t)rlen,g_ext_fp);
     ext_unlock();
 }
 /* --- end HOOK-C ------------------------------------------------------------ */
 
 
-/*
- * --- STEP 4: HOOK-O (OUTPUT) — at the END of this read's processing, AFTER the
- *     cross-chain redundancy purge, where the final alnreg vector is complete.
- *     ⟨BIND⟩ av = mem_alnreg_v* (av->n, av->a[]) — the assembled output for the read.
- */
-if (g_ext_enabled>0 && ext_rid >= 0) {
+/* ============================ SITE 2 — the caller (post-purge) ===============
+ * (commit 97978f9: mem_chain2aln called at :1111 with output vector `regs`; the
+ *  per-read purge loop is `for (int l...) { regs[l].n = mem_sort_dedup_patch(
+ *  opt, ..., regs[l].n, regs[l].a); }` at :1154-1155. `regs[l]` == av_v[l].)
+ *
+ * --- STEP 4: HOOK-O (OUTPUT) — paste INSIDE that loop, immediately AFTER the
+ *     `regs[l].n = mem_sort_dedup_patch(...)` assignment (:1155), so regs[l] is
+ *     the POST-purge array. Same worker thread as SITE 1 → g_ext_tl_rid[l] is the
+ *     read_id assigned at HOOK-H. ---------------------------------------------- */
+if (g_ext_enabled>0 && l < (int)g_ext_tl_rid.size() && g_ext_tl_rid[l] >= 0) {
     ext_lock();
-    int32_t type=2, no=(int32_t)/*⟨BIND⟩*/av->n; int64_t rid64=ext_rid;
+    int32_t type=2, no=(int32_t)regs[l].n; int64_t rid64=g_ext_tl_rid[l];
     fwrite(&type,4,1,g_ext_fp); fwrite(&rid64,8,1,g_ext_fp);
     fwrite(&no,4,1,g_ext_fp);
     for (int oi=0; oi<no; ++oi){
-        const mem_alnreg_t *r=&av->a[oi];
+        const mem_alnreg_t *r=&regs[l].a[oi];
         int64_t rb=r->rb, re=r->re;
         int32_t qb=r->qb, qe=r->qe, sc=r->score, tsc=r->truesc,
                 w=r->w, scov=r->seedcov, sl0=r->seedlen0, orid=r->rid;

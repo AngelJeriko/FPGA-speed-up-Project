@@ -27,14 +27,22 @@ Two kinds of snippet are indexed here:
   | [`../mate_rescue/capture/orch_capture.inc`](../mate_rescue/capture/orch_capture.inc) | `src/bwamem_pair.cpp` | `ALNREG_ORCH_OUT` | `mem_matesw_batch_post` orchestration → `host/mate_rescue/orch.h` |
   | [`../mate_rescue/capture/sel_capture.inc`](../mate_rescue/capture/sel_capture.inc) | `src/bwamem_pair.cpp` | `ALNREG_SEL_OUT` | mate candidate selection → `host/mate_rescue/pe.h` |
 
-- **RECONSTRUCTED (from spec).** The extend-orchestrator capture (instrument #5, the
-  one that produced the `host/extend_orchestrator/` golden) was reverted before it was
-  committed. [`ext_capture.inc`](ext_capture.inc) in this directory reproduces its
+- **RECONSTRUCTED (verified against source).** The extend-orchestrator capture
+  (instrument #5, which produced the `host/extend_orchestrator/` golden) was reverted
+  before it was committed. [`ext_capture.inc`](ext_capture.inc) reproduces its
   **documented** behaviour, rebuilt from the byte format in
-  [`../extend_orchestrator/README.md`](../extend_orchestrator/README.md) and the anchors
-  in the instrumentation doc, in the same idiom as the authoritative snippets. It carries
-  an **acceptance test** (regenerate the golden and confirm `30000/30000` bit-exact) —
-  run it before trusting a fresh capture.
+  [`../extend_orchestrator/README.md`](../extend_orchestrator/README.md) and the doc
+  anchors. It was then checked against the local bwa-mem2 checkout **@ commit `97978f9`**:
+  the format is byte-exact vs the reader `host/extend_orchestrator/parse.h`, and the
+  anchors + local names are the real ones at that commit (line refs are in the file).
+  The checkout also surfaced a structural fact the spec alone didn't: the cross-chain
+  purge (`mem_sort_dedup_patch`) runs in the **caller**, not inside `mem_chain2aln`, so
+  this snippet has **two sites in `src/bwamem.cpp`** — HEADER+CHAIN inside
+  `mem_chain2aln_across_reads_V2` (~:2108/:2172), and the post-purge OUTPUT in the
+  caller's purge loop (~:1155), joined by a thread-local read_id. The one thing static
+  review cannot prove — the value bindings + the two-site join — is exactly what the
+  **acceptance test** (regenerate the golden, confirm `30000/30000` bit-exact) validates.
+  Run it before trusting a fresh capture.
 
 - **DOCUMENTED-ONLY (not reconstructed here).** The merge-sorter family — histogram
   (`ALNREG_HIST_OUT`, always-on), score-sort vector dumper (`ALNREG_VEC_OUT`), tie-order
@@ -47,19 +55,22 @@ Two kinds of snippet are indexed here:
 
 ## Which base bwa-mem2?
 
-The captures were taken against a standard bwa-mem2 build; the pristine
-`src/bwamem.cpp` was **116,545 bytes (LF)**. Pin your checkout and record its commit
-before applying, e.g.:
+**Reference commit: `97978f9`** (`bwa-mem2` master, "Badges for usegalaxy.org and
+usegalaxy.eu (#279)"). The `ext_capture.inc` anchors and local names were resolved
+against this exact commit; the pristine `src/bwamem.cpp` there is **116,545 bytes (LF)**.
+The other snippets reference the same stable landmarks (`mem_chain`, `mem_chain_flt`,
+`mem_chain2aln_across_reads_V2`, `bns_fetch_seq_v2`, `mem_sam_pe_batch_post`).
+
+Pin your checkout and keep pristine backups before applying:
 ```bash
 git clone --recursive https://github.com/bwa-mem2/bwa-mem2
-cd bwa-mem2 && git rev-parse HEAD > ../bwamem2_base_commit.txt
-cp src/bwamem.cpp src/bwamem.cpp.orig        # keep a pristine backup for revert
+cd bwa-mem2 && git checkout 97978f9         # or record whatever commit you use
+git rev-parse HEAD > ../bwamem2_base_commit.txt
+cp src/bwamem.cpp src/bwamem.cpp.orig        # revert target
 cp src/bwamem_pair.cpp src/bwamem_pair.cpp.orig
 ```
-The hooks reference stable bwa-mem2 landmarks (`mem_chain`, `mem_chain_flt`,
-`mem_chain2aln_across_reads_V2`, `bns_fetch_seq_v2`, `mem_sam_pe_batch_post`); each
-snippet header names its anchor lines. Confirm the `⟨BIND⟩`-tagged local names against
-your version.
+If you use a different commit, re-confirm the anchor line numbers and the local names
+(the `ext_capture.inc` header lists them per hook).
 
 ## Apply → build → capture → revert
 
