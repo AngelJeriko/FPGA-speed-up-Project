@@ -59,7 +59,18 @@ bit-exact to the software.
 ### The premise correction that shaped the work
 Early profiling (`docs/*profiling*`, memory `swa_not_bottleneck`) showed the banded
 Smith-Waterman kernel — the "obvious" thing to accelerate — is only **~6.5%** of
-BWA-MEM2 runtime; FM-index seeding (~30%) dominates. But seeding is memory-latency
+BWA-MEM2 runtime; FM-index seeding (~30%) dominates.
+
+> ⚠️ **Read the 6.5% correctly.** This is a *dataset-specific, whole-program self-time*
+> measurement on **short 101 bp well-mapped human reads** (`smithWaterman512_*`
+> self-time as a fraction of the entire binary). It is **not** a general property of
+> BWA-MEM2: the published profiling (Vasimuddin et al., IPDPS 2019; bwa-mem2's own
+> kernel timers) puts banded SW among the **top-two kernels (~25–47% of kernel time)**,
+> and the project's own `docs/diverse_alignment_timing.md` shows the SW fraction rising
+> to 9–19% on other samples and growing with read length. The *directional* conclusion
+> the project acts on — "seeding is a major cost and a poor FPGA fit, so accelerate the
+> post-seeding compute pipeline instead" — holds; but on longer/divergent reads, SW
+> extension is itself a legitimate acceleration target. But seeding is memory-latency
 bound (roofline ~2.1×) and a poor FPGA fit. The strategy therefore pivoted to
 accelerating the **post-seeding compute** (chaining, extension, sorting, mate
 rescue) as a single on-chip pipeline — the part that *is* a good hardware fit — and
@@ -193,9 +204,19 @@ bash scripts/run_sim.sh tb_orch_purge       # orchestrator purge, golden-checked
 BSW_BUILD_DIR=/tmp/sim_a bash scripts/run_sim.sh tb_matesw_top
 ```
 
+> **CI gotcha:** the testbenches report pass/fail via the printed **summary line**
+> (`… ALL PASS` / `N pass, M fail`), and end on `$finish` — so a *failing* run still
+> exits 0. Any automation must **grep the summary line**, not rely on `$?`.
+
 Timing is measured via the user's local Vivado using the OOC scripts under
 `synth/ooc/` (results logged in `docs/synth_ooc_results.md`). The dev sandbox has
 **Verilator only** — no Vivado — so P&R numbers come from the user's runs.
+
+All simulation pass-claims in this document were **independently re-run and confirmed**
+(2026-08-06): tb_bsw_pe, tb_bsw_top, tb_bsw_axil, tb_cl_bsw_ocl (13/13, score=5),
+tb_orch_purge (200/0), tb_matesw_top (4000/0), tb_msort_v2, and the full
+tb_chaining_pe_pair_top (100/0) all pass bit-exact under Verilator 5.020, and a
+deliberate RTL mutation was confirmed to make the harness go red.
 
 ---
 

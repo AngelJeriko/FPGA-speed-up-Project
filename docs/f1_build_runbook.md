@@ -156,7 +156,9 @@ whole design runs on `clk_main_a0`; the only sequential element outside it is th
 |--------|---------------|
 | **A0** | **125 MHz**  ← this is the 125 MHz baseline |
 | A1 | 250 MHz |
-| A2 | 250 MHz |
+| A2 | 15.625 MHz |
+
+(Values per `aws-fpga/hdk/docs/clock_recipes.csv`, F1 tag v1.4.25 — verify on your HDK version.)
 
 **Action**
 ```bash

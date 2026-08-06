@@ -2,7 +2,9 @@
 
 Proxy part: **xc7v2000tfhg1761-2** (Virtex-7, -2 speed). 7-series proxy — RELATIVE numbers,
 not absolute F1/VU9P. Clock target 3.0 ns (333 MHz); `Fmax = 1000/(3.0 − WNS)`.
-Run on local Vivado (kanak), 2026-07-28. F1 needs ~250 MHz — everything below is far under.
+Run on local Vivado (kanak), 2026-07-28. The F1 target is **125 MHz** `clk_main_a0` (recipe A0);
+these early OOC baseline numbers are far under it. (Corrected 2026-08-06: an earlier note here said
+"~250 MHz" — that is recipe A1, not the 125 MHz baseline the project targets.)
 
 | module | Fmax (MHz) | WNS (ns) | LUT | FF | BRAM (RAMB36) | DSP | verdict |
 |--------|-----------:|---------:|----:|---:|--------------:|----:|---------|

@@ -4,7 +4,10 @@ Goal: get **one kernel running on a real F1 (VU9P) FPGA** through the smallest
 possible path, disregarding speedup. This is the plumbing track; it runs in
 parallel with the timing track on `main`.
 
-This branch is **not merged to `main`** so it never lands in the OOC re-synth ZIP.
+> **Status update (2026-08-06):** the board-bringup work described here is **now merged
+> into `main`** (Track B files `rtl/f1/*.sv`, `host/f1/test_bsw.c`, `scripts/cl_bsw_files.f`).
+> The historical text below is kept for context; see `docs/project_status.md` for the
+> current state and `docs/f1_build_runbook.md` for the build steps.
 
 ## The path: Custom Logic (CL) + AWS Shell
 
@@ -47,20 +50,21 @@ marshalling mutation (swapped query words) makes it go red (4/13 fail). Run it:
 Host sequence: write CONFIG + QUERY + TARGET, write CONTROL=1, poll STATUS until
 bit1 (done), read RESULT.
 
-## What is NOT built yet (to actually run on F1)
+## Build-out status (updated 2026-08-06)
 
-1. **`cl_bsw_top.sv`** — the CL wrapper matching the `aws-fpga` HDK `cl_*` port
-   template. Connects `bsw_axil_regs` to the Shell's `sh_ocl_*` AXI4-Lite master,
-   and ties off every unused Shell interface (DDR, PCIS, DMA, IRQ, `*_stat`).
-   Start from `aws-fpga/hdk/cl/examples/cl_hello_world` and swap the peek/poke
-   register block for `bsw_axil_regs`.
-2. **Host app** (`host/f1/test_bsw.c`) — opens the AppPF BAR via `fpga_pci`,
-   pokes CONFIG/QUERY/TARGET, pokes GO, polls STATUS, peeks RESULT, checks score.
-3. **Build harness** — the HDK `build/scripts/aws_build_dcp_from_cl.sh` invocation
-   + `.f1_clock_recipe` selection + AFI creation. (Needs your AWS account + S3.)
+The three items below were "not built" when this doc was first written; items 1 and 2
+are now **built and verified**, and item 3 is fully documented and waiting only on the
+user-side AWS run. See the Progress Update section further down for the verification
+detail, and `docs/f1_build_runbook.md` for the step-by-step build.
 
-These are all developable here (RTL + C) and only the final `aws_build`/AFI needs
-your AWS + Vivado + HDK side.
+1. ✅ **`cl_bsw_top.sv`** — the CL wrapper (OCL AXI4-Lite → `bsw_axil_regs`, all unused
+   Shell IFs tied off via the `cl_hello_world` template). Verified: `tb_cl_bsw_ocl`
+   13/13, score=5.
+2. ✅ **Host app** (`host/f1/test_bsw.c`) — `fpga_pci` peek/poke; host↔RTL contract
+   cross-checked; built-in `score=5` golden self-check.
+3. ⏳ **Build harness** — `aws_build_dcp_from_cl.sh -clock_recipe_a A0` → AFI. Steps +
+   roadblocks in `docs/f1_build_runbook.md`. **Needs your AWS account + FPGA Developer
+   AMI + S3 + an F1 instance** — the only remaining step.
 
 ## The one hard prerequisite: 125 MHz
 
