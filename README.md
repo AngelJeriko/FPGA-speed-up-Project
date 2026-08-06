@@ -1,158 +1,125 @@
-# FPGA Banded Smith-Waterman Accelerator
+# BWA-MEM2 FPGA Accelerator
 
-A parameterized SystemVerilog implementation of the banded Smith-Waterman
-alignment kernel from [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2),
-targeting Intel FPGAs (Quartus toolchain). The RTL is a hardware port of
-`BandedPairWiseSW::scalarBandedSWA` in `src/bandedSWA.cpp` and preserves
-BWA-MEM2's seed-extension / semi-global semantics — not pure local SW.
+Hardware (SystemVerilog) acceleration of the **post-seeding compute pipeline** of
+[BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), targeting the **AWS `f1.2xlarge`**
+instance (Xilinx Virtex UltraScale+ **VU9P**, Vivado toolchain). Every engine is
+verified **bit-exact against the BWA-MEM2 C++ reference** and mutation-tested.
 
-## Status
+> **New here? Start with [`docs/project_status.md`](docs/project_status.md)** — it is
+> the current, outside-reader map of what exists, how it's verified, and what remains.
+> To reproduce the project from scratch, follow [`docs/reproducing.md`](docs/reproducing.md).
 
-**95 / 95 self-checking testbench passes.**
+> ⚠️ **Scope note (2026-08).** Earlier versions of this README described a
+> standalone banded-Smith-Waterman kernel targeting *Intel/Quartus*. That is
+> superseded: the target is **AWS F1 / Xilinx VU9P / Vivado**, and the project now
+> spans the full post-seeding pipeline (chaining, extension, merge-sort, mate rescue),
+> not just the SW kernel.
 
-| Testbench / Test               | Checks | Status |
-|--------------------------------|:------:|:------:|
-| `tb_bsw_pe` (Verilator)        | 18     | PASS   |
-| `tb_bsw_top` (Verilator)       | 26     | PASS   |
-| `tb_bsw_axis` (Verilator)      | 12     | PASS   |
-| `host/loopback_test` (g++)     | 39     | PASS   |
+## What this is
 
-For the speed-up roadmap (replication, batch DMA, PE Fmax, board choice,
-etc.) see [`docs/speedup_plan.md`](docs/speedup_plan.md). Items **F** (PE
-critical-path improvements), **B** (direct DONE→LOAD handoff), and the
-AXI-Stream host interface (`rtl/bsw_axis_adapter.sv` + the host shim under
-[`host/`](host/integration.md)) are already implemented; the rest depend on
-board / interface choice.
+BWA-MEM2 profiling (see below) shows FM-index **seeding ~32%** of runtime dominates,
+and it is a poor FPGA fit (memory-latency bound). So this project accelerates the
+**post-seeding compute** — a good hardware fit — as a single on-chip pipeline,
+bit-exact to software:
 
-Coverage includes match/mismatch recurrence, semi-global `H_diag=0` gate,
-local-clamp on negative scores, ambiguous-`N` scoring, pipeline forwarding,
-target forwarding, first-row `eh[]` initialisation, first-column `h0`-decay
-boundary, dead-row early exit, dedicated **z-drop early-exit** (positive +
-negative control), **oversize-query rejection** (`qlen > N_PE → error=1`),
-post-reject recovery, and the full result tuple (`score`, `qle`, `tle`,
-`gscore`, `gtle`, `max_off`, `error`).
+**seed chaining → banded Smith-Waterman extension → merge-sort/dedup → mate rescue.**
 
-A static 16-bit overflow / underflow proof for every internal arithmetic
-node lives in [`docs/bit_width_proof.md`](docs/bit_width_proof.md), with
-simulation-only `assert` statements wired into `bsw_pe.sv` to catch any
-drift at runtime.
+## Status (2026-08-06)
 
-## Architecture
+- **All engines built & bit-exact in simulation** (Verilator 5.020). 42 testbenches;
+  a representative set was independently re-run and confirmed green, including a
+  mutation check that the harness goes red. Highlights: `tb_bsw_top` (score=5),
+  `tb_cl_bsw_ocl` 13/13, `tb_orch_purge` 200/0, `tb_matesw_top` 4000/0, full
+  `tb_chaining_pe_pair_top` 100/0.
+- **Timing (real Vivado P&R, 7-series proxy):** `bsw_top` closes **124.4 MHz** (→ clears
+  the 125 MHz F1 target on the faster VU9P); full `chaining_pe_pair_top` at **115.6 MHz**
+  and climbing. Detail: [`docs/synth_ooc_results.md`](docs/synth_ooc_results.md).
+- **F1 bring-up:** the OCL AXI-Lite wrapper (`rtl/f1/cl_bsw_top.sv`) + host
+  (`host/f1/test_bsw.c`) are built and verified; the AWS AFI build is the pending,
+  user-side step — steps in [`docs/f1_build_runbook.md`](docs/f1_build_runbook.md).
 
-A linear systolic array of `N_PE = BAND_WIDTH` processing elements computes
-the dynamic-programming matrix one anti-diagonal per cycle. Each PE holds
-one query base and one column of state (`H`, `E`, `F`); the target stream
-flows left-to-right through the array.
+## Architecture (banded SW core)
+
+A linear systolic array of `N_PE = BAND_WIDTH` processing elements computes the
+DP matrix one anti-diagonal per cycle; each PE holds one query base and a column of
+state (`H`, `E`, `F`); the target stream flows through the array.
 
 ```
-                     target  →  PE_0  →  PE_1  →  …  →  PE_{N-1}
-                                 |       |              |
-                                 H,E,F   H,E,F          H,E,F
-                                 ▼       ▼              ▼
-                            ┌────────── max-tracker ──────────┐
-                            │  score, qle, tle, gscore, …    │
-                            └─────────────────────────────────┘
+        target →  PE_0 → PE_1 → … → PE_{N-1}
+                   |      |          |
+                  H,E,F  H,E,F      H,E,F
+                   ▼      ▼          ▼
+              ┌──────── max-tracker ────────┐
+              │  score, qle, tle, gscore…   │
+              └─────────────────────────────┘
 ```
 
-Top-level pieces:
+- **`bsw_pe`** — one DP cell (affine-gap, BWA `H_diag != 0` gate).
+- **`bsw_systolic_array`** — `N_PE` PEs, wavefront-wired.
+- **`bsw_ctrl_fsm`** — request → load → run → drain → done.
+- **`bsw_max_tracker`** — row-tail pipeline (score/qle/tle, gscore/gtle), dead-row
+  early-exit, z-drop.
+- **`bsw_top`** — host-facing wrapper (valid/ready handshakes).
 
-- **`bsw_pe`** — one DP cell. Affine-gap recurrence with the BWA-MEM2
-  `H_diag != 0` gate (`M = H_diag ? H_diag + S : 0`).
-- **`bsw_systolic_array`** — `N_PE` PEs wired wavefront-style.
-- **`bsw_ctrl_fsm`** — request handshake → load → run → drain → done.
-  Generates the first-row `eh[j]` seed for each PE and the decaying
-  first-column boundary fed to `PE_0`.
-- **`bsw_max_tracker`** — row-tail pipeline that tracks `(score, qle, tle)`
-  and `(gscore, gtle)`, plus dead-row early-exit and z-drop.
-- **`bsw_top`** — host-facing wrapper with valid/ready handshakes.
+The chaining, merge-sort, mate-rescue, and orchestrator engines wrap this core into
+the full pipeline — see [`docs/project_status.md`](docs/project_status.md) §2 for the
+module inventory.
 
 ## Repository layout
 
 ```
-rtl/
-  bsw_pkg.sv             package: parameters, types, scoring function
-  bsw_pe.sv              one DP cell (HEF affine-gap recurrence)
-  bsw_systolic_array.sv  N_PE-wide wavefront array
-  bsw_ctrl_fsm.sv        top-level control FSM
-  bsw_max_tracker.sv     row-tail pipeline + early-exit
-  bsw_score_matrix.sv    5×5 score matrix lookup
-  bsw_top.sv             host-facing wrapper
-tb/
-  tb_bsw_pe.sv           PE unit tests (18 checks)
-  tb_bsw_top.sv          full-alignment integration tests (11 checks)
-scripts/
-  file_list.f            ordered SV file list for tool flows
-  run_sim.sh             Verilator runner (Linux / WSL)
-  run_sim.ps1            Verilator runner (PowerShell wrapper)
-logs/
-  session_log.md         dev history — bug hunt and design decisions
+rtl/            46 SystemVerilog files — the compute engines + F1 CL wrapper (rtl/f1/)
+tb/             42 self-checking testbenches (Verilator)
+host/           C++ golden models + vector generators (host/integration.md);
+                host/f1/test_bsw.c is the F1 host app
+synth/ooc/      out-of-context synthesis/timing harness (synth/ooc/README.md)
+scripts/        run_sim.sh (Verilator runner), cl_bsw_files.f (F1 CL source list)
+docs/           29 docs — status, runbooks, profiling, and design rationale
+REQUIREMENTS.md tool/version requirements per stage
 ```
 
-## Build & test
+## Quick start (simulation — fully self-contained)
 
-### Requirements
-
-- [Verilator](https://verilator.org/) ≥ 5.0 (tested on 5.032 under WSL Ubuntu)
-- A C++ toolchain (`g++`, `make`)
-- For Windows users: run under WSL — Verilator's `make` step does not tolerate
-  spaces in absolute paths.
-
-### Run the testbenches
+Requires Verilator ≥5.0 and a C++ toolchain (see [`REQUIREMENTS.md`](REQUIREMENTS.md)).
 
 ```bash
-# From the repo root, inside WSL (or any Linux shell):
-./scripts/run_sim.sh tb_bsw_pe
-./scripts/run_sim.sh tb_bsw_top
+bash scripts/run_sim.sh tb_bsw_top       # -> "... 0 errors" + "PASS"; ACGT/ACGT score=5
+bash scripts/run_sim.sh tb_cl_bsw_ocl    # F1 OCL wrapper: 13/13, score=5
 ```
-
-Each invocation builds a Verilator binary under `/tmp/bsw/obj_<tb>/` and
-prints per-check pass/fail lines followed by `PASS` or `FAIL`. Override the
-build directory with `BSW_BUILD_DIR=/some/path` if `/tmp` isn't writable.
-
-Expected last line of `tb_bsw_top`:
-
-```
-==== tb_bsw_top done: 11 checks, 0 errors ====
-PASS
-```
+Each build lands under `/tmp/bsw/obj_<tb>/` (override with `BSW_BUILD_DIR=...`).
+**CI note:** testbenches report pass/fail on their printed summary line and end on
+`$finish`, so a *failing* run still exits 0 — grep the summary line, not `$?`.
 
 ## Configuration
 
-All sizing and scoring lives in `rtl/bsw_pkg.sv`:
+Sizing and scoring live in [`rtl/bsw_pkg.sv`](rtl/bsw_pkg.sv):
 
-| Parameter       | Default | Meaning                                           |
-|-----------------|--------:|---------------------------------------------------|
-| `MAX_QLEN`      | 128     | maximum query length (matches BWA-MEM2)           |
-| `MAX_TLEN`      | 256     | maximum target length                             |
-| `SCORE_WIDTH`   | 16      | signed score bit-width (matches C++ SIMD path)    |
-| `BAND_WIDTH`    | 64      | PEs in the systolic array (≥ `2*w + 1`)           |
-| `W_MATCH`       |   1     | match bonus                                       |
-| `W_MISMATCH`    |  −4     | mismatch penalty                                  |
-| `W_O_DEL` / `W_E_DEL` |  6 / 1 | gap open / extend (deletion)                |
-| `W_O_INS` / `W_E_INS` |  6 / 1 | gap open / extend (insertion)               |
-| `W_AMBIG`       |  −1     | `N`-vs-anything penalty                           |
-| `W_ZDROP`       | 100     | z-drop threshold (0 disables)                     |
+| Parameter | Default | Meaning |
+|-----------|--------:|---------|
+| `MAX_QLEN` | 160 | maximum query length |
+| `MAX_TLEN` | 1024 | maximum target length |
+| `BAND_WIDTH` = `N_PE` | 160 | PEs in the systolic array (must be ≥ `MAX_QLEN`) |
+| `SCORE_WIDTH` | 16 | signed score bit-width (matches C++ SIMD path) |
+| `M_ALPHABET` / `BASE_WIDTH` | 5 / 3 | {A,C,G,T,N}, 3 bits/base |
+| `W_MATCH` / `W_MISMATCH` | 1 / −4 | match bonus / mismatch penalty |
+| `W_O_DEL` / `W_E_DEL` | 6 / 1 | gap open / extend (deletion) |
+| `W_O_INS` / `W_E_INS` | 6 / 1 | gap open / extend (insertion) |
+| `W_AMBIG` | −1 | `N`-vs-anything |
+| `W_ZDROP` | 100 | z-drop threshold (0 disables) |
+| `W_END_BONUS` | 5 | end bonus |
 
-Per-alignment runtime values (`h0`, `qlen`, `tlen`, penalties, `zdrop`,
-`end_bonus`, band half-width `w`) are passed in the `bsw_config_t` struct
-on the request handshake.
+These match BWA-MEM2 defaults (`-A 1 -B 4 -O 6 -E 1`). Per-alignment runtime values
+(`h0`, `qlen`, `tlen`, penalties, `w`, …) arrive in the `bsw_config_t` struct on the
+request handshake. A static 16-bit overflow proof is in
+[`docs/bit_width_proof.md`](docs/bit_width_proof.md).
 
-## Known TODOs
+## Reproducing the whole project
 
-These are documented but not blocking the current correctness milestone:
-
-- **Full BWA-MEM2 banding.** The current array processes the full
-  `BAND_WIDTH` of PEs per row. The C++ reference also dynamically shrinks
-  the active range (`beg` / `end`) within the band as scores die off.
-  Deferred: HW saves no work from narrowing (PEs clock regardless), and
-  the early-exit benefit is already covered by `dead_row` / `zdrop`.
-- **Swath processing.** Queries longer than `BAND_WIDTH` need to be
-  processed in vertical swaths. The control FSM currently rejects them
-  via the `error` bit on `bsw_result_t`. Implementing real swath support
-  is the next robustness step if the host wants to align reads longer
-  than the synthesized `N_PE`.
+See **[`docs/reproducing.md`](docs/reproducing.md)** for the ordered, from-scratch
+recipe: environment → software baseline + profiling → simulation → synthesis/timing →
+F1 AFI. Tool versions are pinned in [`REQUIREMENTS.md`](REQUIREMENTS.md).
 
 ## License
 
-[MIT](LICENSE). Algorithm credits to the BWA-MEM2 authors — see the upstream
-project for the original C++ reference.
+[MIT](LICENSE). Algorithm credit to the BWA-MEM2 authors (Vasimuddin, Misra, Li,
+Aluru, *IPDPS 2019*); see the upstream project for the original C++ reference.
