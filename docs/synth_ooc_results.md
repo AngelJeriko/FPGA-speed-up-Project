@@ -621,6 +621,28 @@ congestion ON THE SLOW PROXY, on a path whose logic already meets 125. Real VU9P
 
 **Timing journey (full-design real P&R): 106.8 (#10) → 105.7 (#11) → 115.6 (#12).**
 
+### #12 refined worst-path breakdown (from full `chaining_impl_timing.rpt`, 2026-08-06)
+The detailed postRoute report resolves the two co-limiting families and, importantly, ranks them:
+
+- **#1 TRUE worst path (−0.651 ns): matesw overlap-test skip chain — RTL-tractable.**
+  `u_pe2/u_sel/u_pe/u_ot/ii_reg[0] → (RAMD64E m_rb read) → skip_reg[1]/D`.
+  **36 logic levels (CARRY4=27**, LUT6=4, LUT5=2, LUT4=1, LUT2=1, RAMD64E=1); data delay 8.623 ns =
+  logic 2.975 (34%) + route 5.648 (66%). Structure = a distributed-RAM read feeding **three long CARRY4
+  cascades in series** (i_686→…→i_26, i_651→…→i_25, i_823→…→i_238, i_55→i_16→i_5), stitched by LUTs —
+  a wide compare/priority computation flattened into one combinational blob. Both deep AND route-heavy.
+  **This is the fix #13 target** (pipeline / balance the fan-in tree). ⚠️ NOTE: `u_sel/u_pe/u_ot` is
+  **NOT inside `bsw_top`** — the cl_bsw_top VU9P build does not exercise it.
+
+- **#2 TIED cluster (−0.649 … −0.615): bsw_max_tracker `pr_i` reduction — routing-bound, NOT RTL.**
+  `…/u_array/g_pe[N].u_pe/{H_curr,active_q} → u_bsw/u_tracker/pr_i_reg[K][*]/R`, dozens of endpoints
+  (pr_i rows 1,2,4,6,7,9). 14–19 logic levels but **route ≈ 76–80% of delay** → congestion, not logic.
+  This family IS inside `bsw_top` and already closes 125 MHz standalone (124.4) — the cl_bsw_top VU9P
+  build tests exactly this; expect it to close with margin on real fabric.
+
+Consequence for the AWS build: cl_bsw_top validates family #2 (→ working score=5 AFI + confirms the
+tracker gap is proxy congestion). Family #1 (matesw carry-chain) is a separate full-design item, only
+worth fixing if pushing the *entire* `chaining_pe_pair_top` to 125.
+
 **DECISION POINT (not auto-grind #13):** (1) run the real AWS VU9P build (`aws_build_dcp_from_cl.sh
 -clock_recipe_a A1`) — definitive, bottleneck is now the already-125-closing core + proxy congestion;
 (2) fix #13 on the tractable `matesw u_ot/skip` fan-in tree (the tracker is routing-bound, RTL won't help);
