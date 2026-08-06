@@ -18,7 +18,9 @@
 //      unused_*_template.inc tie-offs are all provided by the HDK — same set
 //      cl_hello_world uses).
 //   4. Set CL_SH_ID0/1 in cl_id_defines.vh (vendor/device id) for your AFI.
-//   5. `cd $CL_DIR/build/scripts && aws_build_dcp_from_cl.sh -clock_recipe_a A1` (A1=125MHz).
+//   5. `cd $CL_DIR/build/scripts && aws_build_dcp_from_cl.sh -clock_recipe_a A0`
+//      (A0 = 125 MHz clk_main_a0 in the standard HDK table; verify against
+//      $HDK_DIR/docs/clock_recipes.md — A1 is 250 MHz).
 //
 // ============================ WHAT IS VERIFIED ============================
 // The OCL->bsw_axil_regs bridge here is a 1:1 signal rename of the exact AXI4-Lite

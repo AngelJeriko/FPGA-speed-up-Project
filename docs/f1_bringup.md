@@ -100,7 +100,8 @@ build.** (See docs/synth_ooc_results.md "bsw_top closes 125 MHz".)
    ordered set: bsw_pkg → compute core → bsw_axil_regs → cl_bsw_top, +incdir rtl rtl/f1).
    Do NOT use the old `scripts/file_list.f` (targets plain bsw_top, omits rtl/f1/*, pulls the
    unused axis adapter). A missing module here fails elaboration hours in.
-2. **Clock** — `-clock_recipe_a A1` = 125 MHz `clk_main_a0`. The kernel is single-clock (the
+2. **Clock** — `-clock_recipe_a A0` = 125 MHz `clk_main_a0` (verify against
+   `$HDK_DIR/docs/clock_recipes.md`; A1 is 250 MHz). The kernel is single-clock (the
    whole chain runs on `clk_main_a0`; the only sequential element outside it is the 2-FF reset
    synchroniser) — **no CDC constraints needed**.
 3. **IDs** — set `CL_SH_ID0/1` in `cl_id_defines.vh` for your AFI.
@@ -110,7 +111,7 @@ build.** (See docs/synth_ooc_results.md "bsw_top closes 125 MHz".)
    wired to the right bits — no host rework expected.
 
 **B3 — build the DCP:** drop `rtl/` into `$CL_DIR/design`, wire the sources per (1) above, then
-`cd $CL_DIR/build/scripts && aws_build_dcp_from_cl.sh -clock_recipe_a A1`.
+`cd $CL_DIR/build/scripts && aws_build_dcp_from_cl.sh -clock_recipe_a A0`.
 - **⚠️ TIMING GATE — check BEFORE creating the AFI.** The build's own post-route
   `*.timing_summary` (in `$CL_DIR/build/reports/`) must show **0 failing endpoints / WNS ≥ 0 on
   `clk_main_a0`**. If it fails there, the AFI would load but the kernel would be metastable —

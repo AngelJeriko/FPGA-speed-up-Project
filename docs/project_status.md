@@ -9,6 +9,43 @@ Last updated: 2026-08-06. Authoritative sources for detail are cited inline
 
 ---
 
+## 0. Where we are right now (2026-08-06)
+
+**Current phase:** F1 bring-up + full-design timing closure, both waiting on
+user-side AWS jobs. The compute RTL is done and sim-verified; `bsw_top` meets the
+125 MHz F1 target in real P&R; the full pipeline is at 115.6 MHz and climbing. The
+immediate next action is entirely user-side: run the `cl_bsw_top` AWS build
+(`docs/f1_build_runbook.md`) to put `bsw_top` on real VU9P silicon.
+
+### Milestones reached
+- ✅ **Profiling + strategy set** — measured that SWA is ~6.5% (not the bottleneck),
+  pivoted to post-seeding compute pipeline; premise de-risked. (`docs/*profiling*`,
+  `docs/speedup_plan.md`)
+- ✅ **All compute engines built & bit-exact in sim** — banded SWA, chaining,
+  extension orchestration, merge-sort (+dedup), mate rescue; each mutation-tested.
+- ✅ **Full-pipeline integration top** (`chaining_pe_pair_top`) elaborates, simulates,
+  and place-and-routes in real Vivado.
+- ✅ **Timing: `bsw_top` closes 125 MHz** (124.4 on the pessimistic 7-series proxy →
+  VU9P clears with margin). Green-lit for the AWS build.
+- ✅ **Timing: full design 106.8 → 105.7 → 115.6 MHz** (fixes #10–#12); worst path
+  characterized and ranked (`docs/synth_ooc_results.md`).
+- ✅ **F1 bring-up rungs A / B1 / B2 done & verified** — `bsw_axil_regs` (13/13),
+  `cl_bsw_top` wrapper (`tb_cl_bsw_ocl` 13/13, score=5), `host/f1/test_bsw.c`
+  (host↔RTL contract cross-checked).
+- ✅ **Build tooling ready** — exact source list (`scripts/cl_bsw_files.f`),
+  step-by-step runbook (`docs/f1_build_runbook.md`), clock recipe corrected to A0
+  (125 MHz).
+
+### Not yet reached (open)
+- ⏳ **On-silicon proof** — the `cl_bsw_top` AFI (rungs B3/B4), user-side AWS build.
+- ⏳ **Full design at 125 MHz** — fix #13 on the `matesw u_ot/skip` carry chain.
+- ⏳ **Full-pipeline CL wrapper + DDR4/host data path** — needed for real-workload
+  throughput; compute RTL is portable but the memory shell is Xilinx-specific and
+  unbuilt.
+- ⏳ **Throughput vs. software baseline** — the payoff number, needs the above.
+
+---
+
 ## 1. What this project is
 
 BWA-MEM2 is a widely-used DNA short-read aligner. This project builds **FPGA

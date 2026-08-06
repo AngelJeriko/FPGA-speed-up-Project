@@ -496,7 +496,7 @@ Full opt+place+route on the 7-series proxy (xc7v2000t-2), period 5.0 ns.
   is **very likely to close 125 MHz on the real VU9P.**
 - **Residual risk:** the AWS Shell confines the CL to a region + adds congestion, which the standalone
   proxy P&R does not model. So "likely, not certain" — the definitive test is the real VU9P build
-  (`aws_build_dcp_from_cl.sh -clock_recipe_a A1`, which P&Rs at 125 and reports pass/fail).
+  (`aws_build_dcp_from_cl.sh -clock_recipe_a A0` = 125 MHz clk_main_a0, which P&Rs at 125 and reports pass/fail).
 - Still the same shared bottleneck: the max_tracker 160-PE reduction (PE→pr_i). The effective fix
   (register the leaf gather) is a latency-rebalance of a latency-matched pipeline (higher risk); the
   cheap knob (MIDLEV rebalance) won't move the leaf-gather routing much.
@@ -644,6 +644,8 @@ tracker gap is proxy congestion). Family #1 (matesw carry-chain) is a separate f
 worth fixing if pushing the *entire* `chaining_pe_pair_top` to 125.
 
 **DECISION POINT (not auto-grind #13):** (1) run the real AWS VU9P build (`aws_build_dcp_from_cl.sh
--clock_recipe_a A1`) — definitive, bottleneck is now the already-125-closing core + proxy congestion;
+-clock_recipe_a A0` = 125 MHz clk_main_a0) — definitive, bottleneck is now the already-125-closing core + proxy congestion;
 (2) fix #13 on the tractable `matesw u_ot/skip` fan-in tree (the tracker is routing-bound, RTL won't help);
-(3) ship a 100 MHz (recipe A0) full-pipeline AFI now, grind to 125 in parallel. Recommended: (1).
+(3) ship a slower-clock full-pipeline AFI now (a divided CL clock off clk_main_a0, at the cost of a CDC),
+grind to 125 in parallel. Recommended: (1).
+NOTE (2026-08-06): clock recipe corrected A1→A0 — A0 is the 125 MHz clk_main_a0 recipe; A1 is 250 MHz.
