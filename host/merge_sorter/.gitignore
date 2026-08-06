@@ -3,3 +3,5 @@ vectors/*.bin
 test_sorter
 *.o
 dedup_probe
+test_v2
+test_sorter
