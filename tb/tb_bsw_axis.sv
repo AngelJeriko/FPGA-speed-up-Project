@@ -74,7 +74,7 @@ module tb_bsw_axis
         s_axis_tvalid  = 1'b0;
         s_axis_tdata   = '0;
         s_axis_tlast   = 1'b0;
-        m_axis_tready  = 1'b1;
+        m_axis_tready  = 1'b0;   // held low during send; recv_result raises it
         repeat (5) @(posedge clk);
         rst_n = 1'b1;
         @(posedge clk);
@@ -142,11 +142,20 @@ module tb_bsw_axis
         end
     endtask
 
+    // Called AFTER send_request returns. m_axis_tready is held low during the
+    // send so the adapter parks the finished result in S_TX_RES (tvalid held
+    // until tx_fire) — we raise tready here and drain it. Running send then recv
+    // sequentially (no fork/join) sidesteps a Verilator 5.020 --timing codegen
+    // bug: the generated VlCoroutine fork wrapper lacks a co_return, so it falls
+    // off the end (UB) and -O2 emits a ud2 -> SIGILL at startup.
     task automatic recv_result(output bsw_result_t        result,
                                output logic [TAG_WIDTH-1:0] tag);
-        do @(posedge clk); while (!(m_axis_tvalid && m_axis_tready));
-        result = m_axis_tdata[RES_BITS-1:0];
+        m_axis_tready = 1'b1;
+        do @(posedge clk); while (!m_axis_tvalid);
+        result = m_axis_tdata[RES_BITS-1:0];   // stable while in S_TX_RES
         tag    = m_axis_tdata[127:112];
+        @(posedge clk);          // this edge is tx_fire (tvalid && tready)
+        m_axis_tready = 1'b0;
     endtask
 
     // ---- Test helpers ----
@@ -183,10 +192,8 @@ module tb_bsw_axis
         q[0] = 3'd0; q[1] = 3'd1; q[2] = 3'd2; q[3] = 3'd3;   // A C G T
         t[0] = 3'd0; t[1] = 3'd1; t[2] = 3'd2; t[3] = 3'd3;
         cfg = default_cfg(4, 4);
-        fork
-            send_request(cfg, 16'hCAFE, q, t);
-            recv_result(res, rxtag);
-        join
+        send_request(cfg, 16'hCAFE, q, t);
+        recv_result(res, rxtag);
         check("T1 score (ACGT/ACGT)",          int'($signed(res.score)), 5);
         check("T1 error",                      int'(res.error),          0);
         check("T1 tag echo",                   int'(rxtag),              16'hCAFE);
@@ -197,10 +204,8 @@ module tb_bsw_axis
         q[0] = 3'd0; q[1] = 3'd0; q[2] = 3'd0; q[3] = 3'd0;   // A A A A
         t[0] = 3'd1; t[1] = 3'd1; t[2] = 3'd1; t[3] = 3'd1;   // C C C C
         cfg = default_cfg(4, 4);
-        fork
-            send_request(cfg, 16'hBEEF, q, t);
-            recv_result(res, rxtag);
-        join
+        send_request(cfg, 16'hBEEF, q, t);
+        recv_result(res, rxtag);
         check("T2 score (AAAA/CCCC)",          int'($signed(res.score)), 1);
         check("T2 error",                      int'(res.error),          0);
         check("T2 tag echo",                   int'(rxtag),              16'hBEEF);
@@ -210,10 +215,8 @@ module tb_bsw_axis
         for (int i = 0; i < MAX_QLEN; i++) q[i] = 3'd0;
         for (int i = 0; i < MAX_TLEN; i++) t[i] = (i <   8) ? 3'd0 : '0;
         cfg = default_cfg(BAND_WIDTH + 1, 8);   // qlen = N_PE+1 > N_PE -> reject
-        fork
-            send_request(cfg, 16'h1234, q, t);
-            recv_result(res, rxtag);
-        join
+        send_request(cfg, 16'h1234, q, t);
+        recv_result(res, rxtag);
         check("T3 error (oversize)",           int'(res.error),          1);
         check("T3 score forced 0",             int'($signed(res.score)), 0);
         check("T3 tag echo (oversize)",        int'(rxtag),              16'h1234);
@@ -224,10 +227,8 @@ module tb_bsw_axis
         q[0] = 3'd0; q[1] = 3'd1; q[2] = 3'd2; q[3] = 3'd3;
         t[0] = 3'd0; t[1] = 3'd1; t[2] = 3'd2; t[3] = 3'd3;
         cfg = default_cfg(4, 4);
-        fork
-            send_request(cfg, 16'hFACE, q, t);
-            recv_result(res, rxtag);
-        join
+        send_request(cfg, 16'hFACE, q, t);
+        recv_result(res, rxtag);
         check("T4 score (recovery)",           int'($signed(res.score)), 5);
         check("T4 error",                      int'(res.error),          0);
         check("T4 tag echo (recovery)",        int'(rxtag),              16'hFACE);
