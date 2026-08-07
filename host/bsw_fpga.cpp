@@ -101,17 +101,16 @@ void Accelerator::submit(const Request& req) {
     }
     pending_.push_back(req);
     if (pending_.size() >= batch_size_) {
-        // Auto-flush on full batch. Caller still owns the returned results
-        // via the next explicit flush() — drop them here, since auto-flush
-        // is a back-pressure signal not a request for results. Most callers
-        // will use explicit flush() instead.
-        (void)flush();
+        // Auto-flush on full batch, but BUFFER the results so the next flush()
+        // can return them (in submit order). Dropping them here would silently
+        // lose every full batch's results — see host/loopback_test.cpp
+        // test_autoflush_batch.
+        run_pending_(completed_);
     }
 }
 
-std::vector<Result> Accelerator::flush() {
-    std::vector<Result> results;
-    if (pending_.empty()) return results;
+void Accelerator::run_pending_(std::vector<Result>& sink) {
+    if (pending_.empty()) return;
 
     const std::size_t n = pending_.size();
     std::vector<uint8_t> tx(REQ_BYTES * n);
@@ -128,11 +127,20 @@ std::vector<Result> Accelerator::flush() {
         throw std::runtime_error("bsw_fpga: driver recv failed");
     }
 
-    results.resize(n);
+    const std::size_t base = sink.size();
+    sink.resize(base + n);
     for (std::size_t i = 0; i < n; ++i) {
-        unpack_result(rx.data() + i * RES_BYTES, results[i]);
+        unpack_result(rx.data() + i * RES_BYTES, sink[base + i]);
     }
     pending_.clear();
+}
+
+std::vector<Result> Accelerator::flush() {
+    // Buffered auto-flushed batches come first, then the trailing partial batch,
+    // preserving overall submit order.
+    std::vector<Result> results = std::move(completed_);
+    completed_.clear();          // std::move leaves it valid-but-unspecified
+    run_pending_(results);       // no-op if nothing pending
     return results;
 }
 

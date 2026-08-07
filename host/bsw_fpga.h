@@ -95,13 +95,16 @@ public:
     Accelerator(SendFn send, RecvFn recv, std::size_t batch_size = 16);
 
     // Enqueue a request. When the internal pending count reaches batch_size,
-    // automatically flush(). Returns immediately otherwise.
+    // the batch is sent immediately and its results are BUFFERED internally
+    // (not returned here) — the next flush() hands them back, in submit order,
+    // ahead of any trailing partial batch. Returns immediately otherwise.
     void submit(const Request& req);
 
-    // Force any pending requests to be sent and their results collected.
-    // Returns results in the order submit() was called. Clears the pending
-    // queue. Calling flush() with no pending requests is a no-op and returns
-    // an empty vector.
+    // Send any pending requests and return every result collected since the
+    // last flush() — buffered auto-flushed batches followed by the current
+    // partial batch, all in the order submit() was called. Clears the pending
+    // queue and the buffer. Returns an empty vector only if nothing is
+    // outstanding.
     std::vector<Result> flush();
 
     std::size_t pending_count() const { return pending_.size(); }
@@ -116,10 +119,17 @@ public:
     static void unpack_result(const uint8_t* src, Result& out);
 
 private:
+    // Send the current pending_ batch, receive + unpack its results, and append
+    // them (in submit order) to `sink`; then clear pending_. No-op if pending_
+    // is empty. Throws on driver send/recv failure (pending_ left intact).
+    void run_pending_(std::vector<Result>& sink);
+
     SendFn               send_;
     RecvFn               recv_;
     std::size_t          batch_size_;
     std::vector<Request> pending_;
+    std::vector<Result>  completed_;   // results from auto-flushed full batches,
+                                       // awaiting collection by the next flush()
 };
 
 }  // namespace bsw_fpga

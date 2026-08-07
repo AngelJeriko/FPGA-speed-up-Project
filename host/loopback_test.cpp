@@ -207,6 +207,62 @@ void test_batched_flush() {
     check_eq("empty flush is no-op", static_cast<long>(acc.flush().size()), 0);
 }
 
+// Regression: submitting >= batch_size requests triggers auto-flush inside
+// submit(). Those results must be BUFFERED and returned by the next flush(),
+// in submit order — not silently dropped. (The bug: auto-flush discarded them,
+// so flush() returned only the trailing partial batch. test_batched_flush
+// missed it by submitting 3 with batch_size 4, never crossing the boundary.)
+void test_autoflush_batch() {
+    using namespace bsw_fpga;
+
+    std::vector<uint8_t> captured, response;
+    auto fake_send = [&](const uint8_t* data, std::size_t bytes) {
+        captured.assign(data, data + bytes);
+        const std::size_t n_req = bytes / REQ_BYTES;
+        response.assign(RES_BYTES * n_req, 0);
+        for (std::size_t i = 0; i < n_req; ++i) {
+            const uint8_t* hdr = captured.data() + i * REQ_BYTES;
+            const uint16_t qlen = static_cast<uint16_t>(hdr[2] | (hdr[3] << 8));
+            const uint16_t tag  = static_cast<uint16_t>(hdr[20] | (hdr[21] << 8));
+            uint8_t* dst = response.data() + i * RES_BYTES;
+            auto put16 = [&](int off, uint16_t v) {
+                dst[off]     = static_cast<uint8_t>(v & 0xFF);
+                dst[off + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+            };
+            put16(10, static_cast<uint16_t>(qlen * 10));  // score = qlen*10
+            put16(14, tag);
+        }
+        return 0;
+    };
+    auto fake_recv = [&](uint8_t* data, std::size_t bytes) {
+        if (bytes != response.size()) return 1;
+        std::memcpy(data, response.data(), bytes);
+        return 0;
+    };
+
+    // batch_size 4, submit 10 -> two auto-flushes (at 4 and 8) + a partial of 2.
+    Accelerator acc(fake_send, fake_recv, /*batch_size=*/4);
+    const int N = 10;
+    for (int i = 0; i < N; ++i) {
+        Request r = make_acgt_request(static_cast<uint16_t>(0x1000 + i));
+        r.cfg.qlen = static_cast<uint16_t>(i + 1);   // distinct score per request
+        acc.submit(r);
+    }
+    // 10 mod 4 = 2 requests left un-flushed.
+    check_eq("autoflush: pending after 10 submits", static_cast<long>(acc.pending_count()), 2);
+
+    std::vector<Result> r = acc.flush();
+    // All 10 results must survive (8 buffered from auto-flush + 2 trailing).
+    check_eq("autoflush: flush returns all 10", static_cast<long>(r.size()), N);
+    check_eq("autoflush: pending after flush", static_cast<long>(acc.pending_count()), 0);
+    bool order_ok = (r.size() == static_cast<std::size_t>(N));
+    for (int i = 0; i < N && order_ok; ++i) {
+        if (r[i].tag != static_cast<uint16_t>(0x1000 + i)) order_ok = false;
+        if (r[i].score != static_cast<int16_t>((i + 1) * 10)) order_ok = false;
+    }
+    check_eq("autoflush: all tags+scores in submit order", order_ok ? 1 : 0, 1);
+}
+
 }  // namespace
 
 int main() {
@@ -215,6 +271,7 @@ int main() {
     test_base_nibbles();
     test_result_unpack();
     test_batched_flush();
+    test_autoflush_batch();
     std::printf("==== loopback_test done: %d checks, %d errors ====\n",
                 g_checks, g_errors);
     std::printf("%s\n", g_errors == 0 ? "PASS" : "FAIL");
