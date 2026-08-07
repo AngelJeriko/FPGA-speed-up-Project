@@ -11,11 +11,15 @@
 //     - E(i, j)       : own column    — held in this PE's E register
 //     - S(query[j], target[i])        : substitution score
 //
-//   Recurrence (from bandedSWA.cpp lines 178-198):
+//   Recurrence (from bandedSWA.cpp lines 181-198 — the ACTUAL code, not the
+//   textbook comment at :178-180 which shows the H-based form bwa does NOT use):
 //     M           = (H_diag != 0) ? H_diag + S : 0
 //     H_new       = max(M, E_reg, F_in, 0)
-//     E_new       = max(H_new - (o_del+e_del), E_reg - e_del,   0)
-//     F_new       = max(H_new - (o_ins+e_ins), F_in   - e_ins,  0)
+//     E_new       = max(M - (o_del+e_del), E_reg - e_del,   0)   // opens from M
+//     F_new       = max(M - (o_ins+e_ins), F_in   - e_ins,  0)   // opens from M
+//   Gaps open from M (diagonal), not H_new: bwa "separat[es] H and M to disallow
+//   a cigar like 100M3I3D20M" (:184) — no gap-on-gap. Opening from H_new instead
+//   inflates adjacent opposite-gap paths (regression vector: tb disc_mvsh).
 //
 // Output H is exposed in two registered taps:
 //     H_left_o = H_curr_reg = H computed last cycle (= H(i-1, j) when PE_{j+1} reads it)
@@ -135,15 +139,21 @@ module bsw_pe
         H_max_ME  = (M_term  > E_reg) ? M_term : E_reg;     // >= 0 since E_reg >= 0
         H_new     = (H_max_ME > f_i)  ? H_max_ME : f_i;     // >= 0 since f_i >= 0
 
-        // E_new = max(H_new - oe_del, E_reg - e_del, 0)
+        // E_new = max(M - oe_del, E_reg - e_del, 0)
+        // Gaps open from M (the diagonal match term), NOT H_new = max(M,E,F).
+        // bwa-mem2 scalarBandedSWA (bandedSWA.cpp:190) deliberately opens from M
+        // ("separating H and M to disallow a cigar like 100M3I3D20M", :184): a
+        // new gap may not open on top of a cell whose best path is itself a gap.
+        // Opening from H_new instead over-scores adjacent opposite-type gaps
+        // (I->D / D->I) and inflates gscore. See tb vector disc_mvsh.
         // Uses pre-registered oe_del_reg / e_del_reg (no adder in path).
-        E_open = H_new - oe_del_reg;
+        E_open = M_term - oe_del_reg;
         E_ext  = E_reg - e_del_reg;
         E_pick = (E_open > E_ext)  ? E_open : E_ext;
         E_new  = (E_pick > SZERO)  ? E_pick : SZERO;
 
-        // F_new = max(H_new - oe_ins, f_i - e_ins, 0)
-        F_open = H_new - oe_ins_reg;
+        // F_new = max(M - oe_ins, f_i - e_ins, 0)  -- opens from M, see above.
+        F_open = M_term - oe_ins_reg;
         F_ext  = f_i   - e_ins_reg;
         F_pick = (F_open > F_ext)  ? F_open : F_ext;
         F_new  = (F_pick > SZERO)  ? F_pick : SZERO;

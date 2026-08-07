@@ -5,6 +5,10 @@ vectors/*.txt
 # ...but keep the tiny synthetic clamp firing golden (4 KB; NOT regenerable without re-instrumenting
 # bwa-mem2, so it is committed like any captured golden). check_clamp validates against it.
 !vectors/clamp_synth.bin
+# tiny (4-line) hand-mined regression vector for the bsw_pe M-vs-H gap-open fix
+# (docs/bsw_gapopen_fix.md). Re-mineable via gen_bsw_mvsh, but committed so the
+# RED->GREEN regression runs without a search.
+!vectors/disc_mvsh.txt
 # Synthetic multi-contig index files are regenerable via `bwa-mem2 index vectors/synth.fa`; keep
 # only synth.fa / synth.fq / synth.fa.ann in git (the .ann is the contig table the validator loads).
 vectors/synth.fa.0123
@@ -39,4 +43,5 @@ measure_fetch
 test_bns_clamp
 check_clamp
 gen_clamp_vectors
+gen_bsw_mvsh
 measure_locality
