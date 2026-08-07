@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -324,6 +325,44 @@ void test_max_dims() {
     if (!res.empty()) check_eq("max-size tag round-trip", res[0].tag, 0x7788);
 }
 
+// submit() must enforce the operating envelope the 16-bit overflow proof
+// assumes (docs/bit_width_proof.md): accept a request at the envelope maximum,
+// reject anything past any single bound. Before this, only qlen/tlen were
+// checked — h0 and the gap penalties reached hardware unvalidated.
+void test_input_validation() {
+    using namespace bsw_fpga;
+    auto noop_send = [](const uint8_t*, std::size_t){ return 0; };
+    auto noop_recv = [](uint8_t*, std::size_t){ return 0; };
+    Accelerator acc(noop_send, noop_recv, /*batch_size=*/1000);  // no auto-flush
+
+    // Accept path: a request exactly AT every bound must be accepted.
+    Request ok = make_acgt_request(0x0001);
+    ok.cfg.h0 = H0_MAX;   ok.cfg.o_del = GAPO_MAX; ok.cfg.o_ins = GAPO_MAX;
+    ok.cfg.e_del = GAPE_MAX; ok.cfg.e_ins = GAPE_MAX;
+    ok.cfg.qlen = MAX_QLEN;  ok.cfg.tlen = MAX_TLEN;
+    bool threw = false;
+    try { acc.submit(ok); } catch (...) { threw = true; }
+    check_eq("validation: envelope-max request accepted", threw ? 1 : 0, 0);
+
+    // Rejection path: one violation per bound must throw std::invalid_argument.
+    auto rej = [&](const char* name, auto mutate) {
+        Request r = make_acgt_request(0x0002);
+        mutate(r);
+        bool t = false;
+        try { acc.submit(r); } catch (const std::invalid_argument&) { t = true; }
+        check_eq(name, t ? 1 : 0, 1);
+    };
+    rej("reject qlen > MAX_QLEN",   [](Request& r){ r.cfg.qlen  = MAX_QLEN + 1; });
+    rej("reject tlen > MAX_TLEN",   [](Request& r){ r.cfg.tlen  = MAX_TLEN + 1; });
+    rej("reject h0 < 0",            [](Request& r){ r.cfg.h0    = -1; });
+    rej("reject h0 > H0_MAX",       [](Request& r){ r.cfg.h0    = H0_MAX + 1; });
+    rej("reject o_del > GAPO_MAX",  [](Request& r){ r.cfg.o_del = GAPO_MAX + 1; });
+    rej("reject o_ins > GAPO_MAX",  [](Request& r){ r.cfg.o_ins = GAPO_MAX + 1; });
+    rej("reject e_del > GAPE_MAX",  [](Request& r){ r.cfg.e_del = GAPE_MAX + 1; });
+    rej("reject e_ins > GAPE_MAX",  [](Request& r){ r.cfg.e_ins = GAPE_MAX + 1; });
+    rej("reject negative gap",      [](Request& r){ r.cfg.o_del = -1; });
+}
+
 }  // namespace
 
 int main() {
@@ -334,6 +373,7 @@ int main() {
     test_batched_flush();
     test_autoflush_batch();
     test_max_dims();
+    test_input_validation();
     std::printf("==== loopback_test done: %d checks, %d errors ====\n",
                 g_checks, g_errors);
     std::printf("%s\n", g_errors == 0 ? "PASS" : "FAIL");

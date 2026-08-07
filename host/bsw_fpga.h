@@ -51,6 +51,23 @@ constexpr uint8_t BASE_G = 2;
 constexpr uint8_t BASE_T = 3;
 constexpr uint8_t BASE_N = 4;
 
+// ---- Operating envelope (enforced by Accelerator::submit) ----
+// These bounds MUST match docs/bit_width_proof.md — they are the assumptions
+// the 16-bit overflow proof rests on. submit() throws std::invalid_argument on
+// any request outside them, so no request can drive the PEs past the proven
+// H_MAX = h0 + qlen*W_MATCH. If you change bsw_pkg (MAX_QLEN/MAX_TLEN/W_MATCH)
+// or these constants, update the proof and re-derive the bound.
+constexpr int16_t H0_MAX   = 1024;  // 0 <= h0        <= H0_MAX
+constexpr int16_t GAPO_MAX = 64;    // 0 <= o_del,o_ins <= GAPO_MAX
+constexpr int16_t GAPE_MAX = 8;     // 0 <= e_del,e_ins <= GAPE_MAX
+
+// Compile-time restatement of the proof's core inequality
+// (docs/bit_width_proof.md): H_MAX = h0 + qlen*W_MATCH must fit signed 16-bit.
+// W_MATCH (=+1) is a bsw_pkg constant, not host-supplied, so it is inlined here.
+static_assert(int64_t(H0_MAX) + int64_t(MAX_QLEN) * 1 < 32767,
+              "H_MAX exceeds int16 — re-derive docs/bit_width_proof.md "
+              "and/or widen SCORE_WIDTH in rtl/bsw_pkg.sv");
+
 struct Config {
     int16_t  h0;        // initial seed H value
     int16_t  o_del;     // gap-open  (deletion)   — positive magnitude

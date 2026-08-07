@@ -95,9 +95,25 @@ Accelerator::Accelerator(SendFn send, RecvFn recv, std::size_t batch_size)
 }
 
 void Accelerator::submit(const Request& req) {
-    if (req.cfg.qlen > MAX_QLEN || req.cfg.tlen > MAX_TLEN) {
+    // Enforce the operating envelope the 16-bit overflow proof assumes
+    // (docs/bit_width_proof.md). Reject rather than silently let a bad request
+    // reach hardware. Bounds are the named constants in bsw_fpga.h.
+    const Config& c = req.cfg;
+    if (c.qlen > MAX_QLEN || c.tlen > MAX_TLEN) {
         throw std::invalid_argument(
             "bsw_fpga::Accelerator::submit: qlen/tlen exceeds MAX_QLEN/MAX_TLEN");
+    }
+    if (c.h0 < 0 || c.h0 > H0_MAX) {
+        throw std::invalid_argument(
+            "bsw_fpga::Accelerator::submit: h0 outside [0, H0_MAX]");
+    }
+    if (c.o_del < 0 || c.o_del > GAPO_MAX || c.o_ins < 0 || c.o_ins > GAPO_MAX) {
+        throw std::invalid_argument(
+            "bsw_fpga::Accelerator::submit: gap-open outside [0, GAPO_MAX]");
+    }
+    if (c.e_del < 0 || c.e_del > GAPE_MAX || c.e_ins < 0 || c.e_ins > GAPE_MAX) {
+        throw std::invalid_argument(
+            "bsw_fpga::Accelerator::submit: gap-extend outside [0, GAPE_MAX]");
     }
     pending_.push_back(req);
     if (pending_.size() >= batch_size_) {
