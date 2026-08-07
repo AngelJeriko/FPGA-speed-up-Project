@@ -263,6 +263,67 @@ void test_autoflush_batch() {
     check_eq("autoflush: all tags+scores in submit order", order_ok ? 1 : 0, 1);
 }
 
+// Exercises the FULL request size (MAX_QLEN=160, MAX_TLEN=1024 -> 20 beats,
+// 640 bytes). Catches drift from bsw_pkg: the old host constants (128/256 ->
+// 7 beats) could not even represent query index >127 or target index >255, and
+// real bwa data has qlen up to 131. Checks REQ_BYTES, that submit() accepts a
+// max-size request, and that high-index bases land in the correct beat/nibble.
+void test_max_dims() {
+    using namespace bsw_fpga;
+
+    // Size sanity — the whole point of the alignment fix.
+    check_eq("REQ_BYTES == 640",  static_cast<long>(REQ_BYTES),  640);
+    check_eq("QRY_BEATS == 3",    QRY_BEATS,   3);
+    check_eq("TGT_BEATS == 16",   TGT_BEATS,   16);
+
+    Request r{};
+    r.tag = 0x7788;
+    r.cfg.h0 = 1; r.cfg.o_del = 6; r.cfg.e_del = 1; r.cfg.o_ins = 6; r.cfg.e_ins = 1;
+    r.cfg.w = 100;
+    r.cfg.qlen = MAX_QLEN;                       // 160 (> old 128 limit)
+    r.cfg.tlen = MAX_TLEN;                       // 1024 (> old 256 limit)
+    for (int i = 0; i < MAX_QLEN; ++i) r.query[i]  = static_cast<uint8_t>(i % 4);
+    for (int i = 0; i < MAX_TLEN; ++i) r.target[i] = static_cast<uint8_t>((i + 1) % 4);
+
+    std::vector<uint8_t> buf(REQ_BYTES);
+    Accelerator::pack_request(r, buf.data());
+
+    // Query index 130 lives in the 3rd query beat (beat 2, zero-based) — which
+    // only exists at MAX_QLEN=160. Byte = query_base + 130/2, low nibble (even).
+    const std::size_t qbase = AXIS_DATA_WIDTH_BYTES;               // after header
+    check_eq("query[130] nibble (beat 3)", buf[qbase + 130 / 2] & 0x0F, 130 % 4);
+    // Target index 1000 lives deep in the target beats (only reachable at 1024).
+    const std::size_t tbase = AXIS_DATA_WIDTH_BYTES * (1 + QRY_BEATS);
+    check_eq("target[1000] nibble", buf[tbase + 1000 / 2] & 0x0F, (1000 + 1) % 4);
+
+    // submit() must now ACCEPT a max-size request (old MAX_QLEN=128 would throw).
+    std::vector<uint8_t> response;
+    auto fake_send = [&](const uint8_t* data, std::size_t bytes) {
+        const std::size_t n = bytes / REQ_BYTES;
+        response.assign(RES_BYTES * n, 0);
+        for (std::size_t i = 0; i < n; ++i) {
+            const uint8_t* hdr = data + i * REQ_BYTES;
+            const uint16_t tag = static_cast<uint16_t>(hdr[20] | (hdr[21] << 8));
+            uint8_t* dst = response.data() + i * RES_BYTES;
+            dst[14] = static_cast<uint8_t>(tag & 0xFF);
+            dst[15] = static_cast<uint8_t>((tag >> 8) & 0xFF);
+        }
+        return 0;
+    };
+    auto fake_recv = [&](uint8_t* data, std::size_t bytes) {
+        if (bytes != response.size()) return 1;
+        std::memcpy(data, response.data(), bytes);
+        return 0;
+    };
+    bool threw = false;
+    Accelerator acc(fake_send, fake_recv, /*batch_size=*/1);
+    try { acc.submit(r); } catch (...) { threw = true; }
+    check_eq("submit accepts max-size request", threw ? 1 : 0, 0);
+    std::vector<Result> res = acc.flush();
+    check_eq("max-size flush returns 1", static_cast<long>(res.size()), 1);
+    if (!res.empty()) check_eq("max-size tag round-trip", res[0].tag, 0x7788);
+}
+
 }  // namespace
 
 int main() {
@@ -272,6 +333,7 @@ int main() {
     test_result_unpack();
     test_batched_flush();
     test_autoflush_batch();
+    test_max_dims();
     std::printf("==== loopback_test done: %d checks, %d errors ====\n",
                 g_checks, g_errors);
     std::printf("%s\n", g_errors == 0 ? "PASS" : "FAIL");

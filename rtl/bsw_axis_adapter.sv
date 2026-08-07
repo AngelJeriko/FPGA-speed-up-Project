@@ -3,16 +3,17 @@
 //
 // Wire format (256-bit AXIS data, little-endian byte order on the wire):
 //
-//   Request: 7 beats per alignment, tlast on beat 6.
+//   Request: 20 beats per alignment, tlast on beat 19. (Beat counts derive from
+//   bsw_pkg MAX_QLEN=160, MAX_TLEN=1024 at 64 bases/beat: 1 hdr + 3 qry + 16 tgt.)
 //     Beat 0 (HEADER):
 //       bits[159:  0] = bsw_config_t (LSB-first: tlen at [15:0], ..., h0 at [159:144])
 //       bits[175:160] = tag (16 bits, byte-aligned at byte 20)
 //       bits[255:176] = reserved (0)
-//     Beats 1-2 (QUERY): one base per nibble, 64 bases per beat.
-//       beat 1: query[0..63], beat 2: query[64..127]
+//     Beats 1-3 (QUERY): one base per nibble, 64 bases per beat.
+//       beat 1: query[0..63], beat 2: query[64..127], beat 3: query[128..159] (tail padded)
 //       bits[k*4 +: 4] = base k of this slice (low nibble = even index)
-//     Beats 3-6 (TARGET): one base per nibble, 64 bases per beat.
-//       beat 3: target[0..63], ..., beat 6: target[192..255]
+//     Beats 4-19 (TARGET): one base per nibble, 64 bases per beat.
+//       beat 4: target[0..63], ..., beat 19: target[960..1023]
 //
 //   Result: 1 beat per alignment, tlast=1.
 //     bits[ 96:  0] = bsw_result_t (LSB-first: max_off at [15:0], ..., error at [96])
@@ -25,7 +26,7 @@
 //
 // Backpressure: standard AXI-Stream. s_axis_tready asserts only while the FSM
 // is in an RX state; m_axis_tvalid asserts only while in TX_RES. A request
-// must be fully streamed in (HDR + 2 QRY + 4 TGT) before the next can start,
+// must be fully streamed in (HDR + 3 QRY + 16 TGT) before the next can start,
 // and the result must be drained before the next request will be accepted.
 // Adding a deeper request FIFO at the front (item B+ in docs/speedup_plan.md)
 // lets the host issue a burst without back-pressure between beats.
@@ -59,8 +60,8 @@ module bsw_axis_adapter
     localparam int CFG_BITS       = $bits(bsw_config_t);     // 160
     localparam int RES_BITS       = $bits(bsw_result_t);     //  97
     localparam int BASES_PER_BEAT = AXIS_DATA_WIDTH / 4;     //  64 @ 256b
-    localparam int QRY_BEATS      = (MAX_QLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT;  // 2
-    localparam int TGT_BEATS      = (MAX_TLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT;  // 4
+    localparam int QRY_BEATS      = (MAX_QLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT;  //  3 @160
+    localparam int TGT_BEATS      = (MAX_TLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT;  // 16 @1024
 
     // Generous fixed-width beat counter (max(QRY_BEATS, TGT_BEATS) fits in 8b
     // for any reasonable MAX_QLEN/MAX_TLEN).

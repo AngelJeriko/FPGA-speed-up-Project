@@ -4,7 +4,7 @@
 // Responsibilities:
 //   1. Batch a stream of per-alignment Requests into one DMA-friendly buffer.
 //   2. Pack each Request into the on-the-wire format expected by
-//      rtl/bsw_axis_adapter.sv (7 beats * 32 bytes = 224 bytes per request).
+//      rtl/bsw_axis_adapter.sv (20 beats * 32 bytes = 640 bytes per request).
 //   3. Hand the batched buffer to a board-specific driver via a function
 //      pointer (so BWA-MEM2 integration code stays board-agnostic).
 //   4. Unpack the result stream (32 bytes per result) into Result structs.
@@ -28,17 +28,19 @@
 namespace bsw_fpga {
 
 // ---- Wire-format constants (mirrors bsw_axis_adapter.sv) ----
-constexpr int MAX_QLEN              = 128;
-constexpr int MAX_TLEN              = 256;
+// These MUST equal bsw_pkg.sv (MAX_QLEN, MAX_TLEN) — the adapter derives its beat
+// counts from the package, so any drift here silently breaks the wire format.
+constexpr int MAX_QLEN              = 160;   // == bsw_pkg::MAX_QLEN (= N_PE = BAND_WIDTH)
+constexpr int MAX_TLEN              = 1024;  // == bsw_pkg::MAX_TLEN
 constexpr int AXIS_DATA_WIDTH_BITS  = 256;
 constexpr int AXIS_DATA_WIDTH_BYTES = AXIS_DATA_WIDTH_BITS / 8;     // 32
 constexpr int BASES_PER_BEAT        = AXIS_DATA_WIDTH_BITS / 4;     // 64
 constexpr int HDR_BEATS             = 1;
-constexpr int QRY_BEATS             = (MAX_QLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT; // 2
-constexpr int TGT_BEATS             = (MAX_TLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT; // 4
-constexpr int REQ_BEATS             = HDR_BEATS + QRY_BEATS + TGT_BEATS;                // 7
+constexpr int QRY_BEATS             = (MAX_QLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT; //  3
+constexpr int TGT_BEATS             = (MAX_TLEN + BASES_PER_BEAT - 1) / BASES_PER_BEAT; // 16
+constexpr int REQ_BEATS             = HDR_BEATS + QRY_BEATS + TGT_BEATS;                // 20
 constexpr int RES_BEATS             = 1;
-constexpr std::size_t REQ_BYTES     = REQ_BEATS * AXIS_DATA_WIDTH_BYTES;  // 224
+constexpr std::size_t REQ_BYTES     = REQ_BEATS * AXIS_DATA_WIDTH_BYTES;  // 640
 constexpr std::size_t RES_BYTES     = RES_BEATS * AXIS_DATA_WIDTH_BYTES;  //  32
 
 // ---- BWA-MEM2 base encoding (must match score matrix in rtl/bsw_score_matrix.sv) ----

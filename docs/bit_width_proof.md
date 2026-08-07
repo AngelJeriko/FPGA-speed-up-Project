@@ -25,8 +25,8 @@ workload.
 | Field            | Bound                | Notes                                  |
 |------------------|----------------------|----------------------------------------|
 | `h0`             | `0 ≤ h0 ≤ 1024`      | BWA-MEM2 seed scores are typically <100 |
-| `qlen`           | `qlen ≤ MAX_QLEN=128`| enforced by struct type                |
-| `tlen`           | `tlen ≤ MAX_TLEN=256`| enforced by struct type                |
+| `qlen`           | `qlen ≤ MAX_QLEN=160`| enforced by struct type (= bsw_pkg N_PE) |
+| `tlen`           | `tlen ≤ MAX_TLEN=1024`| enforced by struct type                |
 | match `W_MATCH`  | `+1`                 | package constant                       |
 | mismatch         | `-4`                 | package constant                       |
 | ambig (`N`)      | `-1`                 | package constant                       |
