@@ -37,6 +37,12 @@ Functional cover for the same wrapper:
 bash scripts/run_sim.sh tb_cl_bsw_ocl_f2      # 13/13, golden ACGT/ACGT -> score=5
 ```
 
+If phase 1 says the kernel needs its own clock, the two-clock build has the same pair:
+```bash
+scripts/f2/lint_cl_bsw.sh --kit <kit> --cdc   # structure, with an AWS_CLK_GEN stub
+bash scripts/run_sim.sh tb_bsw_axil_cdc       # 23/23 vs a same-clock reference
+```
+
 ## Phase 2 — on the build host
 
 ```bash
@@ -67,7 +73,9 @@ Expected: `GOLDEN OK (ACGT/ACGT -> score=5)`. Then terminate the instance.
 ## Notes
 
 - **`clk_main_a0` is fixed at 250 MHz on F2** and no clock recipe changes it. This is
-  the one substantive difference from the F1 port — run phase 1 before phase 2.
+  the one substantive difference from the F1 port — run phase 1 before phase 2. Both
+  outcomes are covered: single-clock by default, or `--clk-gen` to move the kernel to
+  `clk_extra_a1` (125 MHz) behind `rtl/bsw_kernel_cdc.sv`.
 - Clock recipes require `--aws_clk_gen`: `aws_build_dcp_from_cl.py` hard-errors if a
   `--clock_recipe_*` is passed without it. The single-clock build passes **neither**.
 - The CL directory basename, the `-c` argument and the top module name must be

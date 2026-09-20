@@ -28,7 +28,11 @@
 #   cd aws-fpga-f2 && git sparse-checkout init --cone && git sparse-checkout set \
 #       hdk/common/shell_stable/design/interfaces hdk/common/shell_stable/design/sh_ddr
 #
-# Usage:  scripts/f2/lint_cl_bsw.sh [--kit <path-to-aws-fpga-f2>]
+# Usage:  scripts/f2/lint_cl_bsw.sh [--kit <path-to-aws-fpga-f2>] [--cdc]
+#   --cdc  lint the TWO-CLOCK build instead: defines BSW_KERNEL_CDC, so the wrapper
+#          instantiates AWS_CLK_GEN (via a generated stub) and runs bsw_top on
+#          clk_extra_a1 behind bsw_kernel_cdc. Structure only - the crossing itself is
+#          proven functionally by `bash scripts/run_sim.sh tb_bsw_axil_cdc`.
 # Or set AWS_FPGA_F2_DIR. If $HDK_DIR is set (hdk_setup.sh sourced) it is used.
 
 set -euo pipefail
@@ -37,10 +41,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WRAP="$ROOT/rtl/f2/cl_bsw_top.sv"
 LOG="${LINT_LOG:-/tmp/cl_bsw_f2_lint.log}"
 KIT="${AWS_FPGA_F2_DIR:-}"
+CDC=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --kit) KIT="$2"; shift 2;;
+    --cdc) CDC=1; shift;;
     -h|--help) sed -n '2,32p' "$0"; exit 0;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
@@ -80,6 +86,15 @@ if [[ -n "$dupes" ]]; then
   exit 1
 fi
 
+EXTRA_SRC=()
+VDEF=()
+if [[ $CDC -eq 1 ]]; then
+  VDEF+=( +define+BSW_KERNEL_CDC )
+  EXTRA_SRC+=( "$ROOT/rtl/bsw_kernel_cdc.sv" "$ROOT/tb/f2/aws_clk_gen_stub.sv" )
+  echo "MODE           : two-clock (BSW_KERNEL_CDC) - bsw_top on clk_extra_a1"
+else
+  echo "MODE           : single-clock (bsw_top on clk_main_a0 @ 250 MHz)"
+fi
 echo "HDK interfaces : $IFDIR"
 echo "sh_ddr stub    : $DDRDIR/sh_ddr.stub.sv"
 echo
@@ -93,6 +108,7 @@ verilator --lint-only -sv --top-module cl_bsw_top \
   --unroll-count 4096 --unroll-stmts 200000 \
   -Wno-fatal \
   -Wno-UNOPTFLAT -Wno-DECLFILENAME -Wno-INITIALDLY -Wno-PINMISSING -Wno-PINCONNECTEMPTY \
+  ${VDEF[@]+"${VDEF[@]}"} \
   +incdir+"$ROOT/rtl" +incdir+"$ROOT/rtl/f2" +incdir+"$IFDIR" \
   "$ROOT/rtl/bsw_pkg.sv" \
   "$ROOT/rtl/bsw_score_matrix.sv" \
@@ -105,6 +121,7 @@ verilator --lint-only -sv --top-module cl_bsw_top \
   "$ROOT/rtl/f2/cl_bsw_top.sv" \
   "$ROOT/tb/f2/axi_register_slice_light_stub.sv" \
   "$DDRDIR/sh_ddr.stub.sv" \
+  ${EXTRA_SRC[@]+"${EXTRA_SRC[@]}"} \
   > "$LOG" 2>&1 || true
 
 # Verilator exits 0 under -Wno-fatal even with findings, so judge by content.
@@ -122,5 +139,6 @@ fi
 [[ $rc -ne 0 ]] && { echo; echo "Full log: $LOG"; exit 1; }
 
 pre=$(grep -cE '^%Warning' "$LOG" || true)
-echo "LINT PASSED — cl_bsw_top elaborates against the real F2 Shell port list and tie-offs."
+mode_note="single-clock"; [[ $CDC -eq 1 ]] && mode_note="two-clock/CDC"
+echo "LINT PASSED ($mode_note) - cl_bsw_top elaborates against the real F2 Shell files."
 echo "  ($pre pre-existing warning(s) elsewhere in the bsw core; none in the F2 wrapper.)"

@@ -30,9 +30,13 @@ The FPGA Developer AMI ships a supported Vivado with the license included.
 ```bash
 scripts/f2/lint_cl_bsw.sh --kit ~/aws-fpga-f2
 bash scripts/run_sim.sh tb_cl_bsw_ocl_f2
+
+# path (B) only - the two-clock build:
+scripts/f2/lint_cl_bsw.sh --kit ~/aws-fpga-f2 --cdc
+bash scripts/run_sim.sh tb_bsw_axil_cdc
 ```
 
-Expect `LINT PASSED` and `13 pass, 0 fail` with the golden `ACGT/ACGT -> score=5`.
+Expect `LINT PASSED` and `13 pass, 0 fail` (and `23 pass, 0 fail` for the CDC tb) with the golden `ACGT/ACGT -> score=5`.
 Both currently pass. This is the only stage that costs nothing, so do not skip it.
 
 ---
@@ -49,9 +53,10 @@ Minutes, not hours. It places and routes `bsw_top` on the real VU47P at a 4.0 ns
 (250 MHz) target and prints the verdict:
 
 - **WNS ≥ 0** → path **(A)**: single clock domain. Continue with Step 3 unchanged.
-- **WNS < 0** → path **(B)**: the kernel needs `clk_extra_a1` at 125 MHz and a CDC.
-  Stop and implement that first (see the CLOCKING note at the top of
-  `rtl/f2/cl_bsw_top.sv`); then stage with `--clk-gen`.
+- **WNS < 0** → path **(B)**: the kernel runs on `clk_extra_a1` at 125 MHz behind the
+  clock-domain crossing. **This is already built and verified** — just stage with
+  `--clk-gen` at Step 3 and build with the recipe flags it adds. Nothing to implement.
+  Background: `rtl/bsw_kernel_cdc.sv` and the "Path (B)" section of `docs/f2_bringup.md`.
 
 > **Why this gate exists.** On F1 we chose the clock (recipe A0 = 125 MHz) to match the
 > design. On F2 `clk_main_a0` is **fixed at 250 MHz** and no recipe changes it, so the
@@ -65,8 +70,23 @@ Minutes, not hours. It places and routes `bsw_top` on the real VU47P at a 4.0 ns
 
 ```bash
 source ~/aws-fpga-f2/hdk_setup.sh
-scripts/f2/stage_cl_project.sh                # add --clk-gen only if Step 2 said (B)
+scripts/f2/stage_cl_project.sh                # path (A)
+scripts/f2/stage_cl_project.sh --clk-gen      # path (B), if Step 2 said so
 ```
+
+`--clk-gen` additionally: defines `BSW_KERNEL_CDC` in the staged `cl_bsw_defines.vh`,
+inserts `rtl/bsw_kernel_cdc.sv` into the read order (after `bsw_top`, before
+`bsw_axil_regs`), installs `scripts/f2/cl_timing_user_cdc.xdc` as the CL's
+`cl_timing_user.xdc` (keeping a `.orig` backup), and appends
+`--aws_clk_gen --clock_recipe_a A1` to the build. It does **not** stage `aws_clk_gen.sv`:
+the HDK's own `synth_cl_header.tcl` already reads it for every CL build, so copying it
+would double-declare the module.
+
+> **After the first synthesis on path (B), check the clock names.** The CDC constraints
+> match `clk_main_a0` and `clk_extra_a1` by name. The Shell's name is stable; the
+> MMCM-generated one may not be. Run `report_clocks` and confirm. An XDC pattern that
+> matches nothing **fails silently** — the file prints its match counts and a CRITICAL
+> WARNING for exactly this reason, so read them rather than assuming.
 
 This scaffolds `$CL_DIR` (default `$HOME/cl_bsw_top`) from `cl_demo/cl_axil_reg_access`
 and rewrites it for our design. Four things it does that are easy to get wrong by hand:
@@ -106,6 +126,8 @@ cd $CL_DIR/build/scripts
 # path (B): ./aws_build_dcp_from_cl.py -c cl_bsw_top --aws_clk_gen --clock_recipe_a A1
 ```
 
+(The staging script prints the exact command for whichever path you staged.)
+
 Hours. Run it under `tmux`/`nohup`.
 
 > **Roadblock:** passing any `--clock_recipe_*` without `--aws_clk_gen` is a hard error
@@ -121,7 +143,9 @@ Hours. Run it under `tmux`/`nohup`.
 grep -A6 'Design Timing Summary' $CL_DIR/build/reports/*timing_summary*
 ```
 
-Require **WNS ≥ 0** and **0 failing endpoints** on `clk_main_a0`. A DCP that fails
+Require **WNS ≥ 0** and **0 failing endpoints** on `clk_main_a0` — and on path (B),
+on `clk_extra_a1` too, plus confirmation that the CDC constraints were applied (the
+match counts printed by `cl_timing_user.xdc` during synthesis). A DCP that fails
 timing still bakes, still loads and still runs — it just returns wrong answers
 intermittently. This is the last checkpoint that costs nothing.
 
@@ -178,7 +202,9 @@ is reused verbatim.
 | `does not match CL_DIR env variable` | `-c` ≠ `$CL_DIR` basename ≠ module name; all three must be `cl_bsw_top` |
 | `aws_build_dcp_from_cl.py: No such file` after moving the CL | the example's relative symlinks dangled; re-run the staging script |
 | `The aws_clk_gen IP is required for setting custom clock recipes` | dropped a `--clock_recipe_*` without `--aws_clk_gen` |
-| clock recipe silently ignored | no AWS_CLK_GEN IP instantiated in the CL |
+| clock recipe silently ignored | no AWS_CLK_GEN IP instantiated in the CL — stage with `--clk-gen` |
+| CDC paths show as unconstrained / fail timing | clock object names in `cl_timing_user.xdc` did not match; run `report_clocks` |
+| `cl_sda_*` multiply driven on path (B) | `unused_cl_sda_template.inc` and AWS_CLK_GEN both driving SDA; the wrapper already excludes the tie-off under `BSW_KERNEL_CDC` |
 | package `bsw_pkg` declared more than once | per-file compilation units + the `include`; the staging script strips it |
 | multiply-driven `cl_ocl_*` at synth | `unused_sh_ocl_template.inc` got included; Verilator cannot see this — `lint_cl_bsw.sh` guards it structurally |
 | `sh_ddr` held in reset / `rst_main_n_sync` undeclared | the DDR tie-off consumes a signal it does not declare; our wrapper declares and drives it |

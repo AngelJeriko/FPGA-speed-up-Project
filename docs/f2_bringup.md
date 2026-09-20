@@ -44,13 +44,62 @@ proxy (`docs/synth_ooc_results.md`) — a far slower fabric than UltraScale+, so
 not settle the question either way. `synth/ooc/impl_bsw_top_vu47p.tcl` measures the real
 part in minutes and prints which path to take. Run it before the multi-hour DCP build.
 
-If (B): the CDC is cheap because of how `bsw_axil_regs` already works — the host writes
-CONFIG/QUERY/TARGET and only *then* pulses GO, so the wide payload (480b query + 3072b
-target) is quasi-static by the time it is sampled. Only `req_valid`, `req_ready` and
-`result_valid` need synchronising. The extra clocks are **not** shell ports: they come
-from an `AWS_CLK_GEN` IP instantiated inside the CL, and
-`aws_build_dcp_from_cl.py` hard-errors if a `--clock_recipe_*` is passed without
-`--aws_clk_gen`.
+**Both paths are now built and verified**, so the measurement selects a path rather than
+starting one. Path (B) is `rtl/bsw_kernel_cdc.sv` — see the next section.
+
+## Path (B): the clock-domain crossing
+
+`bsw_kernel_cdc` is a **drop-in replacement for `bsw_top`**: same ports, same handshake,
+plus a second clock/reset pair. `bsw_axil_regs` chooses between them with its
+`KERNEL_CDC` parameter, so the single-clock path stays bit-identical to what F1 shipped
+and the register file itself does not change shape either way.
+
+It uses a **two-phase (toggle) request/acknowledge handshake with a quasi-static
+payload** — the standard structure when the data is wide and the events are rare. The
+payload here is 480b of query plus 3072b of target: far too wide for an async FIFO to be
+worth it, and it changes once per request.
+
+The payload may cross without synchronisers because it is provably quiet for the whole
+window the far side can see it: it is registered one *full cycle* before the request
+toggle flips (the `A_SEND` state exists only to create that gap), the toggle then needs
+at least two destination edges to clear its synchroniser, and it cannot be rewritten
+until the acknowledge has made the return trip. The same argument runs in reverse for
+the result. Only the two toggles are genuine asynchronous inputs, and each gets its own
+2-flop synchroniser carrying `ASYNC_REG`.
+
+Pending flags (`req_pend_k` / `ack_pend_a`) latch each edge. In steady state neither
+side can miss one, but the two domains leave reset at different times, and a toggle that
+flips while the far synchroniser is still reset would otherwise be lost and deadlock the
+handshake. The flags make that impossible rather than merely unlikely.
+
+Turning it on: `scripts/f2/stage_cl_project.sh --clk-gen`, which defines
+`BSW_KERNEL_CDC`, adds `rtl/bsw_kernel_cdc.sv`, installs
+`scripts/f2/cl_timing_user_cdc.xdc` and builds with `--aws_clk_gen --clock_recipe_a A1`.
+The extra clocks are **not** shell ports — they come from an `AWS_CLK_GEN` IP
+instantiated inside the CL, whose AXI-Lite control port we hang off the **SDA**
+interface (MgmtPF BAR4), exactly as AWS's own `cl_mem_perf` example does. That leaves
+our OCL BAR entirely to `bsw_axil_regs`. Note `aws_build_dcp_from_cl.py` hard-errors if
+a `--clock_recipe_*` is passed without `--aws_clk_gen`.
+
+### What the verification does and does not prove
+
+`tb_bsw_axil_cdc` runs the DUT (kernel on a second clock) against a bare `bsw_top` on
+the main clock and requires **identical** results — 23/23. The clocks are deliberately
+hostile: 10 ns vs 17 ns, asynchronous and **non-harmonic** so the phase relationship
+walks across every vector instead of repeating, with `clk_k` phase-offset and `rst_k_n`
+released on a different edge from `rst_n`.
+
+That proves the **protocol**: no lost requests, no lost results, no deadlock, no stale
+payload, across a walking phase relationship and reset skew. It does **not** model
+metastability — that rests on the 2-flop synchronisers, `ASYNC_REG`, and the XDC, none
+of which a simulator can check. Worth stating plainly rather than letting 23/23 imply
+more than it does.
+
+One honest gap: the payload *hold* registers are not load-bearing for this particular
+front end, because `bsw_axil_regs` already holds query/target/config stable across a
+request. Removing them would still pass the testbench. They are there for timing margin
+across the crossing — the thing the XDC constrains — not for functional correctness
+here, and a future front end that streams its payload would need them.
 
 ## Shell interface deltas (verified against the f2 branch)
 
@@ -91,6 +140,9 @@ Unrelated cosmetic issue in AWS's own template, noted so it isn't mistaken for o
 | Check | Result |
 |---|---|
 | `scripts/f2/lint_cl_bsw.sh` — elaborates against the REAL `cl_ports.vh` + tie-offs + AWS's `sh_ddr.stub.sv` | **PASS**, 0 warnings in the wrapper |
+| `scripts/f2/lint_cl_bsw.sh --cdc` — same, for the two-clock build (AWS_CLK_GEN stub) | **PASS**, 0 warnings in the wrapper |
+| `bash scripts/run_sim.sh tb_bsw_axil_cdc` — kernel on a second, non-harmonic clock | **23 pass / 0 fail** |
+| Staged two-clock project (`--clk-gen`) re-linted flat | 0 errors, 0 warnings in the wrapper |
 | `bash scripts/run_sim.sh tb_cl_bsw_ocl_f2` — functional, through the F2 OCL port set | **13 pass / 0 fail**, golden `ACGT/ACGT → score=5` |
 | `scripts/f2/stage_cl_project.sh` dry-run against a real f2 checkout | stages 11 files, symlinks repaired, `encrypt.tcl` + `synth_cl_bsw_top.tcl` rewritten |
 | Verilator lint of the **staged** flat project (post include-stripping) | 0 errors, 0 warnings in the wrapper |
@@ -115,12 +167,36 @@ script says so in its header instead of overclaiming.
 M6 is the honest limit of the structural lint: it cannot see semantics. That is what
 `tb_cl_bsw_ocl_f2` is for.
 
+### Mutation results for the crossing (`tb_bsw_axil_cdc`)
+
+| # | Mutation | Result |
+|---|---|---|
+| C-B | kernel never acknowledges (`ack_tgl_k` frozen) | **RED** — watchdog TIMEOUT, so the acknowledge path is load-bearing |
+| C-C | result never captured in the K domain | **RED** — 0 pass / 23 fail, so the result crossing is load-bearing |
+| C-E | K side stops waiting for `bsw_top`'s `req_ready` | **GREEN — equivalent mutant** |
+
+C-E deserves the honesty rather than a quiet omission. It passes because
+`bsw_ctrl_fsm` drives `req_ready_o = (state == S_IDLE) || …`, and the K side only ever
+issues a request when the kernel *is* idle — so ready is already high on the cycle we
+assert valid, and the transfer completes either way. Waiting for it is correct defensive
+coding that this configuration cannot distinguish from not waiting. A mutation testing
+it properly would need a kernel that can stall its own request channel, which `bsw_top`
+never does.
+
+Two further mutations were considered and rejected as untestable rather than run:
+removing a synchroniser flop, and removing the `A_SEND` separation cycle. Both are
+**timing-margin** properties — a functional simulator will happily pass either. They are
+covered by `ASYNC_REG` and the XDC, not by simulation, and claiming a green testbench
+covers them would be wrong.
+
 ## Not yet done
 
-- **The VU47P timing measurement** — the (A)/(B) decision above. Nothing else should be
-  built until this is known.
-- Path (B)'s CDC + `AWS_CLK_GEN` instantiation, if the measurement calls for it.
+- **The VU47P timing measurement** — the (A)/(B) decision above. It now *selects* a path
+  instead of starting one, but nothing should be built until it is known.
 - Everything from the DCP build onward (phases 2–4): needs AWS.
+- On path (B) specifically: confirm the clock object names in `cl_timing_user.xdc`
+  against `report_clocks` on the first synthesis. A non-matching XDC pattern fails
+  silently, which would leave the crossing unconstrained.
 
 ## Strategic note: HBM
 

@@ -9,6 +9,10 @@
 // (F1 / VU9P, superseded). It lived under rtl/f1/ until 2026-09-20, which made it
 // look F1-specific and made rtl/f1/ look safe to delete; it is not.
 //
+// KERNEL_CDC (parameter) selects where bsw_top is clocked: 0 = on `clk`, as the F1
+// build shipped; 1 = on `clk_k` behind bsw_kernel_cdc, for F2 if bsw_top cannot make
+// clk_main_a0's fixed 250 MHz. Everything else in this file is identical either way.
+//
 // The host (via the Shell's OCL/AppPF BAR) writes the query, target and config
 // into buffers, pulses a GO bit, polls STATUS.done, then reads the result back.
 // NO DDR4 / no PCIe DMA -- everything crosses the AXI4-Lite control port, so this
@@ -33,10 +37,19 @@ module bsw_axil_regs
     import bsw_pkg::*;
 #(
     parameter int ADDR_W = 16,   // slave address width (64 KiB window is ample)
-    parameter int DATA_W = 32    // AXI4-Lite data width (F1 OCL is 32-bit)
+    parameter int DATA_W = 32,   // AXI4-Lite data width (the OCL BAR is 32-bit)
+    // 0 (default): bsw_top runs on `clk`, exactly as the F1 build shipped.
+    // 1: bsw_top runs on `clk_k` behind bsw_kernel_cdc. Needed on F2 only if bsw_top
+    //    does not close clk_main_a0's fixed 250 MHz — see docs/f2_bringup.md.
+    parameter bit KERNEL_CDC = 1'b0
 )(
     input  logic                 clk,
     input  logic                 rst_n,
+
+    // ---- kernel clock domain; used ONLY when KERNEL_CDC = 1 ----
+    // Leave unconnected when KERNEL_CDC = 0 (the F1 / single-clock build).
+    input  logic                 clk_k,
+    input  logic                 rst_k_n,
 
     // ---- AXI4-Lite slave ----
     input  logic [ADDR_W-1:0]    s_awaddr,
@@ -186,19 +199,44 @@ module bsw_axil_regs
         end
     end
 
-    bsw_top u_bsw (
-        .clk            (clk),
-        .rst_n          (rst_n),
-        .restart_mode   (1'b0),          // 0 = banded extension (bring-up default)
-        .req_valid_i    (req_valid),
-        .req_ready_o    (req_ready),
-        .query_i        (query_w),
-        .target_i       (target_w),
-        .cfg_i          (cfg_w),
-        .result_valid_o (result_valid),
-        .result_ready_i (1'b1),          // always ready: we latch into result_q
-        .result_o       (result_w)
-    );
+    // The kernel. Both arms present an identical handshake to the logic above, so the
+    // register file itself does not change shape with KERNEL_CDC — only where bsw_top
+    // is clocked does.
+    generate
+        if (KERNEL_CDC) begin : g_cdc
+            // F2 fallback: bsw_top on clk_k (clk_extra_a1, 125 MHz) behind the CDC.
+            bsw_kernel_cdc u_bsw (
+                .clk            (clk),
+                .rst_n          (rst_n),
+                .clk_k          (clk_k),
+                .rst_k_n        (rst_k_n),
+                .restart_mode   (1'b0),      // 0 = banded extension (bring-up default)
+                .req_valid_i    (req_valid),
+                .req_ready_o    (req_ready),
+                .query_i        (query_w),
+                .target_i       (target_w),
+                .cfg_i          (cfg_w),
+                .result_valid_o (result_valid),
+                .result_ready_i (1'b1),      // always ready: we latch into result_q
+                .result_o       (result_w)
+            );
+        end else begin : g_direct
+            // Default: single clock domain, identical to the F1 build.
+            bsw_top u_bsw (
+                .clk            (clk),
+                .rst_n          (rst_n),
+                .restart_mode   (1'b0),      // 0 = banded extension (bring-up default)
+                .req_valid_i    (req_valid),
+                .req_ready_o    (req_ready),
+                .query_i        (query_w),
+                .target_i       (target_w),
+                .cfg_i          (cfg_w),
+                .result_valid_o (result_valid),
+                .result_ready_i (1'b1),      // always ready: we latch into result_q
+                .result_o       (result_w)
+            );
+        end
+    endgenerate
 
     // ---- read channel ----
     logic [RES_WORDS*DATA_W-1:0] res_flat;

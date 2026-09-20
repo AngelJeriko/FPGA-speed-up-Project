@@ -36,8 +36,14 @@ The F1 flow (`rtl/f1/`, `scripts/f1/`, `docs/f1_*`) is kept intact and still val
 - ✅ **F2 CL wrapper done & verified off-hardware** — `rtl/f2/cl_bsw_top.sv` lints
   against the real `cl_ports.vh` + tie-offs (`scripts/f2/lint_cl_bsw.sh`, 6 mutants
   checked), `tb_cl_bsw_ocl_f2` 13/13 score=5, staging script dry-run clean.
-- ⏳ **F2 timing unknown** — does `bsw_top` close 250 MHz on VU47P? Decides whether a
-  CDC to `clk_extra_a1` (125 MHz) is needed. Measure first, build second.
+- ⏳ **F2 timing unknown** — does `bsw_top` close 250 MHz on VU47P? Measure with
+  `synth/ooc/impl_bsw_top_vu47p.tcl` (minutes) before anything expensive.
+- ✅ **Both clocking outcomes are implemented** — single clock domain by default, or
+  `rtl/bsw_kernel_cdc.sv` (two-phase toggle handshake, quasi-static payload) to run the
+  kernel on AWS_CLK_GEN `clk_extra_a1` at 125 MHz. `tb_bsw_axil_cdc` 23/23 against a
+  same-clock reference, two non-harmonic clocks + reset skew; constraints in
+  `scripts/f2/cl_timing_user_cdc.xdc`; staged by `stage_cl_project.sh --clk-gen`. So the
+  measurement now *selects* a path rather than starting one.
 - ✅ **F1 bring-up rungs A / B1 / B2 done & verified** — `bsw_axil_regs` (13/13),
   `cl_bsw_top` wrapper (`tb_cl_bsw_ocl` 13/13, score=5), `host/test_bsw.c`
   (host↔RTL contract cross-checked).

@@ -35,12 +35,14 @@
 // so the real VU47P number is unknown and MUST be measured before an AFI is baked
 // (scripts/f2/ooc_vu47p.tcl, minutes, on the cheap build host).
 //
-// If it does NOT close 250: keep bsw_axil_regs here on clk_main_a0 and move ONLY the
-// u_bsw instance to a slower clock (AWS_CLK_GEN clk_extra_a1 = 125 MHz on recipe A1),
-// crossing req_valid/req_ready/result_valid with a 2-phase handshake and treating the
-// config/query/target payload as quasi-static (host writes it long before GO). The seam
-// is marked "CDC SEAM" inside bsw_axil_regs. Note the F2 build script HARD-ERRORS if a
-// --clock_recipe_* is passed without --aws_clk_gen.
+// If it does NOT close 250: that fallback is BUILT AND VERIFIED, not just planned.
+// Define BSW_KERNEL_CDC (stage with --clk-gen) and bsw_axil_regs keeps its AXI-Lite
+// front end on clk_main_a0 while bsw_top moves to AWS_CLK_GEN's clk_extra_a1 (125 MHz,
+// clock recipe A1) behind rtl/bsw_kernel_cdc.sv — a two-phase toggle handshake with a
+// quasi-static payload. Proven by tb_bsw_axil_cdc (23/23 against a same-clock reference,
+// two non-harmonic clocks, reset skew). Constraints: scripts/f2/cl_timing_user_cdc.xdc.
+// Note the F2 build script HARD-ERRORS if a --clock_recipe_* is passed without
+// --aws_clk_gen; the staging script adds both together.
 //
 // ============================== HOW TO BUILD ==============================
 //   scripts/f2/stage_cl_project.sh --build        (see docs/f2_build_runbook.md)
@@ -82,10 +84,85 @@ always_ff @(posedge clk_main_a0)
 // we drive. Adding it would multiply-drive cl_ocl_* and corrupt the build.
 `include "unused_flr_template.inc"        // cl_sh_flr_done
 `include "unused_ddr_template.inc"        // sh_ddr #(.DDR_PRESENT(0)) + ddr stat bus
-`include "unused_cl_sda_template.inc"     // cl_sda_*
 `include "unused_apppf_irq_template.inc"  // cl_sh_apppf_irq_req
 `include "unused_dma_pcis_template.inc"   // cl_sh_dma_pcis_*, cl_sh_dma_{wr,rd}_full
 `include "unused_pcim_template.inc"       // cl_sh_pcim_* (data/addr group)
+`ifndef BSW_KERNEL_CDC
+`include "unused_cl_sda_template.inc"     // cl_sda_* (the CDC build drives these instead)
+`endif
+
+// ---- kernel clock domain --------------------------------------------------------
+// Defining BSW_KERNEL_CDC switches to the two-clock build: bsw_top moves off the
+// Shell's fixed 250 MHz clk_main_a0 and onto AWS_CLK_GEN's clk_extra_a1 (125 MHz on
+// clock recipe A1), behind bsw_kernel_cdc. Use it only if bsw_top does not close
+// 250 MHz on VU47P — measure with synth/ooc/impl_bsw_top_vu47p.tcl first, and stage
+// with `scripts/f2/stage_cl_project.sh --clk-gen`, which defines this, installs
+// cl_timing_user_cdc.xdc and adds --aws_clk_gen --clock_recipe_a A1 to the build.
+`ifdef BSW_KERNEL_CDC
+localparam bit KCDC = 1'b1;
+
+logic kernel_clk, kernel_rst_n;
+logic gen_clk_main_a0, gen_rst_main_n, gen_clk_hbm_ref;
+logic gen_clk_extra_a2, gen_clk_extra_a3, gen_clk_extra_b0, gen_clk_extra_b1;
+logic gen_clk_extra_c0, gen_clk_extra_c1, gen_clk_hbm_axi;
+logic gen_rst_hbm_axi_n, gen_rst_hbm_ref_n, gen_rst_c1_n, gen_rst_c0_n;
+logic gen_rst_b1_n, gen_rst_b0_n, gen_rst_a3_n, gen_rst_a2_n;
+
+// Group A only: we need clk_extra_a1 and nothing else. Disabling B/C/HBM keeps the
+// MMCM/BUFG count (and the power) down.
+// The AXI-Lite control port is wired to the Shell's SDA interface (MgmtPF BAR4), which
+// is exactly what AWS's own cl_mem_perf example does — it leaves our OCL BAR entirely
+// to bsw_axil_regs, and it is what makes fpga-load-clkgen-dynamic work at runtime.
+aws_clk_gen #(
+   .CLK_GRP_A_EN (1),
+   .CLK_GRP_B_EN (0),
+   .CLK_GRP_C_EN (0),
+   .CLK_HBM_EN   (0)
+) AWS_CLK_GEN (
+   .i_clk_main_a0       (clk_main_a0),
+   .i_rst_main_n        (rst_main_n_sync),
+   .i_clk_hbm_ref       (clk_hbm_ref),
+
+   .s_axil_ctrl_awaddr  (sda_cl_awaddr),  .s_axil_ctrl_awvalid (sda_cl_awvalid),
+   .s_axil_ctrl_awready (cl_sda_awready),
+   .s_axil_ctrl_wdata   (sda_cl_wdata),   .s_axil_ctrl_wstrb   (sda_cl_wstrb),
+   .s_axil_ctrl_wvalid  (sda_cl_wvalid),  .s_axil_ctrl_wready  (cl_sda_wready),
+   .s_axil_ctrl_bresp   (cl_sda_bresp),   .s_axil_ctrl_bvalid  (cl_sda_bvalid),
+   .s_axil_ctrl_bready  (sda_cl_bready),
+   .s_axil_ctrl_araddr  (sda_cl_araddr),  .s_axil_ctrl_arvalid (sda_cl_arvalid),
+   .s_axil_ctrl_arready (cl_sda_arready),
+   .s_axil_ctrl_rdata   (cl_sda_rdata),   .s_axil_ctrl_rresp   (cl_sda_rresp),
+   .s_axil_ctrl_rvalid  (cl_sda_rvalid),  .s_axil_ctrl_rready  (sda_cl_rready),
+
+   .o_clk_hbm_ref       (gen_clk_hbm_ref),
+   .o_clk_main_a0       (gen_clk_main_a0),
+   .o_clk_extra_a1      (kernel_clk),        // <- 125 MHz on clock recipe A1
+   .o_clk_extra_a2      (gen_clk_extra_a2),
+   .o_clk_extra_a3      (gen_clk_extra_a3),
+   .o_clk_extra_b0      (gen_clk_extra_b0),
+   .o_clk_extra_b1      (gen_clk_extra_b1),
+   .o_clk_extra_c0      (gen_clk_extra_c0),
+   .o_clk_extra_c1      (gen_clk_extra_c1),
+   .o_clk_hbm_axi       (gen_clk_hbm_axi),
+   .o_cl_rst_hbm_axi_n  (gen_rst_hbm_axi_n),
+   .o_cl_rst_hbm_ref_n  (gen_rst_hbm_ref_n),
+   .o_cl_rst_c1_n       (gen_rst_c1_n),
+   .o_cl_rst_c0_n       (gen_rst_c0_n),
+   .o_cl_rst_b1_n       (gen_rst_b1_n),
+   .o_cl_rst_b0_n       (gen_rst_b0_n),
+   .o_cl_rst_a3_n       (gen_rst_a3_n),
+   .o_cl_rst_a2_n       (gen_rst_a2_n),
+   .o_cl_rst_a1_n       (kernel_rst_n),      // reset already sync'd to clk_extra_a1
+   .o_cl_rst_main_n     (gen_rst_main_n)
+);
+`else
+// Single-clock build (the default, and the one we hope the VU47P measurement allows):
+// the kernel ports below are tied to the main domain and bsw_axil_regs ignores them.
+localparam bit KCDC = 1'b0;
+logic kernel_clk, kernel_rst_n;
+assign kernel_clk   = clk_main_a0;
+assign kernel_rst_n = rst_main_n_sync;
+`endif
 
 // ---- CL outputs no tie-off covers (mirrors CL_TEMPLATE) ------------------------
 always_comb begin
@@ -180,9 +257,11 @@ axi_register_slice_light AXIL_OCL_REG_SLC (
 );
 
 // ---- the kernel: bsw_axil_regs (16-bit / 64 KiB window off the 32-bit OCL BAR) --
-bsw_axil_regs #(.ADDR_W(16), .DATA_W(32)) u_regs (
+bsw_axil_regs #(.ADDR_W(16), .DATA_W(32), .KERNEL_CDC(KCDC)) u_regs (
    .clk       (clk_main_a0),
    .rst_n     (rst_main_n_sync),
+   .clk_k     (kernel_clk),
+   .rst_k_n   (kernel_rst_n),
    .s_awaddr  (ocl_q_awaddr[15:0]), .s_awvalid (ocl_q_awvalid), .s_awready (ocl_q_awready),
    .s_wdata   (ocl_q_wdata),        .s_wstrb   (ocl_q_wstrb),
    .s_wvalid  (ocl_q_wvalid),       .s_wready  (ocl_q_wready),

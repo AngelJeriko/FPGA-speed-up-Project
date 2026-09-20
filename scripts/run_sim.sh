@@ -336,6 +336,11 @@ else
     if [[ "$TB" == tb_bsw_axil ]]; then
         RTL_FILES+=("$RTL/bsw_axil_regs.sv")
     fi
+    # tb_bsw_axil_cdc: the F2 two-clock fallback. Same wrapper with KERNEL_CDC=1, so
+    # bsw_top runs on a second, non-harmonic clock behind bsw_kernel_cdc.
+    if [[ "$TB" == tb_bsw_axil_cdc ]]; then
+        RTL_FILES+=("$RTL/bsw_axil_regs.sv" "$RTL/bsw_kernel_cdc.sv")
+    fi
     # tb_cl_bsw_ocl (board-bringup): the F1 CL wrapper cl_bsw_top exercised through its
     # OCL AXI4-Lite ports. CL_BSW_LINT selects cl_bsw_top's self-contained port list
     # (no HDK Shell includes needed for sim).

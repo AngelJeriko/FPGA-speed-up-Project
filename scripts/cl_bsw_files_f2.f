@@ -39,3 +39,11 @@ rtl/bsw_top.sv
 // bsw_axil_regs is shared with the F1 flow and is shell-agnostic; only the top differs.
 rtl/bsw_axil_regs.sv
 rtl/f2/cl_bsw_top.sv
+
+// ---- TWO-CLOCK build only (stage_cl_project.sh --clk-gen) ----
+// Adds ONE source, inserted after bsw_top and before bsw_axil_regs:
+//     rtl/bsw_kernel_cdc.sv
+// and defines BSW_KERNEL_CDC in cl_bsw_defines.vh, which makes cl_bsw_top instantiate
+// AWS_CLK_GEN and pass clk_extra_a1 (125 MHz) to bsw_axil_regs as the kernel clock.
+// aws_clk_gen.sv itself is NOT staged: the HDK's synth_cl_header.tcl already reads it
+// for every CL build, so copying it would double-declare the module.

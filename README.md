@@ -97,6 +97,7 @@ Requires Verilator ≥5.0 and a C++ toolchain (see [`REQUIREMENTS.md`](REQUIREME
 ```bash
 bash scripts/run_sim.sh tb_bsw_top       # -> "... 0 errors" + "PASS"; ACGT/ACGT score=5
 bash scripts/run_sim.sh tb_cl_bsw_ocl_f2 # F2 OCL wrapper (current): 13/13, score=5
+bash scripts/run_sim.sh tb_bsw_axil_cdc  # F2 two-clock fallback: 23/23 vs same-clock ref
 bash scripts/run_sim.sh tb_cl_bsw_ocl    # F1 OCL wrapper (superseded): 13/13, score=5
 ```
 Each build lands under `/tmp/bsw/obj_<tb>/` (override with `BSW_BUILD_DIR=...`).
