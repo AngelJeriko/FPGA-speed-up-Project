@@ -143,6 +143,50 @@ Unrelated cosmetic issue in AWS's own template, noted so it isn't mistaken for o
 | `scripts/f2/lint_cl_bsw.sh --cdc` — same, for the two-clock build (AWS_CLK_GEN stub) | **PASS**, 0 warnings in the wrapper |
 | `bash scripts/run_sim.sh tb_bsw_axil_cdc` — kernel on a second, non-harmonic clock | **23 pass / 0 fail** |
 | Staged two-clock project (`--clk-gen`) re-linted flat | 0 errors, 0 warnings in the wrapper |
+| **Real Vivado synthesis of the whole CL** (`synth/ooc/synth_cl_bsw_f2.tcl`, 2026-09-20) | **PASS — no multiply-driven nets** |
+
+### First real synthesis of the F2 CL (2026-09-20)
+
+Vivado 2026.1, `synth_design -mode out_of_context`, device `xc7v2000t-2` (the local
+install has no UltraScale+ families, so the harness fell back — see below).
+
+| | cl_bsw_top (single-clock) |
+|---|---|
+| LUTs | 63,985 (0 as memory) |
+| Registers | 31,308 (all flip-flops, no latches) |
+| DSPs | 140 (DSP48E1) |
+| Block RAM | **0** |
+| CARRY4 | 10,055 |
+| MUXF7 / MUXF8 | 720 / 342 |
+
+**The result that mattered: no multiply-driven nets.** `[Synth 8-3352]` is escalated to
+an ERROR before `synth_design`, so synthesis completing at all *is* the verdict. That
+closes the one fault class Verilator provably cannot see (mutation M2), and it is now
+closed on real tooling rather than by argument.
+
+Reading the rest honestly:
+
+- **`sh_ddr` reported as a black box is correct**, not a problem. AWS's own
+  `sh_ddr.stub.sv` has an empty body by design; we only need its port list so the DDR
+  tie-off elaborates.
+- **0 BRAM, 0 LUT-as-memory.** The whole CL is flops and logic. The register file's
+  ~3,840 bits of query/target/config land in flip-flops, which matches the delta from
+  `bsw_top` alone (27,370 → 31,308 FF). Fine at this size, and it means none of the
+  earlier distributed-RAM traps apply here.
+- **Do not compare these LUTs to the 71,320 in `bsw_top_impl_util.rpt`.** That figure is
+  post-place-and-route with `Explore` directives and a 3.0 ns clock constraint; this run
+  is synthesis-only with **no clock constraint at all**, so nothing was timing-driven.
+  Different question, different answer — a ±10% gap between the two says nothing.
+- **Timing from this run is meaningless** and the script says so. `impl_bsw_top_f2.tcl`
+  is what answers the 250 MHz question.
+- **Device fell back to Virtex-7.** `xcku5p` and `xczu7ev` are not installed in that
+  Vivado (`get_parts -quiet xcku5p*` returned nothing), confirming why every earlier
+  report says `Device: 7v2000t`. Irrelevant for a multi-driver check, which is
+  device-independent; decisive for the timing run, which still needs the UltraScale+
+  families installed.
+
+At ~64K LUTs the CL is a few percent of an F1-class VU9P (~1.18M LUTs) and smaller
+still relative to VU47P, so fit inside the CL region is not a concern.
 | `bash scripts/run_sim.sh tb_cl_bsw_ocl_f2` — functional, through the F2 OCL port set | **13 pass / 0 fail**, golden `ACGT/ACGT → score=5` |
 | `scripts/f2/stage_cl_project.sh` dry-run against a real f2 checkout | stages 11 files, symlinks repaired, `encrypt.tcl` + `synth_cl_bsw_top.tcl` rewritten |
 | Verilator lint of the **staged** flat project (post include-stripping) | 0 errors, 0 warnings in the wrapper |
