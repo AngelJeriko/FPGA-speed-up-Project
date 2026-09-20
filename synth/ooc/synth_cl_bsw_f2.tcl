@@ -178,6 +178,41 @@ if {[llength $defines]} {
 set tag [expr {$cdc ? "cdc" : "single"}]
 report_utilization -file $out/cl_bsw_top_${tag}_util.rpt
 
+# ---- CDC-only: did the synchronisers actually survive? -----------------------
+# A clock-domain crossing is only as good as its synchroniser flops, and those are
+# exactly the kind of "redundant" logic a synthesiser will happily merge or retime away.
+# ASYNC_REG is what stops that, but the attribute is easy to lose (a typo in the RTL, a
+# tool that ignores it on a given construct) and NOTHING else in this flow would notice:
+# the design would still synthesise, still simulate, and still pass tb_bsw_axil_cdc,
+# because a simulator does not model metastability. It would just be unreliable in
+# silicon, intermittently, under conditions no test reproduces.
+#
+# So check the netlist directly rather than trusting the source.
+if {$cdc} {
+    set sync_cells [get_cells -quiet -hier -filter \
+        {NAME =~ *_sync0_reg* || NAME =~ *_sync1_reg*}]
+    set n_sync [llength $sync_cells]
+    set n_async 0
+    foreach c $sync_cells {
+        if {[get_property -quiet ASYNC_REG $c] == 1} { incr n_async }
+    }
+    puts ""
+    puts "--- CDC synchroniser check ---"
+    puts "    2-flop synchroniser cells found : $n_sync   (expected 4: req_sync0/1, ack_sync0/1)"
+    puts "    of which carry ASYNC_REG        : $n_async"
+    if {$n_sync < 4} {
+        puts "    >>> FAIL: synchroniser flops are MISSING - they were merged or optimised"
+        puts "        away. The crossing is unsafe. Check the ASYNC_REG attributes in"
+        puts "        rtl/bsw_kernel_cdc.sv."
+    } elseif {$n_async < 4} {
+        puts "    >>> FAIL: flops exist but ASYNC_REG did not stick. Placement will not be"
+        puts "        constrained and the MTBF budget is fiction. Check the attribute"
+        puts "        syntax in rtl/bsw_kernel_cdc.sv."
+    } else {
+        puts "    >>> OK: both synchronisers intact and marked."
+    }
+}
+
 # ---- verdict -----------------------------------------------------------------
 # Getting here at all means synth_design did not error, i.e. [Synth 8-3352] never fired.
 # (The earlier version of this script walked every hierarchical net calling get_pins per

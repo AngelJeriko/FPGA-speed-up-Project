@@ -173,6 +173,31 @@ an ERROR before `synth_design`, so synthesis completing at all *is* the verdict.
 closes the one fault class Verilator provably cannot see (mutation M2), and it is now
 closed on real tooling rather than by argument.
 
+### Two-clock (CDC) synthesis, 2026-09-20 — also PASS
+
+The riskier of the two builds, because it drops `unused_cl_sda_template.inc` and lets
+AWS_CLK_GEN drive `cl_sda_*` instead: if anything were going to be multiply driven, it
+would be there. It is not. **PASS, no multiply-driven nets.**
+
+The `tdo` fix is confirmed by the counts: **4 critical warnings → 3**, with `tdo` gone
+and the remaining three all being the DDR stub (below). Nothing left that is ours.
+
+Two things the log confirms about the crossing surviving synthesis:
+
+- Both CDC state machines were inferred and encoded — `a_state_reg` (sequential, 4
+  states) and `k_state_reg` (one-hot, 3 states). The structure is intact, not collapsed.
+- **Flop count 31,308 → 35,408 (+4,100).** That is almost exactly the payload hold
+  registers: 480b query + 3072b target + config + `result_k_q` + the FSMs and
+  synchronisers. Worth stating plainly, because it is the real price of the CDC and
+  because it proves the hold registers were *not* optimised away — they cost area and
+  they are doing the job described above.
+
+`synth_cl_bsw_f2.tcl` now also verifies, in CDC mode, that the **2-flop synchronisers
+survived with `ASYNC_REG` intact**. That check exists because losing them is the one
+failure this project could not otherwise see: the design would still synthesise, still
+simulate, and still pass `tb_bsw_axil_cdc` — a simulator does not model metastability —
+while being intermittently wrong in silicon under conditions no test reproduces.
+
 ### The four critical warnings, resolved
 
 | # | Message | Verdict |
