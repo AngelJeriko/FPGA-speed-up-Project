@@ -46,7 +46,7 @@ Both currently pass. This is the only stage that costs nothing, so do not skip i
 On the build host, in Vivado:
 
 ```tcl
-source <repo>/synth/ooc/impl_bsw_top_vu47p.tcl
+source <repo>/synth/ooc/impl_bsw_top_f2.tcl
 ```
 
 Minutes, not hours. It places and routes `bsw_top` on the real VU47P at a 4.0 ns

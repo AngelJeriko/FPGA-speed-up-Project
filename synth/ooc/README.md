@@ -43,3 +43,46 @@ LUT, FF, RAMB36/18, URAM, DSP). If a module's Fmax is bad, also paste its
 - Baseline first (modules as-is), then I apply the registered-BRAM conversions and you
   re-run the same command → the delta is the win. Target order:
   `docs/synthesizability_worklist.md`.
+
+---
+
+## F2 scripts (current target) — both run without AWS, an F2, or any new licence
+
+| Script | Question it answers | Needs |
+|---|---|---|
+| `impl_bsw_top_f2.tcl` | Does `bsw_top` close **250 MHz**? (F2's `clk_main_a0` is fixed there) | a device; VU47P if you have it, else an UltraScale+ `-2` proxy |
+| `synth_cl_bsw_f2.tcl` | Does the whole CL wrapper **synthesise clean** — in particular, is anything **multiply driven**? | any device + an `aws-fpga` **f2** checkout (plain git clone) |
+
+### ⚠️ Your existing numbers fell back a whole fabric generation
+
+This README asks for an UltraScale+ proxy, but every committed report — including
+`bsw_top_impl_timing.rpt` and the 124.4 MHz figure — says `Device: 7v2000t`. The
+candidate list in `ooc_console.tcl` tries `xcku5p` and `xczu7ev` first and **fell
+through to Virtex-7**, which means those families are not installed in that Vivado.
+
+That matters now. Virtex-7 `-2` is a generation older than VU47P `-2`, and
+systematically pessimistic, so 124.4 MHz neither proves nor disproves 250 MHz on F2.
+A KU5P or ZU7EV at `-2` is the *same* UltraScale+ fabric at the *same* speed grade, so
+its Fmax actually predicts the F2 result. Check with:
+
+```tcl
+get_parts -quiet xcku5p*
+get_parts -quiet xczu7ev*
+```
+
+If those come back empty, it is usually a device-family **install** choice rather than a
+licence one — re-run the Vivado installer and pick "Add Design Tools or Devices". That
+one step is what turns `impl_bsw_top_f2.tcl` from a rough hint into a real answer.
+
+### Synthesising the CL wrapper
+
+`synth_cl_bsw_f2.tcl` closes a gap nothing else can. `scripts/f2/lint_cl_bsw.sh` proves
+the wrapper *elaborates* against the real Shell files, but a **multiply-driven net**
+lints 100% clean under Verilator even with `-Wall` — we proved that with a mutant rather
+than assuming it. Vivado catches it. Run this before any paid AWS build:
+
+```tcl
+set KIT C:/work/aws-fpga-f2
+source .../synth/ooc/synth_cl_bsw_f2.tcl
+set CDC 1 ; source .../synth/ooc/synth_cl_bsw_f2.tcl   ; # the two-clock build too
+```

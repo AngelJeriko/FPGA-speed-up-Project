@@ -17,7 +17,7 @@ the move; a new CL wrapper (`rtl/f2/cl_bsw_top.sv`) is written, lints against th
 F2 Shell files and passes the golden test 13/13. The immediate next action is a
 **timing measurement**: F2's `clk_main_a0` is fixed at 250 MHz, where F1 let us build at
 125 MHz, so `bsw_top` must be placed and routed on a real VU47P before anything else is
-built — `synth/ooc/impl_bsw_top_vu47p.tcl`, minutes. See
+built — `synth/ooc/impl_bsw_top_f2.tcl`, minutes. See
 [`docs/f2_bringup.md`](f2_bringup.md) and [`docs/f2_build_runbook.md`](f2_build_runbook.md).
 The F1 flow (`rtl/f1/`, `scripts/f1/`, `docs/f1_*`) is kept intact and still valid.
 
@@ -37,7 +37,7 @@ The F1 flow (`rtl/f1/`, `scripts/f1/`, `docs/f1_*`) is kept intact and still val
   against the real `cl_ports.vh` + tie-offs (`scripts/f2/lint_cl_bsw.sh`, 6 mutants
   checked), `tb_cl_bsw_ocl_f2` 13/13 score=5, staging script dry-run clean.
 - ⏳ **F2 timing unknown** — does `bsw_top` close 250 MHz on VU47P? Measure with
-  `synth/ooc/impl_bsw_top_vu47p.tcl` (minutes) before anything expensive.
+  `synth/ooc/impl_bsw_top_f2.tcl` (minutes) before anything expensive.
 - ✅ **Both clocking outcomes are implemented** — single clock domain by default, or
   `rtl/bsw_kernel_cdc.sv` (two-phase toggle handshake, quasi-static payload) to run the
   kernel on AWS_CLK_GEN `clk_extra_a1` at 125 MHz. `tb_bsw_axil_cdc` 23/23 against a

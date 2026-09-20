@@ -95,7 +95,7 @@ always_ff @(posedge clk_main_a0)
 // Defining BSW_KERNEL_CDC switches to the two-clock build: bsw_top moves off the
 // Shell's fixed 250 MHz clk_main_a0 and onto AWS_CLK_GEN's clk_extra_a1 (125 MHz on
 // clock recipe A1), behind bsw_kernel_cdc. Use it only if bsw_top does not close
-// 250 MHz on VU47P — measure with synth/ooc/impl_bsw_top_vu47p.tcl first, and stage
+// 250 MHz on VU47P — measure with synth/ooc/impl_bsw_top_f2.tcl first, and stage
 // with `scripts/f2/stage_cl_project.sh --clk-gen`, which defines this, installs
 // cl_timing_user_cdc.xdc and adds --aws_clk_gen --clock_recipe_a A1 to the build.
 `ifdef BSW_KERNEL_CDC

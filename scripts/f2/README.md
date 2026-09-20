@@ -12,7 +12,7 @@ Why the port looks the way it does: [`docs/f2_bringup.md`](../../docs/f2_bringup
 | Phase | Machine | Time | FPGA? | Script |
 |-------|---------|------|-------|--------|
 | 0. Structural lint of the CL against the real Shell files | this box | seconds | no | `lint_cl_bsw.sh` |
-| 1. **Timing decision**: does `bsw_top` close 250 MHz on VU47P? | cheap build host | minutes | no | `../../synth/ooc/impl_bsw_top_vu47p.tcl` |
+| 1. **Timing decision**: does `bsw_top` close 250 MHz on VU47P? | cheap build host | minutes | no | `../../synth/ooc/impl_bsw_top_f2.tcl` |
 | 2. Scaffold + synth + P&R + timing gate | cheap build host (FPGA Developer AMI) | hours | no | `stage_cl_project.sh` |
 | 3. DCP → AFI bake | AWS ingestion (no instance running) | ~1 hr | no | `hdk/scripts/create_afi.py` |
 | 4. Load AGFI + run golden test | `f2.6xlarge` | minutes | **yes** | `run_on_f2.sh` |

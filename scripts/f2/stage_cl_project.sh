@@ -257,7 +257,7 @@ if [[ $DO_CLKGEN -eq 1 ]]; then
   # clk_extra_a1 = 125 MHz. clk_main_a0 is fixed at 250 MHz either way.
   BUILD_ARGS+=( --aws_clk_gen --clock_recipe_a A1 )
   say "--clk-gen: recipe A1 gives clk_extra_a1 = 125 MHz; clk_main_a0 stays 250 MHz."
-  warn "Only use this if synth/ooc/impl_bsw_top_vu47p.tcl showed bsw_top MISSING 250 MHz."
+  warn "Only use this if synth/ooc/impl_bsw_top_f2.tcl showed bsw_top MISSING 250 MHz."
   warn "The single-clock build is simpler and needs no recipe flags at all."
 fi
 

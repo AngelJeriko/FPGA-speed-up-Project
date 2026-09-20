@@ -13,7 +13,7 @@
 // It is a DROP-IN REPLACEMENT for bsw_top: same ports, same handshake semantics, plus
 // a second clock/reset pair. bsw_axil_regs picks between the two with its KERNEL_CDC
 // parameter, so the single-clock path stays bit-identical to what F1 shipped.
-// Whether we need it is decided by synth/ooc/impl_bsw_top_vu47p.tcl.
+// Whether we need it is decided by synth/ooc/impl_bsw_top_f2.tcl.
 //
 // ------------------------------- HOW IT CROSSES -------------------------------
 // A two-phase (toggle) request/acknowledge handshake with quasi-static payload — the

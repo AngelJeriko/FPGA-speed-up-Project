@@ -41,7 +41,7 @@ synchronous to it. So the F2 design is one of two shapes:
 
 **We do not yet know which.** The only hard timing datum is 124.4 MHz on a Virtex-7 `-2`
 proxy (`docs/synth_ooc_results.md`) — a far slower fabric than UltraScale+, so it does
-not settle the question either way. `synth/ooc/impl_bsw_top_vu47p.tcl` measures the real
+not settle the question either way. `synth/ooc/impl_bsw_top_f2.tcl` measures the real
 part in minutes and prints which path to take. Run it before the multi-hour DCP build.
 
 **Both paths are now built and verified**, so the measurement selects a path rather than
