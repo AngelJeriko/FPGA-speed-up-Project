@@ -25,9 +25,9 @@
 #
 # F2 NOTES (vs the F1 script):
 #   * The runtime API is UNCHANGED. The F2 SDK still ships fpga_pci.h / fpga_mgmt.h and
-#     the fpga-load-local-image / fpga-describe-local-image CLI, so host/f1/test_bsw.c
+#     the fpga-load-local-image / fpga-describe-local-image CLI, so host/test_bsw.c
 #     compiles and runs here verbatim — it is pure OCL peek/poke and knows nothing about
-#     the shell. It stays under host/f1/ so the F1 runbook keeps working; there is no
+#     the shell. It stays under host/ so the F1 runbook keeps working; there is no
 #     separate F2 copy to drift out of sync.
 #   * The smallest F2 instance is f2.6xlarge (1 FPGA, 24 vCPU). There is no 2xlarge.
 #   * An F1 AFI will NOT load here: different device (VU47P vs VU9P) and different shell.
@@ -60,7 +60,7 @@ done
 say(){ printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 die(){ printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
-HOST_DIR="$REPO/host/f1"
+HOST_DIR="$REPO/host"
 [[ -f "$HOST_DIR/test_bsw.c" ]] || die "test_bsw.c not found at $HOST_DIR (pass --repo <path>)."
 [[ -n "${SDK_DIR:-}" ]] || die "SDK_DIR not set — run 'source sdk_setup.sh' first."
 command -v fpga-load-local-image >/dev/null 2>&1 || die "fpga-load-local-image not on PATH — are you on an F2 with the SDK sourced?"

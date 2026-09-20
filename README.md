@@ -41,8 +41,9 @@ bit-exact to software:
   (F1 let us build at 125), so `bsw_top` must be placed and routed on a real VU47P
   before anything else — see [`docs/f2_bringup.md`](docs/f2_bringup.md) and
   [`docs/f2_build_runbook.md`](docs/f2_build_runbook.md).
-- **F1 bring-up (kept, still valid):** the OCL AXI-Lite wrapper (`rtl/f1/cl_bsw_top.sv`)
-  + host (`host/f1/test_bsw.c`) are built and verified —
+- **F1 bring-up (superseded, kept as reference):** the OCL AXI-Lite wrapper
+  (`rtl/f1/cl_bsw_top.sv`) was built and verified to the same 13/13 golden, and the
+  2.4 → 125 MHz timing campaign behind it still stands —
   [`docs/f1_build_runbook.md`](docs/f1_build_runbook.md).
 
 ## Architecture (banded SW core)
@@ -75,11 +76,12 @@ module inventory.
 ## Repository layout
 
 ```
-rtl/            46 SystemVerilog files — the compute engines, plus the CL wrappers
-                (rtl/f1/ for F1/VU9P, rtl/f2/ for F2/VU47P — the current target)
+rtl/            46 SystemVerilog files — the compute engines, plus bsw_axil_regs.sv
+                (shell-agnostic AXI-Lite front end, shared) and the two CL wrappers:
+                rtl/f2/ for F2/VU47P (current target), rtl/f1/ for F1/VU9P (superseded)
 tb/             42 self-checking testbenches (Verilator)
 host/           C++ golden models + vector generators (host/integration.md);
-                host/f1/test_bsw.c is the F1 host app
+                host/test_bsw.c is the on-FPGA host app (shared by F2 and F1)
 synth/ooc/      out-of-context synthesis/timing harness (synth/ooc/README.md)
 scripts/        run_sim.sh (Verilator runner), cl_bsw_files{,_f2}.f (CL source lists),
                 f1/ and f2/ AWS build helpers (f2/lint_cl_bsw.sh checks the CL against
@@ -94,8 +96,8 @@ Requires Verilator ≥5.0 and a C++ toolchain (see [`REQUIREMENTS.md`](REQUIREME
 
 ```bash
 bash scripts/run_sim.sh tb_bsw_top       # -> "... 0 errors" + "PASS"; ACGT/ACGT score=5
-bash scripts/run_sim.sh tb_cl_bsw_ocl    # F1 OCL wrapper: 13/13, score=5
-bash scripts/run_sim.sh tb_cl_bsw_ocl_f2 # F2 OCL wrapper: 13/13, score=5
+bash scripts/run_sim.sh tb_cl_bsw_ocl_f2 # F2 OCL wrapper (current): 13/13, score=5
+bash scripts/run_sim.sh tb_cl_bsw_ocl    # F1 OCL wrapper (superseded): 13/13, score=5
 ```
 Each build lands under `/tmp/bsw/obj_<tb>/` (override with `BSW_BUILD_DIR=...`).
 **CI note:** testbenches report pass/fail on their printed summary line and end on

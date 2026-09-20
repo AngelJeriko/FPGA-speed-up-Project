@@ -101,7 +101,7 @@ verilator --lint-only -sv --top-module cl_bsw_top \
   "$ROOT/rtl/bsw_max_tracker.sv" \
   "$ROOT/rtl/bsw_ctrl_fsm.sv" \
   "$ROOT/rtl/bsw_top.sv" \
-  "$ROOT/rtl/f1/bsw_axil_regs.sv" \
+  "$ROOT/rtl/bsw_axil_regs.sv" \
   "$ROOT/rtl/f2/cl_bsw_top.sv" \
   "$ROOT/tb/f2/axi_register_slice_light_stub.sv" \
   "$DDRDIR/sh_ddr.stub.sv" \

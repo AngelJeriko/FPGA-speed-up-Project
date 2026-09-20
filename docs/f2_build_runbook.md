@@ -165,7 +165,7 @@ GOLDEN OK (ACGT/ACGT -> score=5)
 ```
 
 Then **terminate the instance**. The runtime API is unchanged from F1 — the F2 SDK still
-ships `fpga_pci.h`/`fpga_mgmt.h` and `fpga-load-local-image` — so `host/f1/test_bsw.c`
+ships `fpga_pci.h`/`fpga_mgmt.h` and `fpga-load-local-image` — so `host/test_bsw.c`
 is reused verbatim.
 
 ---

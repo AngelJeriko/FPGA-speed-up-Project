@@ -39,7 +39,7 @@ The F1 flow (`rtl/f1/`, `scripts/f1/`, `docs/f1_*`) is kept intact and still val
 - ⏳ **F2 timing unknown** — does `bsw_top` close 250 MHz on VU47P? Decides whether a
   CDC to `clk_extra_a1` (125 MHz) is needed. Measure first, build second.
 - ✅ **F1 bring-up rungs A / B1 / B2 done & verified** — `bsw_axil_regs` (13/13),
-  `cl_bsw_top` wrapper (`tb_cl_bsw_ocl` 13/13, score=5), `host/f1/test_bsw.c`
+  `cl_bsw_top` wrapper (`tb_cl_bsw_ocl` 13/13, score=5), `host/test_bsw.c`
   (host↔RTL contract cross-checked).
 - ✅ **Build tooling ready** — exact source list (`scripts/cl_bsw_files.f`),
   step-by-step runbook (`docs/f1_build_runbook.md`), clock recipe corrected to A0
@@ -114,7 +114,7 @@ timing (§4).
 | `cl_bsw_top` | AWS F1 Custom Logic wrapper: connects `bsw_axil_regs` to the Shell's OCL AXI4-Lite port, ties off all unused Shell interfaces (DDR/PCIS/DMA/IRQ). |
 
 ### Host + build glue
-- `host/f1/test_bsw.c` — `fpga_pci` host app; pokes the registers, checks
+- `host/test_bsw.c` — `fpga_pci` host app; pokes the registers, checks
   `ACGT/ACGT → score=5`.
 - `scripts/cl_bsw_files.f` — the exact 9-file ordered source list for the CL build.
 - `scripts/run_sim.sh` — Verilator sim runner (`bash scripts/run_sim.sh <tb>`).
@@ -184,7 +184,7 @@ AWS account, FPGA Developer AMI/Vivado, HDK, S3, an F1 instance). Steps + roadbl
 Status of the bring-up rungs:
 - Rung A (`bsw_axil_regs` + tb) — ✅ done, 13/13.
 - Rung B1 (`cl_bsw_top` + `tb_cl_bsw_ocl`) — ✅ done, 13/13, score=5.
-- Rung B2 (`host/f1/test_bsw.c`) — ✅ done, contract cross-checked.
+- Rung B2 (`host/test_bsw.c`) — ✅ done, contract cross-checked.
 - **Rung B3/B4 (AWS build → AFI → run) — ⏳ pending, user-side.**
 
 ### To reach the full-mapper vision (larger, still open)

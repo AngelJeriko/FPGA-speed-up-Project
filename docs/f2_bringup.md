@@ -10,9 +10,17 @@ Everything here was checked against a real checkout of the `f2` branch of
 
 `bsw_pkg`, `bsw_score_matrix`, `bsw_pe`, `bsw_systolic_array`, `bsw_max_tracker`,
 `bsw_ctrl_fsm`, `bsw_top` and `bsw_axil_regs` are all **untouched**. `bsw_axil_regs` is
-shell-agnostic — a plain AXI4-Lite slave — so it is shared between the F1 and F2 flows
-and still lives at `rtl/f1/bsw_axil_regs.sv`. Only the CL wrapper is new:
-`rtl/f2/cl_bsw_top.sv`, plus `cl_bsw_defines.vh` and `cl_id_defines.vh` beside it.
+shell-agnostic — a plain AXI4-Lite slave — so it is **shared** by both CL wrappers. It
+moved out of the `f1/` namespace to `rtl/bsw_axil_regs.sv` on 2026-09-20, together with
+`host/f1/test_bsw.c` → `host/test_bsw.c`, because filing them under `f1/` made them look
+F1-specific and made `rtl/f1/` look safe to delete — deleting it would have broken the
+**F2** build. Only the CL wrapper itself is new: `rtl/f2/cl_bsw_top.sv`, plus
+`cl_bsw_defines.vh` and `cl_id_defines.vh` beside it.
+
+The F1 path (`rtl/f1/cl_bsw_top.sv`, `scripts/f1/`, `docs/f1_*.md`,
+`scripts/cl_bsw_files.f`) is kept and banner-marked **SUPERSEDED**: it is a verified
+reference implementation and carries the 2.4 → 125 MHz timing history, but it will not
+be re-tested against hardware.
 
 ## The one real engineering problem: the clock
 

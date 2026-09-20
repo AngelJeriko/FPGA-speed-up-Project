@@ -1,11 +1,17 @@
 # AWS F1 bring-up (board-bringup branch)
 
+> **SUPERSEDED — F1 / VU9P bring-up path. The project's target moved to AWS F2 / Virtex UltraScale+ HBM VU47P on 2026-09-20.**
+>
+> Live equivalent: [`docs/f2_bringup.md`](f2_bringup.md).
+>
+> Kept deliberately: it is a verified reference implementation (rungs A/B1/B2 complete, tb_cl_bsw_ocl 13/13 score=5) and the record of the 2.4 -> 125 MHz timing campaign. It will NOT be re-tested against hardware, so treat it as frozen. NOTE that bsw_axil_regs.sv and test_bsw.c are NOT part of this path — they are shell-agnostic, shared with F2, and now live at rtl/bsw_axil_regs.sv and host/test_bsw.c.
+
 Goal: get **one kernel running on a real F1 (VU9P) FPGA** through the smallest
 possible path, disregarding speedup. This is the plumbing track; it runs in
 parallel with the timing track on `main`.
 
 > **Status update (2026-08-06):** the board-bringup work described here is **now merged
-> into `main`** (Track B files `rtl/f1/*.sv`, `host/f1/test_bsw.c`, `scripts/cl_bsw_files.f`).
+> into `main`** (Track B files `rtl/f1/*.sv`, `host/test_bsw.c`, `scripts/cl_bsw_files.f`).
 > The historical text below is kept for context; see `docs/project_status.md` for the
 > current state and `docs/f1_build_runbook.md` for the build steps.
 
@@ -24,7 +30,7 @@ test. Build flow:
 
 | File | Role | Status |
 |------|------|--------|
-| `rtl/f1/bsw_axil_regs.sv` | AXI4-Lite register file wrapping `bsw_top` | ✅ built |
+| `rtl/bsw_axil_regs.sv` | AXI4-Lite register file wrapping `bsw_top` | ✅ built |
 | `tb/tb_bsw_axil.sv` | Verilator tb: drives AXI-Lite, checks vs a bare `bsw_top` | ✅ 13/13 pass |
 
 `bsw_axil_regs` marshals a query/target/config written over AXI-Lite into
@@ -60,7 +66,7 @@ detail, and `docs/f1_build_runbook.md` for the step-by-step build.
 1. ✅ **`cl_bsw_top.sv`** — the CL wrapper (OCL AXI4-Lite → `bsw_axil_regs`, all unused
    Shell IFs tied off via the `cl_hello_world` template). Verified: `tb_cl_bsw_ocl`
    13/13, score=5.
-2. ✅ **Host app** (`host/f1/test_bsw.c`) — `fpga_pci` peek/poke; host↔RTL contract
+2. ✅ **Host app** (`host/test_bsw.c`) — `fpga_pci` peek/poke; host↔RTL contract
    cross-checked; built-in `score=5` golden self-check.
 3. ⏳ **Build harness** — `aws_build_dcp_from_cl.sh -clock_recipe_a A0` → AFI. Steps +
    roadblocks in `docs/f1_build_runbook.md`. **Needs your AWS account + FPGA Developer
@@ -85,7 +91,7 @@ CDC.)
   Verified: `tb_cl_bsw_ocl` drives the exact OCL port set (sh_ocl_*/ocl_sh_*), DUT vs bare
   bsw_top REF → **13/13, ACGT/ACGT→score=5**. (`+define+CL_BSW_LINT` gives a self-contained
   OCL port list so the glue sims without the HDK; the real build uses the HDK includes.)
-- **B2 DONE — `host/f1/test_bsw.c`**: `fpga_pci` peek/poke host. Marshals query/target/config
+- **B2 DONE — `host/test_bsw.c`**: `fpga_pci` peek/poke host. Marshals query/target/config
   into the 32-bit word registers (layout mirrors bsw_axil_regs + bsw_pkg packed structs, and
   was round-trip-checked in C against the RTL bit ranges), pulses GO, polls STATUS, reads the
   result. Built-in golden self-check: ACGT/ACGT must return **score=5**.

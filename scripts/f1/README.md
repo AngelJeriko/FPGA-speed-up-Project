@@ -1,5 +1,11 @@
 # `scripts/f1/` — AWS F1 build helpers
 
+> **SUPERSEDED — F1 / VU9P bring-up path. The project's target moved to AWS F2 / Virtex UltraScale+ HBM VU47P on 2026-09-20.**
+>
+> Live equivalent: [`scripts/f2/`](../f2/README.md).
+>
+> Kept deliberately: it is a verified reference implementation (rungs A/B1/B2 complete, tb_cl_bsw_ocl 13/13 score=5) and the record of the 2.4 -> 125 MHz timing campaign. It will NOT be re-tested against hardware, so treat it as frozen. NOTE that bsw_axil_regs.sv and test_bsw.c are NOT part of this path — they are shell-agnostic, shared with F2, and now live at rtl/bsw_axil_regs.sv and host/test_bsw.c.
+
 Two scripts that make the F1 bring-up mechanical, structured around one principle:
 **the f1.2xlarge is billed per hour and is needed for only the final minutes.**
 Everything else runs on a cheap non-F1 build host or on AWS's async ingestion

@@ -34,7 +34,7 @@ sandbox — timing numbers come from a local Vivado install.
 | AWS **FPGA Developer AMI** | Ships a licensed Vivado matched to the HDK. Do **not** use an arbitrary local Vivado — the HDK pins specific versions. |
 | `aws-fpga` HDK | F1 release tag **v1.4.25** (the last F1 line; `master` is now F2-only). `source hdk_setup.sh`. |
 | AWS CLI + S3 bucket | For `create-fpga-image` (DCP → AFI). |
-| `f1.2xlarge` instance | To load the AFI and run `host/f1/test_bsw.c` (built with `-lfpga_mgmt`). |
+| `f1.2xlarge` instance | To load the AFI and run `host/test_bsw.c` (built with `-lfpga_mgmt`). |
 
 Full steps + roadblocks: [`docs/f1_build_runbook.md`](docs/f1_build_runbook.md).
 Clock recipe **A0 = 125 MHz** `clk_main_a0` (verified against `aws-fpga/hdk/docs/clock_recipes.csv`).

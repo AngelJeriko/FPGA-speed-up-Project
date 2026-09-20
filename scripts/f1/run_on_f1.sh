@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# ========================================================================
+# SUPERSEDED — F1 / VU9P bring-up path. The project's target moved to AWS F2 /
+# Virtex UltraScale+ HBM VU47P on 2026-09-20. Live equivalent:
+# scripts/f2/run_on_f2.sh. Kept deliberately: it is a verified reference
+# implementation (rungs A/B1/B2 complete, tb_cl_bsw_ocl 13/13 score=5) and the
+# record of the 2.4 -> 125 MHz timing campaign. It will NOT be re-tested
+# against hardware, so treat it as frozen. NOTE that bsw_axil_regs.sv and
+# test_bsw.c are NOT part of this path — they are shell-agnostic, shared with
+# F2, and now live at rtl/bsw_axil_regs.sv and host/test_bsw.c.
+# ========================================================================
 # run_on_f1.sh — Step 8 of docs/f1_build_runbook.md as one command.
 #
 # RUNS ON: the f1.2xlarge, AFTER `source sdk_setup.sh`. This is the ONLY step that
@@ -46,7 +56,7 @@ done
 say(){ printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 die(){ printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
-HOST_DIR="$REPO/host/f1"
+HOST_DIR="$REPO/host"
 [[ -f "$HOST_DIR/test_bsw.c" ]] || die "test_bsw.c not found at $HOST_DIR (pass --repo <path>)."
 [[ -n "${SDK_DIR:-}" ]] || die "SDK_DIR not set — run 'source sdk_setup.sh' first."
 command -v fpga-load-local-image >/dev/null 2>&1 || die "fpga-load-local-image not on PATH — are you on an F1 with the SDK sourced?"

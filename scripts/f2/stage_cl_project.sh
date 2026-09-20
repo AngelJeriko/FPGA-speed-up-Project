@@ -62,7 +62,7 @@ FILES=(
   rtl/bsw_max_tracker.sv
   rtl/bsw_ctrl_fsm.sv
   rtl/bsw_top.sv
-  rtl/f1/bsw_axil_regs.sv
+  rtl/bsw_axil_regs.sv
   rtl/f2/cl_bsw_top.sv
 )
 HEADERS=( rtl/f2/cl_bsw_defines.vh rtl/f2/cl_id_defines.vh )

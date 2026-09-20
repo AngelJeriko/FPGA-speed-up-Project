@@ -37,5 +37,5 @@ rtl/bsw_top.sv
 
 // ---- CL wrapper (bsw_axil_regs before the top that instantiates it) ----
 // bsw_axil_regs is shared with the F1 flow and is shell-agnostic; only the top differs.
-rtl/f1/bsw_axil_regs.sv
+rtl/bsw_axil_regs.sv
 rtl/f2/cl_bsw_top.sv

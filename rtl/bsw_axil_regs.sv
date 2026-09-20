@@ -1,11 +1,18 @@
 // bsw_axil_regs.sv  (board-bringup track)
 // -----------------------------------------------------------------------------
-// AXI4-Lite register-file wrapper around bsw_top, for AWS F1 minimal bring-up.
+// AXI4-Lite register-file wrapper around bsw_top — the minimal way to drive the
+// kernel from a host.
 //
-// The host (via the F1 Shell OCL/AppPF BAR) writes the query, target and config
+// SHELL-AGNOSTIC AND SHARED. This module knows nothing about any particular AWS
+// shell: it is a plain AXI4-Lite slave. BOTH CL wrappers instantiate it —
+// rtl/f2/cl_bsw_top.sv (F2 / VU47P, the current target) and rtl/f1/cl_bsw_top.sv
+// (F1 / VU9P, superseded). It lived under rtl/f1/ until 2026-09-20, which made it
+// look F1-specific and made rtl/f1/ look safe to delete; it is not.
+//
+// The host (via the Shell's OCL/AppPF BAR) writes the query, target and config
 // into buffers, pulses a GO bit, polls STATUS.done, then reads the result back.
 // NO DDR4 / no PCIe DMA -- everything crosses the AXI4-Lite control port, so this
-// is the smallest thing that runs bsw_top on real F1 silicon.
+// is the smallest thing that runs bsw_top on real silicon.
 //
 // This module is plain, portable SystemVerilog: it is Verilator-verifiable
 // (tb_bsw_axil drives the AXI-Lite channels and checks the result bit-exact vs

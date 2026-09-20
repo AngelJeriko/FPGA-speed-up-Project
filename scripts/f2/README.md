@@ -74,7 +74,7 @@ Expected: `GOLDEN OK (ACGT/ACGT -> score=5)`. Then terminate the instance.
   identical (`cl_bsw_top`). The build script derives the CL name from `$CL_DIR` and
   synth runs `-top ${CL}`. `stage_cl_project.sh` checks all three up front.
 - An F1 AFI will not load on F2 — different device (VU47P vs VU9P) and different shell.
-- `host/f1/test_bsw.c` is reused verbatim: the F2 SDK still ships `fpga_pci.h` /
+- `host/test_bsw.c` is reused verbatim: the F2 SDK still ships `fpga_pci.h` /
   `fpga_mgmt.h` and the same `fpga-load-local-image` CLI, and the test is pure OCL
-  peek/poke. It stays under `host/f1/` so the F1 runbook keeps working.
+  peek/poke. It stays under `host/` so the F1 runbook keeps working.
 - `--help` on either script lists all options.

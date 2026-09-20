@@ -1,5 +1,11 @@
 # F1 `cl_bsw_top` Build Runbook
 
+> **SUPERSEDED — F1 / VU9P bring-up path. The project's target moved to AWS F2 / Virtex UltraScale+ HBM VU47P on 2026-09-20.**
+>
+> Live equivalent: [`docs/f2_build_runbook.md`](f2_build_runbook.md).
+>
+> Kept deliberately: it is a verified reference implementation (rungs A/B1/B2 complete, tb_cl_bsw_ocl 13/13 score=5) and the record of the 2.4 -> 125 MHz timing campaign. It will NOT be re-tested against hardware, so treat it as frozen. NOTE that bsw_axil_regs.sv and test_bsw.c are NOT part of this path — they are shell-agnostic, shared with F2, and now live at rtl/bsw_axil_regs.sv and host/test_bsw.c.
+
 A step-by-step guide to turn the verified `cl_bsw_top` RTL into a running AFI on a
 real AWS F1 (VU9P) instance. Each step lists the **action**, **alternatives /
 options**, and the **roadblocks** most likely to bite, with fixes.
@@ -9,7 +15,7 @@ sandbox — it needs a licensed Vivado (via the FPGA Developer AMI), the `aws-fp
 HDK, an S3 bucket, and an `f1.2xlarge` to load onto.
 
 - **Repo HEAD referenced:** `main` (Track B files: `rtl/f1/cl_bsw_top.sv`,
-  `rtl/f1/bsw_axil_regs.sv`, `scripts/cl_bsw_files.f`, `host/f1/test_bsw.c`).
+  `rtl/bsw_axil_regs.sv`, `scripts/cl_bsw_files.f`, `host/test_bsw.c`).
 - **Goal of this build:** the smallest thing that runs `bsw_top` on real silicon —
   a control-only (OCL AXI4-Lite) kernel, no DDR4, no PCIe DMA. Success = the host
   prints `GOLDEN OK (ACGT/ACGT -> score=5)`.
@@ -112,7 +118,7 @@ rtl/bsw_systolic_array.sv
 rtl/bsw_max_tracker.sv
 rtl/bsw_ctrl_fsm.sv
 rtl/bsw_top.sv
-rtl/f1/bsw_axil_regs.sv
+rtl/bsw_axil_regs.sv
 rtl/f1/cl_bsw_top.sv
 ```
 `+incdir` : `rtl  rtl/f1` (prepend `design/` if you flattened into `$CL_DIR/design`).
@@ -254,7 +260,7 @@ On an **`f1.2xlarge`** (with `source sdk_setup.sh` done):
 sudo fpga-load-local-image -S 0 -I <agfi-...>
 sudo fpga-describe-local-image -S 0            # confirm "loaded" + your AGFI
 
-cd <repo>/host/f1
+cd <repo>/host
 gcc -I$SDK_DIR/userspace/include test_bsw.c -o test_bsw -lfpga_mgmt
 sudo ./test_bsw
 # expect:  GOLDEN OK (ACGT/ACGT -> score=5)

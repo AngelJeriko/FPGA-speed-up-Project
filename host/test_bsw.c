@@ -1,11 +1,17 @@
-// test_bsw.c — AWS F1 host for the BSW kernel (cl_bsw_top / bsw_axil_regs over OCL).
+// test_bsw.c — AWS host for the BSW kernel (cl_bsw_top / bsw_axil_regs over OCL).
+//
+// SHELL-AGNOSTIC AND SHARED between the F2 and F1 flows. It is pure OCL peek/poke
+// through fpga_pci, and the F2 SDK still ships the same fpga_pci.h / fpga_mgmt.h and
+// the same fpga-load-local-image CLI, so the identical source runs on both. Driven by
+// scripts/f2/run_on_f2.sh (current target) and scripts/f1/run_on_f1.sh (superseded).
+// It lived under host/f1/ until 2026-09-20, which misrepresented it as F1-only.
 //
 // Peeks/pokes the OCL AXI4-Lite BAR (APP_PF, BAR0) — no DDR, no DMA. Marshals a
 // query/target/config into the kernel's 32-bit word registers, pulses GO, polls
-// STATUS, reads back the result. Register map + word layout mirror rtl/f1/bsw_axil_regs.sv
+// STATUS, reads back the result. Register map + word layout mirror rtl/bsw_axil_regs.sv
 // and the packed structs in rtl/bsw_pkg.sv (verified in sim by tb_cl_bsw_ocl / tb_bsw_axil).
 //
-// Build on an F1 instance (aws-fpga sourced):
+// Build on the FPGA instance (aws-fpga sourced):
 //   gcc -I$SDK_DIR/userspace/include test_bsw.c -o test_bsw -lfpga_mgmt
 // Run (after fpga-load-local-image -S 0 -I <agfi>):
 //   sudo ./test_bsw

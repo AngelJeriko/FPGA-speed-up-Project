@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# ========================================================================
+# SUPERSEDED — F1 / VU9P bring-up path. The project's target moved to AWS F2 /
+# Virtex UltraScale+ HBM VU47P on 2026-09-20. Live equivalent:
+# scripts/f2/stage_cl_project.sh. Kept deliberately: it is a verified
+# reference implementation (rungs A/B1/B2 complete, tb_cl_bsw_ocl 13/13
+# score=5) and the record of the 2.4 -> 125 MHz timing campaign. It will NOT
+# be re-tested against hardware, so treat it as frozen. NOTE that
+# bsw_axil_regs.sv and test_bsw.c are NOT part of this path — they are shell-
+# agnostic, shared with F2, and now live at rtl/bsw_axil_regs.sv and
+# host/test_bsw.c.
+# ========================================================================
 # stage_cl_project.sh — turn Steps 2–5 of docs/f1_build_runbook.md into one command.
 #
 # RUNS ON: the (cheap, non-F1) build host, AFTER `source hdk_setup.sh`.
@@ -62,7 +73,7 @@ FILES=(
   rtl/bsw_max_tracker.sv
   rtl/bsw_ctrl_fsm.sv
   rtl/bsw_top.sv
-  rtl/f1/bsw_axil_regs.sv
+  rtl/bsw_axil_regs.sv
   rtl/f1/cl_bsw_top.sv
 )
 
