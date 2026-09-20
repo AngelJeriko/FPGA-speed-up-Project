@@ -67,7 +67,10 @@ if {![file exists $ifdir/cl_ports.vh]} {
 }
 # Same guard the shell scripts use: an F1 (master-branch) HDK would elaborate into
 # something subtly wrong rather than failing outright.
-if {[lsearch -regexp [split [read [open $ifdir/cl_ports.vh r]] "\n"] {ocl_cl_awaddr}] < 0} {
+set fh [open $ifdir/cl_ports.vh r]
+set cl_ports_txt [read $fh]
+close $fh
+if {[lsearch -regexp [split $cl_ports_txt "\n"] {ocl_cl_awaddr}] < 0} {
   puts "ERROR: $ifdir/cl_ports.vh has no ocl_cl_* signals."
   puts "       That is an F1 (master-branch) HDK, not the f2 branch."
   return
@@ -126,6 +129,18 @@ foreach f $srcs { read_verilog -sv $f }
 set defines {}
 if {$cdc} { set defines {BSW_KERNEL_CDC} }
 
+# ---- THE ACTUAL CHECK ---------------------------------------------------------
+# Vivado reports a multiply-driven net as WARNING [Synth 8-3352] and keeps going: the
+# run "succeeds" while producing a broken netlist, which is exactly how such a fault
+# reaches an AFI. Escalate it to an ERROR so synth_design STOPS instead. This is the
+# whole point of the script, so make it impossible to miss rather than something you
+# have to spot while scrolling a log.
+set_msg_config -id {Synth 8-3352} -new_severity ERROR
+
+# A net with no driver at all is usually benign here (unused Shell inputs), so it is
+# promoted only as far as CRITICAL WARNING - visible in the summary, not fatal.
+set_msg_config -id {Synth 8-3848} -new_severity {CRITICAL WARNING}
+
 # -include_dirs gives `include "cl_ports.vh"` and the unused_*_template.inc files a
 # search path; rtl/ and rtl/f2/ resolve bsw_pkg.sv and cl_bsw_defines.vh.
 if {[llength $defines]} {
@@ -139,34 +154,28 @@ if {[llength $defines]} {
 set tag [expr {$cdc ? "cdc" : "single"}]
 report_utilization -file $out/cl_bsw_top_${tag}_util.rpt
 
-# ---- THE ACTUAL CHECK: multiply-driven nets ---------------------------------
-# Vivado flags these during elaboration/synthesis as [Synth 8-3352] and friends. They
-# are WARNINGS, not errors, so the run "succeeds" while producing a broken netlist —
-# which is exactly how one of these reaches an AFI. Count them explicitly.
-set md [get_nets -quiet -hier -filter {TYPE == SIGNAL}]
-set multi {}
-foreach n $md {
-  if {[llength [get_pins -quiet -of_objects $n -filter {DIRECTION == OUT}]] > 1} {
-    lappend multi $n
-  }
-}
+# ---- verdict -----------------------------------------------------------------
+# Getting here at all means synth_design did not error, i.e. [Synth 8-3352] never fired.
+# (The earlier version of this script walked every hierarchical net calling get_pins per
+# net. On a ~71K-LUT design that is hundreds of thousands of Tcl round-trips and can run
+# for hours - the message-severity approach asks the tool the same question in zero time.)
+set crit [get_msg_config -count -severity {CRITICAL WARNING}]
+set warn [get_msg_config -count -severity {WARNING}]
 
 puts ""
 puts "#############################################################"
 puts "### cl_bsw_top synthesised on $part  (mode: $tag)"
-puts "### Multiply-driven nets found: [llength $multi]"
-if {[llength $multi] > 0} {
-  puts "### >>> FAIL — this is the fault class Verilator cannot see. First 20:"
-  foreach n [lrange $multi 0 19] { puts "###     $n" }
-  puts "### Check the tie-off include list in rtl/f2/cl_bsw_top.sv."
-} else {
-  puts "### >>> PASS — nothing multiply driven."
-}
+puts "### >>> PASS - no multiply-driven nets."
+puts "###     Synth 8-3352 was escalated to ERROR before synthesis, so reaching"
+puts "###     this line IS the result. That is the fault class Verilator cannot see."
 puts "###"
-puts "### ALSO SCAN THE LOG for these, which are warnings rather than errors and so"
-puts "### do not stop the run:"
-puts "###     Synth 8-3352   multi-driven net"
-puts "###     Synth 8-3848   net has no driver / undriven"
-puts "###     Synth 8-6014   unused sequential element (a whole block optimised away)"
+puts "### Critical warnings: $crit      Warnings: $warn"
+puts "### Worth a look in the log even on a pass:"
+puts "###     Synth 8-3848   net has no driver          (promoted to CRITICAL WARNING)"
+puts "###     Synth 8-6014   unused sequential element  (a whole block optimised away)"
+puts "###     Synth 8-3331   design has unconnected port"
 puts "### Utilisation: $out/cl_bsw_top_${tag}_util.rpt"
+puts "###"
+puts "### NOTE: this is out-of-context with stubs for AWS IP - the TIMING numbers from"
+puts "### this run are meaningless. Use synth/ooc/impl_bsw_top_f2.tcl for timing."
 puts "#############################################################"

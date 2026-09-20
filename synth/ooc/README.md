@@ -86,3 +86,19 @@ set KIT C:/work/aws-fpga-f2
 source .../synth/ooc/synth_cl_bsw_f2.tcl
 set CDC 1 ; source .../synth/ooc/synth_cl_bsw_f2.tcl   ; # the two-clock build too
 ```
+
+### Checking these scripts without Vivado
+
+`dryrun_tcl.tcl` stubs the Vivado command set and sources a script under plain `tclsh`,
+so control-flow bugs surface here instead of on your machine:
+
+```bash
+tclsh synth/ooc/dryrun_tcl.tcl ~/aws-fpga-f2 synth/ooc/synth_cl_bsw_f2.tcl     # single-clock
+tclsh synth/ooc/dryrun_tcl.tcl ~/aws-fpga-f2 synth/ooc/synth_cl_bsw_f2.tcl 1   # two-clock
+tclsh synth/ooc/dryrun_tcl.tcl ~/aws-fpga-f2 synth/ooc/impl_bsw_top_f2.tcl     # timing
+```
+
+It simulates the interesting case by default — `xcvu47p` **absent**, so the proxy
+fallback has to work — and `set WNS <n>` first to exercise the verdict branches. It
+verifies that the script reaches the Vivado calls with the arguments you meant; it does
+not verify the Vivado commands themselves.
