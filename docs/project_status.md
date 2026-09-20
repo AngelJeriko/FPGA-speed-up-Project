@@ -11,11 +11,15 @@ Last updated: 2026-08-06. Authoritative sources for detail are cited inline
 
 ## 0. Where we are right now (2026-08-06)
 
-**Current phase:** F1 bring-up + full-design timing closure, both waiting on
-user-side AWS jobs. The compute RTL is done and sim-verified; `bsw_top` meets the
-125 MHz F1 target in real P&R; the full pipeline is at 115.6 MHz and climbing. The
-immediate next action is entirely user-side: run the `cl_bsw_top` AWS build
-(`docs/f1_build_runbook.md`) to put `bsw_top` on real VU9P silicon.
+**Current phase:** **F2 bring-up** (target moved from f1.2xlarge/VU9P to
+**f2.6xlarge / VU47P**) + full-design timing closure. The compute RTL is unchanged by
+the move; a new CL wrapper (`rtl/f2/cl_bsw_top.sv`) is written, lints against the real
+F2 Shell files and passes the golden test 13/13. The immediate next action is a
+**timing measurement**: F2's `clk_main_a0` is fixed at 250 MHz, where F1 let us build at
+125 MHz, so `bsw_top` must be placed and routed on a real VU47P before anything else is
+built — `synth/ooc/impl_bsw_top_vu47p.tcl`, minutes. See
+[`docs/f2_bringup.md`](f2_bringup.md) and [`docs/f2_build_runbook.md`](f2_build_runbook.md).
+The F1 flow (`rtl/f1/`, `scripts/f1/`, `docs/f1_*`) is kept intact and still valid.
 
 ### Milestones reached
 - ✅ **Profiling + strategy set** — measured that SWA is ~6.5% (not the bottleneck),
@@ -29,6 +33,11 @@ immediate next action is entirely user-side: run the `cl_bsw_top` AWS build
   VU9P clears with margin). Green-lit for the AWS build.
 - ✅ **Timing: full design 106.8 → 105.7 → 115.6 MHz** (fixes #10–#12); worst path
   characterized and ranked (`docs/synth_ooc_results.md`).
+- ✅ **F2 CL wrapper done & verified off-hardware** — `rtl/f2/cl_bsw_top.sv` lints
+  against the real `cl_ports.vh` + tie-offs (`scripts/f2/lint_cl_bsw.sh`, 6 mutants
+  checked), `tb_cl_bsw_ocl_f2` 13/13 score=5, staging script dry-run clean.
+- ⏳ **F2 timing unknown** — does `bsw_top` close 250 MHz on VU47P? Decides whether a
+  CDC to `clk_extra_a1` (125 MHz) is needed. Measure first, build second.
 - ✅ **F1 bring-up rungs A / B1 / B2 done & verified** — `bsw_axil_regs` (13/13),
   `cl_bsw_top` wrapper (`tb_cl_bsw_ocl` 13/13, score=5), `host/f1/test_bsw.c`
   (host↔RTL contract cross-checked).

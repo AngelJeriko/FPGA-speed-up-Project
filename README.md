@@ -1,7 +1,7 @@
 # BWA-MEM2 FPGA Accelerator
 
 Hardware (SystemVerilog) acceleration of the **post-seeding compute pipeline** of
-[BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), targeting the **AWS `f1.2xlarge`**
+[BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), targeting the **AWS `f2.6xlarge`**
 instance (Xilinx Virtex UltraScale+ **VU9P**, Vivado toolchain). Every engine is
 verified **bit-exact against the BWA-MEM2 C++ reference** and mutation-tested.
 
@@ -34,9 +34,16 @@ bit-exact to software:
 - **Timing (real Vivado P&R, 7-series proxy):** `bsw_top` closes **124.4 MHz** (→ clears
   the 125 MHz F1 target on the faster VU9P); full `chaining_pe_pair_top` at **115.6 MHz**
   and climbing. Detail: [`docs/synth_ooc_results.md`](docs/synth_ooc_results.md).
-- **F1 bring-up:** the OCL AXI-Lite wrapper (`rtl/f1/cl_bsw_top.sv`) + host
-  (`host/f1/test_bsw.c`) are built and verified; the AWS AFI build is the pending,
-  user-side step — steps in [`docs/f1_build_runbook.md`](docs/f1_build_runbook.md).
+- **F2 bring-up (current target):** the target moved from f1.2xlarge/VU9P to
+  **f2.6xlarge / Virtex UltraScale+ HBM VU47P**. The compute RTL is unchanged; the new
+  CL wrapper (`rtl/f2/cl_bsw_top.sv`) lints against the real F2 Shell files and passes
+  the golden test 13/13. **Open question:** F2's `clk_main_a0` is fixed at 250 MHz
+  (F1 let us build at 125), so `bsw_top` must be placed and routed on a real VU47P
+  before anything else — see [`docs/f2_bringup.md`](docs/f2_bringup.md) and
+  [`docs/f2_build_runbook.md`](docs/f2_build_runbook.md).
+- **F1 bring-up (kept, still valid):** the OCL AXI-Lite wrapper (`rtl/f1/cl_bsw_top.sv`)
+  + host (`host/f1/test_bsw.c`) are built and verified —
+  [`docs/f1_build_runbook.md`](docs/f1_build_runbook.md).
 
 ## Architecture (banded SW core)
 
@@ -68,12 +75,15 @@ module inventory.
 ## Repository layout
 
 ```
-rtl/            46 SystemVerilog files — the compute engines + F1 CL wrapper (rtl/f1/)
+rtl/            46 SystemVerilog files — the compute engines, plus the CL wrappers
+                (rtl/f1/ for F1/VU9P, rtl/f2/ for F2/VU47P — the current target)
 tb/             42 self-checking testbenches (Verilator)
 host/           C++ golden models + vector generators (host/integration.md);
                 host/f1/test_bsw.c is the F1 host app
 synth/ooc/      out-of-context synthesis/timing harness (synth/ooc/README.md)
-scripts/        run_sim.sh (Verilator runner), cl_bsw_files.f (F1 CL source list)
+scripts/        run_sim.sh (Verilator runner), cl_bsw_files{,_f2}.f (CL source lists),
+                f1/ and f2/ AWS build helpers (f2/lint_cl_bsw.sh checks the CL against
+                the real Shell files before any paid build)
 docs/           29 docs — status, runbooks, profiling, and design rationale
 REQUIREMENTS.md tool/version requirements per stage
 ```
@@ -85,6 +95,7 @@ Requires Verilator ≥5.0 and a C++ toolchain (see [`REQUIREMENTS.md`](REQUIREME
 ```bash
 bash scripts/run_sim.sh tb_bsw_top       # -> "... 0 errors" + "PASS"; ACGT/ACGT score=5
 bash scripts/run_sim.sh tb_cl_bsw_ocl    # F1 OCL wrapper: 13/13, score=5
+bash scripts/run_sim.sh tb_cl_bsw_ocl_f2 # F2 OCL wrapper: 13/13, score=5
 ```
 Each build lands under `/tmp/bsw/obj_<tb>/` (override with `BSW_BUILD_DIR=...`).
 **CI note:** testbenches report pass/fail on their printed summary line and end on

@@ -343,6 +343,13 @@ else
         RTL_FILES+=("$RTL/f1/bsw_axil_regs.sv" "$RTL/f1/cl_bsw_top.sv")
         VDEFINES+=("+define+CL_BSW_LINT")
     fi
+    # tb_cl_bsw_ocl_f2: the same golden run against the F2 wrapper (rtl/f2/cl_bsw_top.sv),
+    # whose OCL ports are named ocl_cl_*/cl_ocl_* and carry the awuser/aruser sidebands.
+    # Structural checks against the real F2 Shell files live in scripts/f2/lint_cl_bsw.sh.
+    if [[ "$TB" == tb_cl_bsw_ocl_f2 ]]; then
+        RTL_FILES+=("$RTL/f1/bsw_axil_regs.sv" "$RTL/f2/cl_bsw_top.sv")
+        VDEFINES+=("+define+CL_BSW_LINT")
+    fi
     # tb_bsw_ext checks bsw_top against real-data ksw vectors; bootstrap them
     # from the committed capture (.bin.gz) via the C++ generator if missing.
     if [[ "$TB" == tb_bsw_ext ]]; then
