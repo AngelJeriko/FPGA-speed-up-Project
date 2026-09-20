@@ -36,8 +36,21 @@ scripts/f2/lint_cl_bsw.sh --kit ~/aws-fpga-f2 --cdc
 bash scripts/run_sim.sh tb_bsw_axil_cdc
 ```
 
-Expect `LINT PASSED` and `13 pass, 0 fail` (and `23 pass, 0 fail` for the CDC tb) with the golden `ACGT/ACGT -> score=5`.
-Both currently pass. This is the only stage that costs nothing, so do not skip it.
+Expect `LINT PASSED` and `13 pass, 0 fail` (and `23 pass, 0 fail` for the CDC tb) with
+the golden `ACGT/ACGT -> score=5`. All currently pass. This stage costs nothing, so do
+not skip it.
+
+**If you have Vivado anywhere — no AWS account, no F2, no VU47P licence needed — add:**
+
+```tcl
+set KIT C:/work/aws-fpga-f2
+source <repo>/synth/ooc/synth_cl_bsw_f2.tcl          # single-clock
+set CDC 1 ; source <repo>/synth/ooc/synth_cl_bsw_f2.tcl   # two-clock
+```
+
+That synthesises the whole CL wrapper and counts multiply-driven nets — the one fault
+class Verilator provably cannot see, and the one that would otherwise surface hours into
+Step 4. Minutes, on hardware you already have.
 
 ---
 
