@@ -81,6 +81,32 @@ the wrapper *elaborates* against the real Shell files, but a **multiply-driven n
 lints 100% clean under Verilator even with `-Wall` — we proved that with a mutant rather
 than assuming it. Vivado catches it. Run this before any paid AWS build:
 
+First get the kit (a plain git clone, no AWS account, ~7 MB). **PowerShell — one line
+at a time**, because `\` continues a line in bash but *not* in PowerShell, where a
+pasted bash block is read as a repo named `\` and the clone silently never happens:
+
+```powershell
+mkdir C:\work -Force
+cd C:\work
+git clone --filter=blob:none --no-checkout --depth 1 -b f2 https://github.com/aws/aws-fpga.git aws-fpga-f2
+cd aws-fpga-f2
+git sparse-checkout init --cone
+git sparse-checkout set hdk/common/shell_stable/design/interfaces hdk/common/shell_stable/design/sh_ddr
+git checkout
+```
+
+bash equivalent:
+
+```bash
+git clone --filter=blob:none --no-checkout --depth 1 -b f2 \
+    https://github.com/aws/aws-fpga.git aws-fpga-f2
+cd aws-fpga-f2 && git sparse-checkout init --cone && git sparse-checkout set \
+    hdk/common/shell_stable/design/interfaces hdk/common/shell_stable/design/sh_ddr
+git checkout
+```
+
+Then, in the Vivado Tcl Console (forward slashes, even on Windows):
+
 ```tcl
 set KIT C:/work/aws-fpga-f2
 source .../synth/ooc/synth_cl_bsw_f2.tcl

@@ -15,6 +15,10 @@ cheap CPU box or inside AWS's async AFI service.
 git clone https://github.com/aws/aws-fpga.git -b f2
 ```
 
+On Windows, run any multi-line snippet in this runbook **one line at a time** in
+PowerShell. `\` continues a line in bash but not in PowerShell, which reads a pasted
+bash block as a repo named `\` and never starts the clone.
+
 The **`f2` branch is a different HDK**, not a newer F1. Building this repo's CL against
 the master branch will fail in confusing ways (its `cl_ports.vh` has no `ocl_cl_*`
 signals). `stage_cl_project.sh` and `lint_cl_bsw.sh` both check for this explicitly and

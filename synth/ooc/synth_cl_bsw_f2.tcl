@@ -29,11 +29,29 @@
 # worth answering: "does the CL synthesise cleanly, and is anything multiply driven?"
 #
 # ============================== SETUP ==============================
-# You need a checkout of the aws-fpga **f2** branch (a plain git clone, nothing else):
-#   git clone --filter=blob:none --no-checkout --depth 1 -b f2 \
-#       https://github.com/aws/aws-fpga.git aws-fpga-f2
-#   cd aws-fpga-f2 && git sparse-checkout init --cone && git sparse-checkout set \
-#       hdk/common/shell_stable/design/interfaces hdk/common/shell_stable/design/sh_ddr
+# SETUP - you need a checkout of the aws-fpga **f2** branch (a plain git clone, no AWS
+# account, ~7 MB). Run these ONE LINE AT A TIME.
+#
+#   PowerShell (Windows):
+#     mkdir C:\work -Force
+#     cd C:\work
+#     git clone --filter=blob:none --no-checkout --depth 1 -b f2 https://github.com/aws/aws-fpga.git aws-fpga-f2
+#     cd aws-fpga-f2
+#     git sparse-checkout init --cone
+#     git sparse-checkout set hdk/common/shell_stable/design/interfaces hdk/common/shell_stable/design/sh_ddr
+#     git checkout
+#
+#   bash (Linux / macOS / Git Bash):
+#     git clone --filter=blob:none --no-checkout --depth 1 -b f2 \
+#         https://github.com/aws/aws-fpga.git aws-fpga-f2
+#     cd aws-fpga-f2 && git sparse-checkout init --cone && git sparse-checkout set \
+#         hdk/common/shell_stable/design/interfaces hdk/common/shell_stable/design/sh_ddr
+#     git checkout
+#
+# NOTE the two forms are not interchangeable: `\` continues a line in bash, but in
+# PowerShell the continuation is a backtick, so a pasted bash block is read as a repo
+# named "\" and the clone silently never happens.
+#
 # Then point KIT at it (or set AWS_FPGA_F2_DIR / HDK_DIR in the environment).
 #
 # Optional:  set CDC 1     -> synthesise the two-clock build instead (BSW_KERNEL_CDC)
