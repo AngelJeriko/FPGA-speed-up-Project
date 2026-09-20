@@ -16,6 +16,7 @@
 #   M3 dropping the rst_main_n_sync declaration        -> %Error-PROCASSWIRE
 #   M4 a tie-off included twice                        -> structural guard below
 #   M5 a wrong address-slice width into bsw_axil_regs  -> %Warning-WIDTHEXPAND
+#   M7 an undriven CL output port (e.g. tdo)          -> %Warning-UNDRIVEN on cl_ports.vh
 #
 # WHAT THIS DOES **NOT** CATCH: multiply-driven nets. A mutant that drives cl_ocl_*
 # from both our slave and a tie-off lints 100% clean under Verilator even with -Wall;
@@ -108,6 +109,7 @@ verilator --lint-only -sv --top-module cl_bsw_top \
   --unroll-count 4096 --unroll-stmts 200000 \
   -Wno-fatal \
   -Wno-UNOPTFLAT -Wno-DECLFILENAME -Wno-INITIALDLY -Wno-PINMISSING -Wno-PINCONNECTEMPTY \
+  -Wwarn-UNDRIVEN \
   ${VDEF[@]+"${VDEF[@]}"} \
   +incdir+"$ROOT/rtl" +incdir+"$ROOT/rtl/f2" +incdir+"$IFDIR" \
   "$ROOT/rtl/bsw_pkg.sv" \
@@ -129,6 +131,24 @@ rc=0
 if grep -qE '^%Error' "$LOG"; then
   echo "LINT FAILED — errors:"; grep -E '^%Error' "$LOG" | sed 's/^/  /'; rc=1
 fi
+# UNDRIVEN on the CL's OWN PORTS. Every output in cl_ports.vh is the CL's
+# responsibility; leaving one floating is a real defect that reaches silicon. Verilator
+# reports these against cl_ports.vh rather than our file, so the scoped check below
+# would never see them - which is exactly how an undriven `tdo` survived the lint and
+# was found later by real Vivado synthesis as CRITICAL WARNING [Synth 8-3848].
+#
+# Two are allowlisted because AWS's OWN tie-off templates drive them only partially:
+# unused_dma_pcis_template.inc assigns cl_sh_dma_pcis_{b,r}id[5:0] while cl_ports.vh
+# declares them 16 bits wide. Not ours to fix, and benign with the interface tied off.
+UNDRIVEN_ALLOW='cl_sh_dma_pcis_bid|cl_sh_dma_pcis_rid'
+undriven="$(grep -E '^%Warning-UNDRIVEN' "$LOG" | grep 'cl_ports.vh' \
+            | grep -vE "$UNDRIVEN_ALLOW" || true)"
+if [[ -n "$undriven" ]]; then
+  echo "LINT FAILED - undriven CL output port(s). Every output in cl_ports.vh must be driven:"
+  echo "$undriven" | sed 's/^/  /'
+  rc=1
+fi
+
 # Zero-warning policy SCOPED TO OUR WRAPPER: it is warning-clean when correct, so any
 # warning pointing into it is a fault (this is what catches M1 and M5).
 if grep -E '^%Warning' "$LOG" | grep -q 'rtl/f2/cl_bsw_top.sv'; then

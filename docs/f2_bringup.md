@@ -159,10 +159,48 @@ install has no UltraScale+ families, so the harness fell back — see below).
 | CARRY4 | 10,055 |
 | MUXF7 / MUXF8 | 720 / 342 |
 
-**The result that mattered: no multiply-driven nets.** `[Synth 8-3352]` is escalated to
+**It found a real defect**, which is the point of running it: `tdo` — the Virtual-JTAG
+output in `cl_ports.vh` — was **undriven**. We don't instantiate `cl_debug_bridge`, and
+I enumerated `tdo` in the undriven-outputs analysis but then failed to drive it, unlike
+`CL_TEMPLATE` which does `tdo = 'b0`. Vivado caught it as `CRITICAL WARNING
+[Synth 8-3848]`. Fixed, along with the lint that should have caught it: `UNDRIVEN` was
+simply not enabled there, and Verilator attributes such warnings to `cl_ports.vh` rather
+than to our file, so the wrapper-scoped filter would have missed them anyway. Both are
+fixed and mutation-checked (M7/M8 below).
+
+**The result that was asked for: no multiply-driven nets.** `[Synth 8-3352]` is escalated to
 an ERROR before `synth_design`, so synthesis completing at all *is* the verdict. That
 closes the one fault class Verilator provably cannot see (mutation M2), and it is now
 closed on real tooling rather than by argument.
+
+### The four critical warnings, resolved
+
+| # | Message | Verdict |
+|---|---|---|
+| 1 | `[Synth 8-3848]` net `tdo` has no driver | **ours — real, fixed** |
+| 2–3 | `[Synth 8-4442]` BlackBox `SH_DDR` has unconnected pin `cl_sh_ddr_axi_awuser` / `aruser` | **AWS's**, benign |
+| 4 | `[Project 1-486]` could not resolve black box `sh_ddr` | expected, benign |
+
+2–4 are all the DDR stub. AWS's own `unused_ddr_template.inc` connects 58 of the 60
+ports `sh_ddr` declares — it omits `cl_sh_ddr_axi_awuser` and `aruser` (also reported as
+`[Synth 8-7023]` "60 connections declared, but only 58 given"). That is an inconsistency
+inside the F2 kit, not in our code, and it is harmless with `DDR_PRESENT=0`: they are
+inputs to a block that is switched off. `[Project 1-486]` is likewise expected —
+`sh_ddr.stub.sv` has an empty body by design, so it cannot resolve and should not.
+
+### The 8,689 warnings, resolved
+
+They collapse to **six distinct causes**, none of them defects. Note the log only prints
+the first 100 of each ID, so the log-derived counts cap at 100 while the true totals are
+much larger — one line in `bsw_pe` becomes a warning per PE, and there are 160 PEs.
+
+| Cause | What it is |
+|---|---|
+| `Synth 8-7129` port unconnected / no load (e.g. `qlen_i[15]`) | unused high bits of sized ports; the bulk of the 8,689 |
+| `Synth 8-3917` port driven by constant 0 (e.g. `cl_sh_flr_done`) | every tie-off, by definition — a CL that ties off the whole Shell will always produce these |
+| `Synth 8-11067` package parameter treated as localparam (18) | `bsw_pkg` style; cosmetic |
+| `Synth 8-6014` unused sequential element removed (3) | **consistent with a documented finding** — `cfg_q_reg[end_bonus]` was optimised away, matching `docs/zdrop_characterization.md`: `zdrop`/`end_bonus` are inert in the unbanded engine. Synthesis independently confirmed it |
+| `Synth 8-7071` / `8-7023` sh_ddr port count (3) | the AWS template mismatch above |
 
 Reading the rest honestly:
 
@@ -201,6 +239,13 @@ still relative to VU47P, so fit inside the CL region is not a concern.
 | M4 | a tie-off included twice | structural guard | RED |
 | M5 | address slice narrowed to `[14:0]` | `%Warning-WIDTHEXPAND` | RED |
 | M6 | reset inverted into `bsw_axil_regs` | lint: **missed**; `tb_cl_bsw_ocl_f2`: watchdog TIMEOUT | RED (by tb) |
+| M7 | `tdo` driver removed (reproduces the real defect) | `%Warning-UNDRIVEN` on `cl_ports.vh` | RED |
+| M8 | a PCIe output driver removed | same gate | RED |
+
+M7/M8 were added *after* real synthesis found the `tdo` bug the lint had missed. The
+gate fails on any undriven signal declared in `cl_ports.vh`, with exactly two
+allowlisted: `cl_sh_dma_pcis_bid` and `..._rid`, which AWS's own tie-off drives as
+`[5:0]` of a 16-bit port.
 
 M2 is the important one. A mutant that drives `cl_ocl_*` from both our slave and a
 tie-off lints **100% clean under Verilator even with `-Wall`** — only Vivado sees it.

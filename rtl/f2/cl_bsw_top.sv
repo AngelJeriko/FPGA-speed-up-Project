@@ -205,6 +205,18 @@ always_comb begin
    hbm_apb_pslverr_0 = 'b0;  hbm_apb_pslverr_1 = 'b0;
 end
 
+// Virtual-JTAG / debug bridge output. We do not instantiate cl_debug_bridge (the CL is
+// small and the golden test is pass/fail), so tdo must be driven here or it is an
+// undriven CL output — CL_TEMPLATE does exactly the same. The lint did NOT catch this
+// (UNDRIVEN was disabled there); real Vivado synthesis flagged it as CRITICAL WARNING
+// [Synth 8-3848]. Both the RTL and the lint were fixed together.
+// (A comment line must not START with the word that names the linter - it is parsed as
+//  a lint directive. That is why this paragraph is worded the way it is.)
+// To get ChipScope/ILA on silicon instead, instantiate cl_debug_bridge (connecting
+// drck/shift/tdi/update/sel/tdo/tms/tck/runtest/reset/capture/bscanid_en) and re-enable
+// the cl_debug_bridge + ila_axil read_ip lines that stage_cl_project.sh comments out.
+assign tdo = 1'b0;
+
 // CL-side PCIe endpoint/root-port pins — unused
 always_comb begin
    PCIE_EP_TXP    = 'b0;
