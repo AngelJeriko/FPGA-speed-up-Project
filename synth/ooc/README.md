@@ -128,3 +128,22 @@ It simulates the interesting case by default — `xcvu47p` **absent**, so the pr
 fallback has to work — and `set WNS <n>` first to exercise the verdict branches. It
 verifies that the script reaches the Vivado calls with the arguments you meant; it does
 not verify the Vivado commands themselves.
+
+### Making sense of a warning count
+
+A run that ends `0 errors, 4 critical warnings and 8689 warnings` is not actionable as
+written, and Vivado has no Tcl API to enumerate messages. But the IDs collapse: with 160
+PEs, one sloppy line in `bsw_pe` becomes 160 warnings, so thousands of lines are usually
+a handful of distinct causes.
+
+```tcl
+set LOG C:/path/to/vivado.log
+source .../synth/ooc/summarize_msgs.tcl
+```
+
+It prints every CRITICAL WARNING in full (there are few, and they are the ones that
+bite) and groups the warnings by message ID with one example each — turning "are these
+8689 lines OK?" into "are these six causes OK?".
+
+Known-benign here: exactly one — `[Project 1-486]`, the unresolved `sh_ddr` black box.
+AWS ships that stub with an empty body on purpose, so it cannot resolve and should not.
