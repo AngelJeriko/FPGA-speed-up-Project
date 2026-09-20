@@ -1,11 +1,11 @@
-# impl_bsw_top_f2.tcl — REAL place-and-route of bsw_top at the F2 clock target (250 MHz),
+# impl_bsw_top_f2.tcl - REAL place-and-route of bsw_top at the F2 clock target (250 MHz),
 # on the actual VU47P if available, otherwise on a same-generation UltraScale+ proxy.
 #
 #   Vivado -> Tools -> Run Tcl Script...   (or: source <path>/synth/ooc/impl_bsw_top_f2.tcl)
 #
-# WHY THIS SCRIPT EXISTS — it decides the shape of the whole F2 port.
+# WHY THIS SCRIPT EXISTS - it decides the shape of the whole F2 port.
 # On F1 we targeted clk_main_a0 = 125 MHz (clock recipe A0). On F2 clk_main_a0 is FIXED
-# at 250 MHz — no recipe changes it — and every Shell<->CL interface is synchronous to
+# at 250 MHz - no recipe changes it - and every Shell<->CL interface is synchronous to
 # it (aws-fpga f2: hdk/docs/Clock_Recipes_User_Guide.md, AWS_Shell_Interface_Specification.md).
 # So the F2 port is one of two designs:
 #
@@ -16,7 +16,7 @@
 #
 # Our only hard datum is 124.4 MHz on a Virtex-7 -2 PROXY (docs/synth_ooc_results.md).
 # UltraScale+ is a much faster fabric, so that number does not settle (A) vs (B). This
-# script measures the real part, and takes minutes — run it BEFORE the multi-hour DCP
+# script measures the real part, and takes minutes - run it BEFORE the multi-hour DCP
 # build and long before paying for an AFI bake and an f2.6xlarge.
 #
 # NOTE ON TOOLING: xcvu47p is a large Virtex UltraScale+ HBM device and is not in every
@@ -24,7 +24,7 @@
 # available UltraScale+ part at the SAME -2 speed grade and says so loudly.
 #
 # That fallback is worth much more than it sounds. Our only prior datum, 124.4 MHz, came
-# from xc7v2000t-2 — a Virtex-7, i.e. a whole fabric generation older. A KU5P or ZU7EV
+# from xc7v2000t-2 - a Virtex-7, i.e. a whole fabric generation older. A KU5P or ZU7EV
 # at -2 is the SAME UltraScale+ fabric and the SAME speed grade as VU47P, so per-path
 # logic delay is directly comparable and the Fmax it reports actually predicts the F2
 # result. What it cannot reproduce is VU47P's size and floorplan: a much larger die
@@ -36,7 +36,7 @@
 # measured on the Virtex-7 run, against roughly 216K LUT on KU5P and 230K on ZU7EV.
 #
 # If a proxy part is missing too, add the family through the Vivado installer
-# ("Add Design Tools or Devices") — this is usually a device-family install choice, not
+# ("Add Design Tools or Devices") - this is usually a device-family install choice, not
 # a licensing one.
 
 # Make the script re-runnable in one Vivado session. Without this, a second `source`
@@ -143,7 +143,7 @@ if {$is_exact} {
     puts "###    Take path (B): stage with --clk-gen. The CDC is built and verified."
   } else {
     puts "### => INCONCLUSIVE: within ~15% of 250 MHz on a proxy part. A real VU47P"
-    puts "###    could land either side. Take path (B) — it costs one extra source"
+    puts "###    could land either side. Take path (B) - it costs one extra source"
     puts "###    file and a clock recipe, and it cannot fail timing the way (A) can."
   }
 }

@@ -1,4 +1,4 @@
-# dryrun_tcl.tcl — exercise a Vivado Tcl script's CONTROL FLOW without Vivado.
+# dryrun_tcl.tcl - exercise a Vivado Tcl script's CONTROL FLOW without Vivado.
 #
 # Vivado scripts in this repo are written here and run on someone else's machine, so a
 # syntax slip or a bad branch costs a round trip. This harness stubs the Vivado command

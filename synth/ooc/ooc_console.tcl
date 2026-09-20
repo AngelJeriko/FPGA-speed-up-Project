@@ -1,4 +1,4 @@
-# ooc_console.tcl — run from the Vivado GUI, no terminal needed.
+# ooc_console.tcl - run from the Vivado GUI, no terminal needed.
 #   Vivado GUI -> Tools -> Run Tcl Script... -> pick this file.
 #   (or in the Tcl Console:  source <path>/synth/ooc/ooc_console.tcl )
 #

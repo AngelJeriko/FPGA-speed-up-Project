@@ -1,4 +1,4 @@
-# impl_bsw_top.tcl — REAL place-and-route of bsw_top (not just synth-estimate).
+# impl_bsw_top.tcl - REAL place-and-route of bsw_top (not just synth-estimate).
 #   Vivado GUI -> Tools -> Run Tcl Script... -> pick this file.
 #   (or Tcl Console:  source <path>/synth/ooc/impl_bsw_top.tcl )
 #

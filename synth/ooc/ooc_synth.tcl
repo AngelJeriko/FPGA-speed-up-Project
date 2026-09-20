@@ -1,4 +1,4 @@
-# ooc_synth.tcl — generic out-of-context synthesis + Fmax/area probe.
+# ooc_synth.tcl - generic out-of-context synthesis + Fmax/area probe.
 #   vivado -mode batch -source ooc_synth.tcl -tclargs <top> <part> <period_ns> <outdir> <src1> [src2 ...]
 # Free Vivado ML Standard: use a supported UltraScale+ proxy part (same LUT6/RAMB36/DSP48E2
 # fabric as the F1 xcvu9p). Reports go to <outdir>/<top>_{util,timing,summary}.rpt.

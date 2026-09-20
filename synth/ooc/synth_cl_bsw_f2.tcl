@@ -1,4 +1,4 @@
-# synth_cl_bsw_f2.tcl — run REAL Vivado synthesis on the whole F2 CL wrapper, on any
+# synth_cl_bsw_f2.tcl - run REAL Vivado synthesis on the whole F2 CL wrapper, on any
 # machine with Vivado. No AWS account, no licence beyond what you already have, no F2.
 #
 #   Vivado -> Tools -> Run Tcl Script...
@@ -8,7 +8,7 @@
 # scripts/f2/lint_cl_bsw.sh proved that cl_bsw_top ELABORATES against the real Shell
 # port list and tie-offs. What it explicitly cannot prove is the one fault class that
 # would otherwise surface only hours into a paid AWS build: a MULTIPLY-DRIVEN NET.
-# We demonstrated that gap rather than assuming it — a mutant that drives cl_ocl_* from
+# We demonstrated that gap rather than assuming it - a mutant that drives cl_ocl_* from
 # both our OCL slave and a tie-off lints 100% clean under Verilator even with -Wall.
 # That is the same blind spot recorded in docs ("Verilator misses synthesis bugs": real
 # synthesis once caught 147k multi-driven-net warnings that Verilator passed).
@@ -17,14 +17,14 @@
 # and costs minutes on hardware you already have.
 #
 # It also reports real UltraScale+ utilisation for the whole CL, which is the other
-# thing we cannot get from Verilator — useful as an early "will this fit alongside the
+# thing we cannot get from Verilator - useful as an early "will this fit alongside the
 # Shell" sanity check.
 #
 # ============================== WHAT IT IS NOT ==============================
 # This is OUT-OF-CONTEXT synthesis of the CL alone, with stubs where AWS ships IP
 # (axi_register_slice_light) or encrypted logic (sh_ddr, via the HDK's own
 # sh_ddr.stub.sv). It is NOT the AWS build: no Shell, no real IP, no place-and-route
-# against the F2 floorplan, and the timing numbers here mean nothing — use
+# against the F2 floorplan, and the timing numbers here mean nothing - use
 # synth/ooc/impl_bsw_top_f2.tcl for timing. The question this answers is narrow and
 # worth answering: "does the CL synthesise cleanly, and is anything multiply driven?"
 #
@@ -68,7 +68,7 @@ set ifdir  $::KIT/hdk/common/shell_stable/design/interfaces
 set ddrdir $::KIT/hdk/common/shell_stable/design/sh_ddr
 
 if {![file exists $ifdir/cl_ports.vh]} {
-  puts "ERROR: no cl_ports.vh under $ifdir — is KIT pointing at an aws-fpga checkout?"
+  puts "ERROR: no cl_ports.vh under $ifdir - is KIT pointing at an aws-fpga checkout?"
   return
 }
 # Same guard the shell scripts use: an F1 (master-branch) HDK would elaborate into

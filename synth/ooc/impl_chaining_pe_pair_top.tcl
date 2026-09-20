@@ -1,4 +1,4 @@
-# impl_chaining_pe_pair_top.tcl — REAL place-and-route of the FULL accelerator.
+# impl_chaining_pe_pair_top.tcl - REAL place-and-route of the FULL accelerator.
 #   Vivado GUI -> Tools -> Run Tcl Script... -> pick this file.
 #
 # WHY: the full design's OOC *synthesis* estimate is ~102 MHz, but its worst path is the
@@ -7,7 +7,7 @@
 # pessimistic. This runs the aggressive impl flow (Explore + phys_opt_design) so we get
 # the TRUE placed+routed Fmax + the REAL worst path to drive the next timing fix.
 #
-# ⚠️ RUNTIME/MEMORY: this is the ~305K-LUT top. Full opt+place+route+phys_opt can take
+# ! RUNTIME/MEMORY: this is the ~305K-LUT top. Full opt+place+route+phys_opt can take
 #    MANY hours and a lot of RAM. It's also OOC (no floorplan/IO), so the number is a
 #    rough-but-real signal, not the last word. Run it when you can leave the box busy.
 
