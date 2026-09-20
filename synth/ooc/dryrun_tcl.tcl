@@ -29,6 +29,8 @@ if {![info exists ::WNS]}   { set ::WNS -0.42 }
 set ::READS {}
 set ::CALLS {}
 
+proc close_design {args}  {}
+proc close_project {args} {}
 proc get_parts {args} {
     set p [lindex $args end]
     foreach pat $::PARTS { if {[string match $pat $p]} { return $p } }

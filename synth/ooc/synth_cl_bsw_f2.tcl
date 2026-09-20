@@ -40,6 +40,12 @@
 #            set PART <p>  -> force a device
 # ==============================================================================
 
+# Make the script re-runnable in one Vivado session. Without this, a second `source`
+# adds its sources to the design left in memory by the first and fails in a way that
+# looks like an RTL problem (duplicate modules) rather than an operator one.
+catch {close_design}
+catch {close_project}
+
 set here [file dirname [file normalize [info script]]]
 set root [file normalize $here/../..]
 set out  $here/reports
