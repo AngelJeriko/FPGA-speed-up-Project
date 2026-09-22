@@ -116,8 +116,13 @@ phys_opt_design -directive Explore
 route_design -directive Explore
 phys_opt_design -directive Explore
 
-report_timing_summary -delay_type max -max_paths 20 -file $out/bsw_top_vu47p_timing.rpt
-report_utilization -file $out/bsw_top_vu47p_util.rpt
+# Name the reports after the part that ACTUALLY ran, so a proxy result can never be
+# mistaken for a real VU47P one later (e.g. bsw_top_f2_xcku5p_timing.rpt).
+set ptag [lindex [split $part -] 0]
+set rpt_t $out/bsw_top_f2_${ptag}_timing.rpt
+set rpt_u $out/bsw_top_f2_${ptag}_util.rpt
+report_timing_summary -delay_type max -max_paths 20 -file $rpt_t
+report_utilization -file $rpt_u
 
 set wns [get_property SLACK [get_timing_paths -delay_type max]]
 set fmax [expr {1000.0 / ($period - $wns)}]
@@ -147,5 +152,6 @@ if {$is_exact} {
     puts "###    file and a clock recipe, and it cannot fail timing the way (A) can."
   }
 }
-puts "### Reports: $out"
+puts "### Reports: $rpt_t"
+puts "###          $rpt_u"
 puts "#############################################################"
