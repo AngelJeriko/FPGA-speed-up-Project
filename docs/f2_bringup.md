@@ -303,10 +303,54 @@ removing a synchroniser flop, and removing the `A_SEND` separation cycle. Both a
 covered by `ASYNC_REG` and the XDC, not by simulation, and claiming a green testbench
 covers them would be wrong.
 
+## Timing measurement: the (A)/(B) decision — **path (B)**, 2026-09-21
+
+`synth/ooc/impl_bsw_top_f2.tcl` on `xcku5p-ffvb676-2-e` — UltraScale+, `-2`, the same
+fabric generation and speed grade as VU47P — full place + route + 2× `phys_opt`,
+`Explore` directives, 4.0 ns target:
+
+| | |
+|---|---|
+| **WNS** | **−0.563 ns** @ 4.0 ns |
+| **Fmax** | **219.2 MHz** |
+| Hold (WHS) | +0.019 ns, met |
+| Script verdict | "inconclusive" band (212.5–287.5 MHz) |
+
+**Decision: path (B).** The script's banding is deliberately cautious, but 219 MHz sits
+12% short of 250 and near the bottom of the band, and every factor the proxy leaves out
+makes things *worse*, not better: this was out-of-context with no Shell around it, and a
+larger die does not shorten a routing-bound path. Nobody should expect VU47P in context
+to find the missing 0.56 ns. Path (B) is already built and verified, so this costs nothing
+but `--clk-gen` at staging.
+
+**Where the time goes — the same bottleneck as before.** The failing endpoints are all in
+the `bsw_max_tracker` reduction (`u_tracker/pr_i_reg`, `pr_h`, `pr_j`) fed from PEs ~100–155
+of the array. It is **routing-dominated**: the router's first estimate was −0.076 ns and it
+degraded to −0.976 ns once real routes existed, with CLB congestion flagged mid-route; post-
+route `phys_opt` recovered only to −0.563 and itself warned the slack was too large to fix.
+This is exactly the 160-PE → tracker gather already identified on the Virtex-7 proxy as
+routing-bound — RTL pipelining in the tracker, not tool effort, is what would move it.
+
+**The bigger news is the fabric jump.** The same `bsw_top` measured **124.4 MHz** on the
+Virtex-7 proxy. On UltraScale+ it is **219.2 MHz — +76%**. That confirms what we suspected:
+every earlier Virtex-7 figure was a generation-old, systematically pessimistic number.
+
+### What (B) gives, and a faster option to hold in reserve
+
+Path (B) runs the kernel on `clk_extra_a1` = **125 MHz** (recipe A1): **~43% timing
+margin** against 219 MHz. That is the right first-silicon choice — it removes timing as a
+variable while the rest of the flow is proven.
+
+Once `score=5` is on silicon, there is a free-ish throughput step available. From the F2
+clock recipes, **recipe A0 gives `clk_extra_a2` = 187.5 MHz** — 50% more kernel throughput
+than 125, still ~14% under the proxy's 219. It would mean wiring `o_clk_extra_a2` /
+`o_cl_rst_a2_n` instead of `a1`, renaming the clock in `cl_timing_user_cdc.xdc`, and
+building with `--clock_recipe_a A0`. Not for the first bring-up: 14% margin on an
+out-of-context proxy is thin, and the real in-context number is the one to trust.
+
 ## Not yet done
 
-- **The VU47P timing measurement** — the (A)/(B) decision above. It now *selects* a path
-  instead of starting one, but nothing should be built until it is known.
+- **Stage and build with `--clk-gen`** (path B) — needs AWS (FPGA Developer AMI).
 - Everything from the DCP build onward (phases 2–4): needs AWS.
 - On path (B) specifically: confirm the clock object names in `cl_timing_user.xdc`
   against `report_clocks` on the first synthesis. A non-matching XDC pattern fails

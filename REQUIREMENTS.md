@@ -44,7 +44,7 @@ a licence one.
 | Run | Expect |
 |-----|--------|
 | `synth_cl_bsw_f2.tcl` (synthesis only, ~71K LUT) | ~5–15 min per invocation |
-| `impl_bsw_top_f2.tcl` (synth + place + route + 2× phys_opt, Explore directives, 4 ns target) | ~30–60 min, longer if the router struggles |
+| `impl_bsw_top_f2.tcl` (synth + place + route + 2× phys_opt, Explore directives, 4 ns target) | **~80 min measured** (i7-11800H, Vivado using 2 threads; peak 7.2 GB RAM). The two `phys_opt` passes and routing are ~45 min of that |
 
 Anchors: `chaining_pe_pair_top` at ~199K LUT synthesised in ~14.5 min; `matesw_dedup`
 dropped from 41 min to 1.5 min once its arrays inferred as BRAM. `bsw_top` is 71,320 LUT

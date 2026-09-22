@@ -36,8 +36,11 @@ The F1 flow (`rtl/f1/`, `scripts/f1/`, `docs/f1_*`) is kept intact and still val
 - ✅ **F2 CL wrapper done & verified off-hardware** — `rtl/f2/cl_bsw_top.sv` lints
   against the real `cl_ports.vh` + tie-offs (`scripts/f2/lint_cl_bsw.sh`, 6 mutants
   checked), `tb_cl_bsw_ocl_f2` 13/13 score=5, staging script dry-run clean.
-- ⏳ **F2 timing unknown** — does `bsw_top` close 250 MHz on VU47P? Measure with
-  `synth/ooc/impl_bsw_top_f2.tcl` (minutes) before anything expensive.
+- ✅ **F2 timing decided: path (B)** — `bsw_top` placed and routed on an UltraScale+ `-2`
+  proxy (KU5P, same fabric/speed grade as VU47P): **219.2 MHz**, 12% short of F2's fixed
+  250 MHz. Bottleneck is the routing-bound max-tracker reduction, as before. The kernel
+  runs on `clk_extra_a1` = 125 MHz behind the CDC (~43% margin). Also: 124.4 MHz on the old
+  Virtex-7 proxy → 219.2 on UltraScale+, i.e. the earlier numbers were ~76% pessimistic.
 - ✅ **Both clocking outcomes are implemented** — single clock domain by default, or
   `rtl/bsw_kernel_cdc.sv` (two-phase toggle handshake, quasi-static payload) to run the
   kernel on AWS_CLK_GEN `clk_extra_a1` at 125 MHz. `tb_bsw_axil_cdc` 23/23 against a
