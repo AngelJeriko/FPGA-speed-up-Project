@@ -128,3 +128,34 @@ Not a build step, but essential context: [`speedup_plan.md`](speedup_plan.md),
 [`post_seeding_acceleration_research.md`](post_seeding_acceleration_research.md), the
 per-engine `*_scope.md` / `*_engine_scope.md` docs, and the `*_options.md` decision
 docs. [`project_status.md`](project_status.md) is the top-level map.
+
+## E. coli test set (HLS milestone)
+
+The `ksw_extend` capture for the HLS kernel uses a small E. coli dataset rather than
+hg38, so the whole thing regenerates from scratch in under a minute:
+
+```bash
+scripts/make_ecoli_dataset.sh          # ~40 s cold, mostly the reference download
+```
+
+Produces `~/ref_ecoli/` (reference + bwa-mem2 index) and `~/reads_ecoli/`
+(5,000 simulated 150 bp pairs). Measured 2026-09-23:
+
+| | |
+|---|---|
+| Reference | E. coli K-12 MG1655, RefSeq ASM584v2, **4,641,652 bp** |
+| Index build | **2.2 s** (hg38 chr1–5 takes hours) |
+| Reads | 5,000 pairs x 150 bp, wgsim seed 42 |
+| Alignment | 10,000 records, **100% mapped**, 1.3 s |
+
+Two choices worth recording:
+
+- **150 bp reads** match the hardware envelope. `bsw_pkg` sets `MAX_QLEN=160` from measured
+  maxima over 747,258 real `ksw_extend2` calls on 150 bp reads (`docs/bit_width_proof.md`).
+  Longer reads would generate extensions outside the envelope the kernel is proven for.
+- **Fixed wgsim seed**, verified: a second run produces byte-identical FASTQs. The script
+  also checks the reference length and aborts on a truncated download (both checked by
+  deliberately breaking them).
+
+wgsim encodes each read's true origin in its name, so mis-mapping is visible without a
+separate truth file; `wgsim_mutations.txt` lists the SNPs and indels it injected.
