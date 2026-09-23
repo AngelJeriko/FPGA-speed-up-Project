@@ -10,3 +10,7 @@ documented at the top of that file; the milestone write-up is
 - `divergent_*.bin.gz` — the 7 characterised records where `ksw_extend2`
   disagrees with bwa-mem2 on `gtle`/`gscore` under perturbed parameters.
   These must **stay red**; `make check` asserts it.
+- `bandclamp_*.bin.gz` — 14 records from tight-gap captures (`-E 20,20` and
+  `-O 30,30 -E 12,9`) where the `max_ins`/`max_del` band clamp is load-bearing.
+  Default parameters never exercise the division transform in `ksw_hls.h`;
+  these do. See `docs/swa_hls_kernel.md`.

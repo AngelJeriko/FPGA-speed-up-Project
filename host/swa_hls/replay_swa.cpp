@@ -10,6 +10,7 @@
 //   g++ -O2 -std=c++17 -I../extend_orchestrator -o replay_swa replay_swa.cpp
 //   ./replay_swa ecoli_swa.bin [--verbose] [--limit N]
 #include "ksw.h"
+#include "ksw_hls.h"
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -72,7 +73,7 @@ private:
 };
 
 struct Stats {
-    uint64_t n = 0, bad = 0;
+    uint64_t n = 0, bad = 0, bad_hls = 0, bad_xmodel = 0, oob = 0;
     int32_t  max_qlen = 0, max_tlen = 0, max_w = 0, max_h0 = 0, max_band_try = 0;
     uint64_t by_route[3] = {0, 0, 0};   // S, 1, 8
 };
@@ -85,11 +86,13 @@ int main(int argc, char **argv) {
     uint64_t limit = UINT64_MAX;
     const char *extract = nullptr;
     bool extract_all = false;   // --extract writes every record, not just failures
+    bool extract_xmodel = false; // --extract writes hls-vs-reference divergences
     for (int i = 2; i < argc; i++) {
         if (!strcmp(argv[i], "--verbose")) verbose = true;
         else if (!strcmp(argv[i], "--limit") && i + 1 < argc) limit = strtoull(argv[++i], nullptr, 10);
         else if (!strcmp(argv[i], "--extract") && i + 1 < argc) extract = argv[++i];
         else if (!strcmp(argv[i], "--extract-all")) extract_all = true;
+        else if (!strcmp(argv[i], "--extract-xmodel")) extract_xmodel = true;
     }
 
     Reader in(argv[1]);
@@ -140,6 +143,21 @@ int main(int argc, char **argv) {
         if (r.band_try > st.max_band_try) st.max_band_try = r.band_try;
 
         const int end_bonus = (r.side == 'L') ? h.pen_clip5 : h.pen_clip3;
+
+        // --- synthesizable kernel, fed through fixed-size buffers exactly as
+        // --- HLS will see them at the top-level interface
+        ksw_extend_out hls = {0, 0, 0, 0, 0, 0, -1};
+        if (r.qlen > KSW_MAX_QLEN || r.tlen > KSW_MAX_TLEN) {
+            st.oob++;
+        } else {
+            static uint8_t qbuf[KSW_MAX_QLEN], tbuf[KSW_MAX_TLEN];
+            memset(qbuf, 0, sizeof qbuf); memset(tbuf, 0, sizeof tbuf);
+            memcpy(qbuf, r.query.data(), (size_t)r.qlen);
+            memcpy(tbuf, r.target.data(), (size_t)r.tlen);
+            hls = ksw_extend_hls(r.qlen, qbuf, r.tlen, tbuf, h.mat,
+                                 h.o_del, h.e_del, h.o_ins, h.e_ins,
+                                 r.w, end_bonus, h.zdrop, r.h0);
+        }
         int qle = -1, tle = -1, gtle = -1, gscore = -1, max_off = -1;
         const int score = ksw_extend2(r.qlen, r.query.data(), r.tlen, r.target.data(),
                                       h.m, h.mat, h.o_del, h.e_del, h.o_ins, h.e_ins,
@@ -159,9 +177,33 @@ int main(int argc, char **argv) {
 
         const bool match = score == r.score && qle == r.qle && tle == r.tle &&
                            gtle == r.gtle && gscore == r.gscore && max_off == r.max_off;
+
+        const bool hls_ok = hls.status == KSW_OK && hls.score == r.score &&
+                            hls.qle == r.qle && hls.tle == r.tle &&
+                            hls.gtle == r.gtle && hls.gscore == r.gscore &&
+                            hls.max_off == r.max_off;
+        // the HLS kernel must also agree with the reference port everywhere,
+        // including on the records where the reference disagrees with bwa-mem2
+        const bool xmodel_ok = hls.status == KSW_OK && hls.score == score &&
+                               hls.qle == qle && hls.tle == tle &&
+                               hls.gtle == gtle && hls.gscore == gscore &&
+                               hls.max_off == max_off;
+        if (!hls_ok)    st.bad_hls++;
+        if (ex && extract_xmodel && !xmodel_ok) emit(ex);
+        if (!xmodel_ok) {
+            st.bad_xmodel++;
+            if (verbose || st.bad_xmodel <= 10) {
+                printf("HLS != REFERENCE #%llu  side=%c route=%c w=%d qlen=%d tlen=%d h0=%d status=%d\n",
+                       (unsigned long long)st.n, r.side, r.route, r.w, r.qlen, r.tlen, r.h0, hls.status);
+                printf("   ref: score=%d qle=%d tle=%d gtle=%d gscore=%d max_off=%d\n",
+                       score, qle, tle, gtle, gscore, max_off);
+                printf("   hls: score=%d qle=%d tle=%d gtle=%d gscore=%d max_off=%d\n",
+                       hls.score, hls.qle, hls.tle, hls.gtle, hls.gscore, hls.max_off);
+            }
+        }
         if (!match) {
             st.bad++;
-            if (ex && !extract_all) emit(ex);
+            if (ex && !extract_all && !extract_xmodel) emit(ex);
             if (verbose || st.bad <= 10) {
                 printf("MISMATCH #%llu  side=%c route=%c band_try=%d w=%d qlen=%d tlen=%d h0=%d\n",
                        (unsigned long long)st.n, r.side, r.route, r.band_try,
@@ -176,16 +218,33 @@ int main(int argc, char **argv) {
     if (rc < 0) { printf("FAIL: truncated record after %llu\n", (unsigned long long)st.n); return 1; }
 
     if (ex) { fclose(ex); printf("extracted %llu %s records -> %s\n",
-                                 (unsigned long long)(extract_all ? st.n : st.bad),
-                                 extract_all ? "" : "divergent", extract); }
+                                 (unsigned long long)(extract_all ? st.n :
+                                     extract_xmodel ? st.bad_xmodel : st.bad),
+                                 extract_all ? "" : extract_xmodel ?
+                                     "hls-vs-reference" : "divergent", extract); }
     printf("records : %llu   (scalar=%llu  simd16=%llu  simd8=%llu)\n",
            (unsigned long long)st.n, (unsigned long long)st.by_route[0],
            (unsigned long long)st.by_route[1], (unsigned long long)st.by_route[2]);
     printf("envelope: max qlen=%d  max tlen=%d  max w=%d  max h0=%d  max band_try=%d\n",
            st.max_qlen, st.max_tlen, st.max_w, st.max_h0, st.max_band_try);
-    printf("\n%s: %llu/%llu bit-exact, %llu mismatches\n",
+    if (st.oob) printf("NOTE    : %llu records exceed the HLS envelope "
+                       "(qlen<=%d, tlen<=%d) and were not run\n",
+                       (unsigned long long)st.oob, KSW_MAX_QLEN, KSW_MAX_TLEN);
+    printf("\nreference vs golden : %s  %llu/%llu bit-exact, %llu mismatches\n",
            st.bad ? "FAIL" : "PASS",
            (unsigned long long)(st.n - st.bad), (unsigned long long)st.n,
            (unsigned long long)st.bad);
-    return st.bad ? 1 : 0;
+    printf("hls       vs golden : %s  %llu/%llu bit-exact, %llu mismatches\n",
+           st.bad_hls ? "FAIL" : "PASS",
+           (unsigned long long)(st.n - st.bad_hls), (unsigned long long)st.n,
+           (unsigned long long)st.bad_hls);
+    printf("hls       vs reference : %s  %llu/%llu bit-exact, %llu mismatches\n",
+           (st.bad_xmodel || st.oob) ? "FAIL" : "PASS",
+           (unsigned long long)(st.n - st.bad_xmodel), (unsigned long long)st.n,
+           (unsigned long long)st.bad_xmodel);
+
+    // The golden file is bwa-mem2's truth, but the reference port is known to
+    // diverge from it on a characterised handful of records (see
+    // docs/swa_golden_capture.md). What must ALWAYS hold is hls == reference.
+    return (st.bad_xmodel || st.oob) ? 1 : 0;
 }
