@@ -10,13 +10,17 @@
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
+
+RESTORE=0
+if [ "${1:-}" = "--restore" ]; then RESTORE=1; shift; fi
+
 BWA=${1:-"$HOME/BWA-MEM2 repo/bwa-mem2"}
 OUT=${2:-"$HOME/cap_swa"}
 REF=${REF:-"$HOME/ref_ecoli/ecoli_K12_MG1655.fna"}
 R1=${R1:-"$HOME/reads_ecoli/ecoli_R1.fq"}
 R2=${R2:-"$HOME/reads_ecoli/ecoli_R2.fq"}
 
-if [ "${1:-}" = "--restore" ]; then
+if [ "$RESTORE" = 1 ]; then
     cd "$BWA"; git checkout -- src/bwamem.cpp; rm -f src/swa_capture.inc
     echo "restored: src/bwamem.cpp, removed src/swa_capture.inc"; exit 0
 fi
