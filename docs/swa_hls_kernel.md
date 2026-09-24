@@ -101,8 +101,20 @@ five mutants green, which was a broken harness — `#include "ksw_hls.h"` from
 path, so the mutants were never compiled in. The real result only appeared
 after the harness compiled from the mutant's own directory.
 
-## Next
+## Next: co-simulation
 
-C-sim is done — that is what `make check` is. Co-simulation needs Vitis HLS:
-wrap `ksw_extend_hls` as the top function, `csim_design` then `cosim_design`
-against the same vectors.
+C-sim is done — that is what `make check` is. The HLS project is
+`host/swa_hls/hls/` (see its README for the exact command):
+
+- `ksw_kernel.cpp` wraps `ksw_extend_hls` as the top function `ksw_extend_top`
+- `tb_ksw_hls.cpp` is shared by C-sim and co-sim
+- `cosim_vectors.h` embeds 24 golden records spread over the (qlen, tlen)
+  envelope — co-sim runs against RTL, so the full 49,468 would not finish
+- `run_hls.tcl` runs csim -> csynth -> cosim and prints one PASS/FAIL block
+
+The target box has Vitis 2026.1 with **no** `vitis_hls.bat` — the 2024.1+
+unified flow, driven by `vitis-run --mode hls --tcl`. The script detects this
+and uses `open_component`, falling back to `open_project`/`open_solution`
+otherwise, so it works on either. It was syntax-checked under `tclsh` with the
+HLS commands stubbed (both branches, the report parser, and the failure path);
+the real command behaviour in 2026.1 is still unverified.
