@@ -94,7 +94,11 @@ The unified flow was detected correctly, `open_component` and `add_files
 -cflags` behaved as written, and clang-16 compiled the kernel without
 complaint. csim itself took 15 s; `vitis-run` start-up dominates at ~3 min.
 
-csynth and cosim are still to run.
+**csynth + cosim verified on the same tooling (2026-10-03):**
+`csim PASS / csynth PASS / cosim PASS`, `*** C/RTL co-simulation finished:
+PASS ***`. Estimated Fmax 174.56 MHz against the 125 MHz target. Full run ~2m37s
+(csim 3 s, csynth 34 s, cosim 1m55s). Numbers and the comparison against the
+hand-written `bsw_top` are in `docs/swa_hls_kernel.md`.
 
 `run_hls.tcl` was also syntax-checked under `tclsh` with the HLS commands
 stubbed, exercising both flow branches, the report parser and the failure path.

@@ -118,3 +118,100 @@ and uses `open_component`, falling back to `open_project`/`open_solution`
 otherwise, so it works on either. It was syntax-checked under `tclsh` with the
 HLS commands stubbed (both branches, the report parser, and the failure path);
 the real command behaviour in 2026.1 is still unverified.
+
+---
+
+# Co-simulation result (2026-10-03)
+
+Run on Vitis HLS 2026.1, part `xcku5p-ffvb676-2-e`, 8.0 ns clock (125 MHz).
+
+```
+csim   : PASS   24/24 vectors bit-exact
+csynth : PASS   Estimated Fmax 174.56 MHz
+cosim  : PASS   *** C/RTL co-simulation finished: PASS ***
+```
+
+**The milestone is met**: the same golden vectors reproduce bit-for-bit in
+C-simulation and in C/RTL co-simulation against the generated Verilog, under
+XSIM. Co-sim checks the testbench's comparison *twice* — once pre-RTL and once
+in post-check — and both printed `PASS: 24/24`.
+
+## Timing closure
+
+`Estimated Fmax 174.56 MHz` against a 125 MHz target: ~40% margin, so the
+kernel is not timing-limited at the F2 kernel-domain clock.
+
+## Throughput, and the honest comparison to `bsw_top`
+
+The synthesis report's `1504411` cycles / `12.035 ms` is the **static worst-case
+bound** HLS derives from the loop bounds (`MAX_TLEN=1024` x `MAX_QLEN=160`
+x the trim loops' II). It is not what the design does on real data, and quoting
+it unqualified would be badly misleading.
+
+Measured from the XSIM progress timestamps:
+
+| | cycles |
+|---|---|
+| total, 24 vectors | 274,194 |
+| mean per extension call | 11,424 |
+| max per call (qlen=131, tlen=257) | 21,441 |
+| min per call | 132 |
+
+Against the hand-written systolic core on the same device family:
+
+| | HLS `ksw_extend_top` | `bsw_top` (SystemVerilog) |
+|---|---|---|
+| architecture | sequential scalar DP, 1 cell/cycle | 160-PE systolic, 1 *band*/cycle |
+| cycles, qlen=131 tlen=257 | 21,441 | ~417 (`tlen` + fill) |
+| LUT | 8,404 | 63,985 |
+| FF | 4,631 | 31,308 |
+| DSP | 5 | 140 |
+| BRAM_18K | 5 | 0 |
+| Fmax | 174.6 MHz (est.) | 219.2 MHz (post-route) |
+
+So HLS is **7.6x smaller and ~51x slower** — the systolic array wins on
+area-time product by ~6.8x. This is the expected outcome and not a mark against
+HLS: the C source describes a scalar recurrence, and HLS faithfully built a
+scalar machine. Getting a systolic array out of HLS would require restructuring
+the C into a wavefront form, which is a different exercise from proving
+bit-exactness. **`bsw_top` remains the path to silicon**; the HLS kernel's value
+is that it is provably the same arithmetic, derived from C, in a form reviewers
+can read.
+
+## The II violations, and where the cycles actually go
+
+`csynth` reported `Loop Constraint Status: Not all loop constraints were
+satisfied`. Per-loop:
+
+| loop | target II | achieved II | runs |
+|---|---|---|---|
+| `QP_ROW`/`QP_COL` (flattened) | 1 | **1** | once per call |
+| `EH_ZERO` | 1 | **1** | once per call |
+| `MAT_MAX` | 1 | **1** | once per call |
+| `BAND` (the DP) | 1 | **1** | per target row |
+| `EH_INIT` | 1 | 2 | once per call |
+| `TRIM_LO` | 1 | **4** | **per target row** |
+| `TRIM_HI` | 1 | **4** | **per target row** |
+
+The DP loop itself hit II=1, which is the part that had to work. The cost is in
+the two band-trimming loops: they achieve only II=4 *and run once per target
+row*, so they dominate. Each iteration reads both `eh_h[j]` and `eh_e[j]` and
+can break, and `eh_h` was mapped to a 1R1W RAM — two dependent reads plus a
+loop-carried control dependency serialise it.
+
+Note the tension with change (5): splitting `eh_t` into two arrays gave the
+`BAND` loop independent ports (II=1, good), but it cost the trim loops a second
+dependent read. Packing `h` and `e` back into one 64-bit word would help the
+trim loops and hurt `BAND`.
+
+**The better fix removes the loops entirely.** `BAND` already visits every `j`
+in `[beg, end)` and writes both arrays, so it can track the lowest and highest
+`j` with a nonzero `(h, e)` as a side effect at II=1 — making the separate
+rescans unnecessary. That is an algorithmic restructuring, so it must be proven
+bit-exact against the same vectors before it is believed. **Deliberately not
+done here**: the milestone was bit-exactness, and an optimisation should not
+land in the same change as the claim it might invalidate.
+
+Also present: two `sdiv_32s_32s_31_36_seq_1` sequential dividers (36 cycles
+each, once per call) for `max_ins`/`max_del`. Cheap, but they are the only
+reason the design uses DSPs at all.
