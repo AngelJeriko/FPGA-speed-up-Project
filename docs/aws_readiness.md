@@ -334,8 +334,36 @@ them.**
 | The **image has never been baked** — AWS can reject designs for rule violations | We followed AWS's own project template and scripts | Step 3 of the AWS build |
 | **No real silicon run.** Host-to-FPGA communication and the register interface are verified only in simulation | Simulation of the full wrapper passes all 13 tests with the correct result | Step 4 of the AWS build |
 | **The memory path is not used yet.** This build uses only the simple control interface, not the chip's high-bandwidth memory | Intentional: this first build tests correctness, not speed | A later build, once correctness is confirmed |
-| **The test data is small and clean** — 5,000 simulated *E. coli* read pairs | The hardware is sized for inputs roughly 4x larger than anything the dataset produced | Re-capturing from human-genome data, which is already scripted and can be done now |
+| ~~**The test data is small and clean** — 5,000 simulated *E. coli* read pairs~~ **CLOSED 2026-10-03** | Re-captured on human data: 18,156,029 records across 200,000 real ERR174310 pairs and a 150 bp high-divergence simulated set, all bit-exact. It also found a real defect — see below | Done |
 | **Toolchain version mismatch.** AWS's F2 kit supports Vivado 2024.1, 2024.2, 2025.1 and 2025.2. Our local install is **2026.1**, outside that range | It does not affect any result in this report — the local timing and synthesis work is not AWS-dependent. It only affects where the AWS build runs | Running step 1 on an EC2 instance with AWS's FPGA Developer AMI, which ships a supported Vivado and its licence |
+
+### Update 2026-10-03: the dataset item is closed, and it found a bug
+
+Re-capturing on human data closed the "small and clean dataset" item above, and
+produced two results worth recording.
+
+**Bit-exactness holds at scale.** 15,437,657 extension calls from 200,000 real
+ERR174310 read pairs against hg38 chr1–5, plus 2,718,372 from a deliberately
+messy 150 bp simulated set — **18,156,029 records, zero mismatches**, on all
+three models. That is 367x the original *E. coli* evidence, on real reads.
+
+**The input envelope is sound but tight.** The hardware accepts targets up to
+1,024 bases. *E. coli* only ever produced 437, which made the limit look
+generous. Real human reads reached 783, and the 150 bp high-divergence set
+reached **997 — 27 bases from the limit**. The sizing is correct for the
+intended workload, and it has far less margin than the earlier data implied.
+
+**That question exposed a defect.** Asking "what happens if a target exceeds
+1,024?" revealed that nothing checked it. The hardware rejected over-long
+*queries* but not over-long *targets*, and the target index is truncated to
+10 bits — so an oversize request would have silently wrapped around and
+returned a confident wrong answer with no error flag. We reproduced exactly
+that: the unfixed design answers an impossible request with `score=2` and
+`error=0`.
+
+It is fixed, with two tests that fail without the fix, and the full hardware
+test suite re-run clean. Finding this before the AWS build rather than after is
+the clearest argument that the readiness review was worth doing.
 
 ### A strategic caveat that belongs in the record
 

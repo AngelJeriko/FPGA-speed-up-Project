@@ -287,6 +287,45 @@ module tb_bsw_top
         end
 
         // ----------------------------------------------------------------
+        // Test 7b: Oversize-request rejection on the TARGET length
+        // (tlen > MAX_TLEN). Without this guard the target read index
+        // tgt_ra_idx[$clog2(MAX_TLEN)-1:0] silently WRAPS, so the DP walks
+        // the wrong bases and returns a plausible-looking score with
+        // error=0. Measured maxima on human data reach tlen=997 against
+        // MAX_TLEN=1024, so this is ~3% away from being hit for real.
+        // ----------------------------------------------------------------
+        begin
+            bit [2:0] q[$] = '{A};   // contents don't matter: S_REJECT bypasses the DP
+            bit [2:0] t[$] = '{A};
+            set_query(1, q);
+            set_target(1, t);
+            load_config(1, MAX_TLEN + 1, 0);     // tlen = MAX_TLEN + 1 = oversize
+            submit_and_wait();
+            check("T7b oversize-tlen error bit set", result.error, 1);
+            check("T7b oversize-tlen score zeroed",  result.score, 0);
+            check("T7b oversize-tlen qle zeroed",    result.qle,   0);
+            check("T7b oversize-tlen tle zeroed",    result.tle,   0);
+        end
+
+        // ----------------------------------------------------------------
+        // Test 7c: the boundary itself must be ACCEPTED, not rejected.
+        // tlen == MAX_TLEN uses indices 0..MAX_TLEN-1 and is legal; an
+        // off-by-one in the guard (>= instead of >) would break it.
+        // A 1-base query against a MAX_TLEN target of the same base scores
+        // W_MATCH once, with h0=1 carried in.
+        // ----------------------------------------------------------------
+        begin
+            bit [2:0] q[$] = '{A};
+            bit [2:0] t[$];
+            set_query(1, q);
+            for (int i = 0; i < MAX_TLEN; i++) t.push_back(A);
+            set_target(MAX_TLEN, t);
+            load_config(1, MAX_TLEN, 0);
+            submit_and_wait();
+            check("T7c tlen==MAX_TLEN accepted", result.error, 0);
+        end
+
+        // ----------------------------------------------------------------
         // Test 8: Boundary acceptance: confirm a previously-valid request
         // following T7 still works (rejection state is not sticky).
         // Reuse T1's perfect-match setup; expect identical results.

@@ -11,7 +11,17 @@ package bsw_pkg;
     // Sized for real bwa-mem2 150bp short-read extension. Measured maxima over
     // 747,258 captured ksw_extend2 calls (hg38 chr1-5 / HG00733): qlen<=131,
     // tlen<=786, ref window<=811. MAX_QLEN/N_PE carry headroom to 160; MAX_TLEN
-    // rounds to 1024 (power of 2). Because the systolic array computes the FULL
+    // rounds to 1024 (power of 2).
+    //
+    // RE-MEASURED 2026-10-03 on hg38 chr1-5, two independent sets:
+    //   15,437,657 calls, 200k real ERR174310 pairs (101bp): qlen<=82,  tlen<=783
+    //    2,718,372 calls,  60k simulated pairs  (150bp, 10x
+    //                      mutation rate, 2x indel fraction): qlen<=131, tlen<=997
+    // Both bit-exact. The 150bp stress figure reaches 97.4% of MAX_TLEN, so the
+    // tlen guard in bsw_ctrl_fsm (req_oversize) is load-bearing: a longer or
+    // more divergent read set CAN exceed 1024, and without the guard the target
+    // index wraps silently. Raising MAX_TLEN to 2048 is the fallback if a real
+    // workload rejects too often. Because the systolic array computes the FULL
     // DP (one PE per query base, no in-array banding), it is bit-exact with the
     // banded C++ ksw_extend2 only while 2*w+1 >= qlen; with the default band
     // w=100 and qlen<=160, 2*100+1=201 covers the whole query, so banding is a
@@ -71,10 +81,12 @@ package bsw_pkg;
     } bsw_config_t;
 
     // Output result, matches scalarBandedSWA return + reference pointer outputs.
-    // `error` is set when the request was rejected — currently the only cause
-    // is qlen > BAND_WIDTH (the synthesized PE array width). When error=1, all
-    // other result fields are forced to 0 to prevent the host from acting on
-    // stale tracker state. The host must check error before using score.
+    // `error` is set when the request was rejected. Two causes:
+    //   qlen > BAND_WIDTH  (wider than the synthesized PE array)
+    //   tlen > MAX_TLEN    (longer than the target latch)
+    // When error=1, all other result fields are forced to 0 to prevent the host
+    // from acting on stale tracker state. The host must check error before
+    // using score.
     typedef struct packed {
         logic    error;        // 1 = request rejected (e.g., qlen > N_PE)
         score_t  score;        // max alignment score

@@ -80,13 +80,14 @@ module bsw_ctrl_fsm
         S_RUN    = 3'd2,
         S_DRAIN  = 3'd3,
         S_DONE   = 3'd4,
-        S_REJECT = 3'd5   // qlen > N_PE: skip to S_DONE with error=1
+        S_REJECT = 3'd5   // oversize request: skip to S_DONE with error=1
     } state_e;
 
     state_e state, state_n;
 
-    // Latched oversize flag: set at request capture when qlen > N_PE so the
-    // result-emit path returns an error rather than stale tracker data.
+    // Latched oversize flag: set at request capture when the request exceeds
+    // the envelope (see req_oversize) so the result-emit path returns an error
+    // rather than stale tracker data.
     logic oversize_q;
 
     // ---- Latched config + sequences ----
@@ -103,6 +104,18 @@ module bsw_ctrl_fsm
                       ((state == S_IDLE) ||
                        (state == S_DONE && result_ready_i));
 
+    // A request is rejected when it does not fit the synthesised envelope:
+    //   qlen > N_PE       -- wider than the PE array
+    //   tlen > MAX_TLEN   -- longer than the target latch
+    // The tlen term matters because the target read below indexes with
+    // tgt_ra_idx[$clog2(MAX_TLEN)-1:0]; an oversize tlen would silently WRAP
+    // the walk and return a wrong answer with error=0 rather than reject.
+    // Measured maxima on human data: qlen<=131, tlen<=997 (150bp, elevated
+    // divergence) against MAX_TLEN=1024 -- only ~3% of headroom, so this guard
+    // is load-bearing, not theoretical. See docs/swa_golden_capture.md.
+    wire req_oversize = (cfg_i.qlen > len_t'(N_PE)) ||
+                        (cfg_i.tlen > len_t'(MAX_TLEN));
+
     always_ff @(posedge clk) begin
         if (!rst_n) begin
             cfg_q      <= '0;
@@ -113,7 +126,7 @@ module bsw_ctrl_fsm
             cfg_q      <= cfg_i;
             query_q    <= query_i;
             target_q   <= target_i;
-            oversize_q <= (cfg_i.qlen > len_t'(N_PE));
+            oversize_q <= req_oversize;
         end
     end
 
@@ -185,7 +198,7 @@ module bsw_ctrl_fsm
         state_n = state;
         unique case (state)
             S_IDLE  : if (req_valid_i)
-                          state_n = (cfg_i.qlen > len_t'(N_PE)) ? S_REJECT : S_LOAD;
+                          state_n = req_oversize ? S_REJECT : S_LOAD;
             S_LOAD  :                                         state_n = S_RUN;
             S_REJECT:                                         state_n = S_DONE;
             // S_DONE -> S_LOAD/S_REJECT directly when the host has the next
@@ -193,7 +206,7 @@ module bsw_ctrl_fsm
             // host is just consuming the result, fall back to S_IDLE.
             S_DONE  : if (result_ready_i) begin
                           if (req_valid_i)
-                              state_n = (cfg_i.qlen > len_t'(N_PE)) ? S_REJECT : S_LOAD;
+                              state_n = req_oversize ? S_REJECT : S_LOAD;
                           else
                               state_n = S_IDLE;
                       end

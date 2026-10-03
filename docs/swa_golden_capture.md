@@ -147,3 +147,113 @@ Worth knowing before sizing the HLS kernel:
 - **envelope** — `qlen <= 131`, `tlen <= 437`, `w <= 100`, `h0 <= 149`. 150 bp
   reads against a 4.6 Mbp reference; longer reads or a larger reference will
   widen it. Size HLS buffers from the envelope *plus headroom*, not from it.
+
+---
+
+# Human-genome re-capture (2026-10-03)
+
+The *E. coli* set was small and clean by design. This run repeats the capture on
+human data to answer two questions: does bit-exactness hold at scale on real,
+messy reads, and is the RTL's input envelope (`MAX_QLEN=160`, `MAX_TLEN=1024`)
+actually big enough?
+
+## Two sets
+
+| Set | Reads | Reference | Records |
+| --- | --- | --- | --- |
+| Real | 200,000 pairs of ERR174310, 101 bp | hg38 chr1-5 | **15,437,657** |
+| Stress | 60,000 simulated pairs, 150 bp, 10x mutation rate, 2x indel fraction, seed 42 | hg38 chr1-5 | **2,718,372** |
+
+The real reads are 101 bp, which cannot stress `qlen`. The stress set exists to
+cover that: 150 bp is the length the hardware is sized for, and the elevated
+divergence widens the reference windows that set `tlen`.
+
+## Bit-exactness: 18,156,029 records, zero mismatches
+
+```
+real   : reference vs golden PASS 15437657/15437657   hls vs golden PASS   hls vs reference PASS
+stress : reference vs golden PASS  2718372/2718372    hls vs golden PASS   hls vs reference PASS
+```
+
+That is **367x the original *E. coli* evidence**, on real human reads, with no
+disagreement anywhere.
+
+## Envelope: the headroom is much thinner than *E. coli* suggested
+
+| Set | max qlen | max tlen | tlen vs `MAX_TLEN=1024` |
+| --- | --- | --- | --- |
+| *E. coli*, 150 bp simulated | 131 | 437 | 43% |
+| Human real, 101 bp | 82 | 783 | 76% |
+| **Human stress, 150 bp** | **131** | **997** | **97.4%** |
+
+`rtl/bsw_pkg.sv` already documented `tlen <= 786` from an earlier HG00733
+capture, and the 101 bp real set corroborates it at 783. But the 150 bp stress
+set reaches **997 — 27 bases from the limit**. The envelope is sound for the
+workload it was sized against, and it is *not* comfortable: a longer read set,
+or a more divergent sample, can exceed it.
+
+`qlen` tops out at exactly 131 on both 150 bp sets, matching the documented
+figure, against `MAX_QLEN=160` (22% headroom).
+
+Also notable: the SIMD route mix inverted. *E. coli* was 90% 16-bit path; the
+real human set is 83% **8-bit** path. So this run exercised a materially
+different route through bwa-mem2's batching than the original capture did.
+Still unexercised by any real dataset: the scalar-overflow route (`scalar=0`)
+and the band-widening retry (`max band_try=0`).
+
+`tlen == 0` does not occur: the minimum across all 18.2M records is 2.
+
+## The defect this found
+
+Measuring 997 against a 1024 limit prompted the obvious question: what does the
+hardware do if `tlen` ever exceeds `MAX_TLEN`? The answer was **nothing good**.
+
+`bsw_ctrl_fsm.sv` rejected only `qlen > N_PE`. There was no `tlen` check, and
+the target read indexes with
+
+```systemverilog
+tgt_r <= target_q[tgt_ra_idx[$clog2(MAX_TLEN)-1:0]];
+```
+
+a 10-bit truncation. An oversize `tlen` would **silently wrap** the target walk
+and return a plausible-looking score with `error = 0` — the worst failure mode
+available, since the host has no way to detect it.
+
+Fixed by extending the existing guard, with the condition factored into one
+named wire so it cannot drift between its three use sites:
+
+```systemverilog
+wire req_oversize = (cfg_i.qlen > len_t'(N_PE)) ||
+                    (cfg_i.tlen > len_t'(MAX_TLEN));
+```
+
+Two new tests in `tb/tb_bsw_top.sv`, both mutation-checked:
+
+| Test | Asserts | Mutant that kills it |
+| --- | --- | --- |
+| T7b | `tlen > MAX_TLEN` sets `error`, zeroes outputs | dropping the `tlen` term -> **returns score=2, qle=1, tle=1, error=0** |
+| T7c | `tlen == MAX_TLEN` is still **accepted** | `>` becomes `>=` -> boundary wrongly rejected |
+
+MF1's failure output is the bug demonstrated rather than argued: without the
+guard the design answers an impossible request with a confident wrong number.
+
+Full suite re-run after the fix: `tb_bsw_top` 31/0, `tb_bsw_pe` 18/0,
+`tb_bsw_axil`, `tb_bsw_axil_cdc`, `tb_bsw_axis`, `tb_bsw_ext` (15,887 real
+extensions, 0 failures), `tb_cl_bsw_ocl`, `tb_cl_bsw_ocl_f2` — all pass.
+
+## Reproducing
+
+```sh
+# real reads
+head -n 800000 ~/reads/sub10_1.fq > h200k_1.fq   # and _2
+# stress set
+wgsim -N 60000 -1 150 -2 150 -r 0.01 -R 0.3 -X 0.5 -S 42 \
+      hg38_chr1-5.fa sim150_1.fq sim150_2.fq
+# then, for each pair:
+host/bwamem2_patch/apply_swa_capture.sh <bwa-mem2>
+BSW_CAPTURE_OUT=out.bin <bwa-mem2>/bwa-mem2 mem -t 1 hg38_chr1-5.fa R1 R2 > /dev/null
+host/swa_hls/replay_swa out.bin
+```
+
+The captures are 2.5 GB and 0.4 GB, so they are not committed; the commands
+above regenerate them.
