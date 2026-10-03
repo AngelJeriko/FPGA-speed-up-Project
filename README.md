@@ -8,6 +8,10 @@ verified **bit-exact against the BWA-MEM2 C++ reference** and mutation-tested.
 > **New here? Start with [`docs/project_status.md`](docs/project_status.md)** — it is
 > the current, outside-reader map of what exists, how it's verified, and what remains.
 > To reproduce the project from scratch, follow [`docs/reproducing.md`](docs/reproducing.md).
+>
+> **For a non-specialist summary of where the project stands and why it is ready
+> for AWS hardware, read [`docs/aws_readiness.md`](docs/aws_readiness.md)** —
+> every technical term is explained, with a glossary.
 
 > ⚠️ **Scope note (2026-08).** Earlier versions of this README described a
 > standalone banded-Smith-Waterman kernel targeting *Intel/Quartus*. That is
@@ -86,7 +90,7 @@ synth/ooc/      out-of-context synthesis/timing harness (synth/ooc/README.md)
 scripts/        run_sim.sh (Verilator runner), cl_bsw_files{,_f2}.f (CL source lists),
                 f1/ and f2/ AWS build helpers (f2/lint_cl_bsw.sh checks the CL against
                 the real Shell files before any paid build)
-docs/           29 docs — status, runbooks, profiling, and design rationale
+docs/           36 docs — status, runbooks, profiling, and design rationale
 REQUIREMENTS.md tool/version requirements per stage
 ```
 
