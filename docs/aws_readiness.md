@@ -185,7 +185,9 @@ We wrote the F2 version of this wrapper and checked it two ways:
    default-connection files from AWS's own F2 toolkit, so we are matching their
    actual interface rather than our understanding of it.
 2. **Real check (minutes):** compiled the entire custom logic region in Vivado
-   2026.1, the same tool AWS uses.
+   2026.1 — AMD's real toolchain, and a *newer* release than AWS's build flow
+   accepts. That is the right direction to be wrong in for a synthesis check,
+   but see the toolchain note in the open-items table.
 
 Both pass. Three low-level warnings remain, and all three come from AWS's own
 placeholder memory module, not from our code. A simulation of the complete
@@ -239,10 +241,12 @@ free check would have caught.
 The ordering is deliberate: **everything cheap happens first, and there is a
 hard checkpoint before anything expensive.**
 
-1. Compile and place-and-route on an ordinary cheap machine — takes hours, costs
-   almost nothing.
+1. Compile and place-and-route on a cheap build machine — takes hours, costs
+   little. Note the toolchain constraint below: this has to be a Linux machine
+   with a Vivado version AWS supports, which in practice means a small EC2
+   instance running AWS's FPGA Developer AMI (not an F2 instance).
 2. **Checkpoint:** read the timing report. If the design does not meet its clock
-   target, stop here. Nothing has been paid yet.
+   target, stop here. Nothing expensive has been paid yet.
 3. Only after that checkpoint passes, submit the image for baking.
 4. Only after the image exists, start the F2 machine, run the test, shut it down.
    Minutes, not hours.
@@ -330,7 +334,8 @@ them.**
 | The **image has never been baked** — AWS can reject designs for rule violations | We followed AWS's own project template and scripts | Step 3 of the AWS build |
 | **No real silicon run.** Host-to-FPGA communication and the register interface are verified only in simulation | Simulation of the full wrapper passes all 13 tests with the correct result | Step 4 of the AWS build |
 | **The memory path is not used yet.** This build uses only the simple control interface, not the chip's high-bandwidth memory | Intentional: this first build tests correctness, not speed | A later build, once correctness is confirmed |
-| **The test data is small and clean** — 5,000 simulated *E. coli* read pairs | The hardware is sized for inputs roughly 4x larger than anything the dataset produced | Re-capturing from human-genome data, which is already scripted |
+| **The test data is small and clean** — 5,000 simulated *E. coli* read pairs | The hardware is sized for inputs roughly 4x larger than anything the dataset produced | Re-capturing from human-genome data, which is already scripted and can be done now |
+| **Toolchain version mismatch.** AWS's F2 kit supports Vivado 2024.1, 2024.2, 2025.1 and 2025.2. Our local install is **2026.1**, outside that range | It does not affect any result in this report — the local timing and synthesis work is not AWS-dependent. It only affects where the AWS build runs | Running step 1 on an EC2 instance with AWS's FPGA Developer AMI, which ships a supported Vivado and its licence |
 
 ### A strategic caveat that belongs in the record
 
@@ -353,9 +358,11 @@ described once it works.
 
 Four steps, each with a decision point. The first two cost almost nothing.
 
-1. **Build the design against the AWS shell.** On an ordinary cheap machine, run
-   the staging script with the two-clock option and let AWS's build script place
-   and route the whole thing. Takes a few hours, unattended.
+1. **Build the design against the AWS shell.** On a cheap EC2 build instance
+   running AWS's FPGA Developer AMI, run the staging script with the two-clock
+   option and let AWS's build script place and route the whole thing. Takes a
+   few hours, unattended. (Our local Vivado 2026.1 cannot do this step — see the
+   toolchain constraint below.)
    - *Decision point:* did it build at all?
 2. **Read the timing report.** Confirm the compute core meets 125 MHz and the
    interface meets 250 MHz on the real F2 chip.
