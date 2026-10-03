@@ -86,7 +86,15 @@ g++ -O2 -std=c++17 -I.. -I. -o tb tb_ksw_hls.cpp ksw_kernel.cpp && ./tb
 
 This currently reports `PASS: 24/24 vectors bit-exact`.
 
-`run_hls.tcl` itself was syntax-checked under `tclsh` with the HLS commands
+## Status on real hardware tooling
+
+**C-sim verified on Vitis HLS 2026.1 (2026-10-03), `xcku5p-ffvb676-2-e`:**
+`PASS: 24/24 vectors bit-exact`, `CSim done with 0 errors`, `OVERALL: PASS`.
+The unified flow was detected correctly, `open_component` and `add_files
+-cflags` behaved as written, and clang-16 compiled the kernel without
+complaint. csim itself took 15 s; `vitis-run` start-up dominates at ~3 min.
+
+csynth and cosim are still to run.
+
+`run_hls.tcl` was also syntax-checked under `tclsh` with the HLS commands
 stubbed, exercising both flow branches, the report parser and the failure path.
-What has *not* been verified is the behaviour of the real `open_component` /
-`csim_design` / `cosim_design` commands in 2026.1 -- that needs your machine.

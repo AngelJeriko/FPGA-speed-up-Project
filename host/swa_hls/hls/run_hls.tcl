@@ -43,7 +43,9 @@ puts "=========================================================="
 set unified [llength [info commands open_component]]
 if {$unified} {
     puts "flow: unified (open_component)"
-    open_component -reset $COMP -flow_target vivado
+    # 2026.1 deprecates -flow_target here (HLS 200-2149, 200-484); omitting it
+    # is equivalent to 'vivado'. The classic branch below still takes it.
+    open_component -reset $COMP
     set_part $PART
     create_clock -period $PERIOD -name default
     set_top $TOP
