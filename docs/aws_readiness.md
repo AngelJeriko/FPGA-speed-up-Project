@@ -329,7 +329,7 @@ them.**
 
 | Open item | Why we think it is manageable | What actually settles it |
 | --- | --- | --- |
-| Timing was measured on a **stand-in chip**, not the real F2 part | Same chip family and speed grade; we are asking for 125 MHz against a measured 219 MHz, so 43% of margin absorbs a worse result | Step 1 of the AWS build |
+| Timing was measured on a **stand-in chip**, not the real F2 part | Same chip family and speed grade; we are asking for 125 MHz against a measured 219 MHz, so 43% of margin absorbs a worse result. We checked whether a local measurement on the real part was possible and it is not — see the note below | Step 1 of the AWS build |
 | The **full build has never run** — our logic has never been placed alongside AWS's shell | Our region compiles alone, and connects to AWS's real signal list | Step 1 of the AWS build |
 | The **image has never been baked** — AWS can reject designs for rule violations | We followed AWS's own project template and scripts | Step 3 of the AWS build |
 | **No real silicon run.** Host-to-FPGA communication and the register interface are verified only in simulation | Simulation of the full wrapper passes all 13 tests with the correct result | Step 4 of the AWS build |
@@ -364,6 +364,27 @@ that: the unfixed design answers an impossible request with `score=2` and
 It is fixed, with two tests that fail without the fix, and the full hardware
 test suite re-run clean. Finding this before the AWS build rather than after is
 the clearest argument that the readiness review was worth doing.
+
+### Why we did not measure on the real F2 part locally
+
+The obvious way to strengthen the timing evidence would be to re-run the
+measurement on the actual VU47P instead of a stand-in. We checked, and it is not
+available to us:
+
+- **The device family is not installed.** `get_parts -quiet xcvu47p*` returns
+  nothing. The VU47P is a Virtex UltraScale+ HBM part, a separate and large
+  install from the Kintex UltraScale+ family we have.
+- **The licence tier probably would not permit it anyway.** Our Vivado reports a
+  *BASIC* licence. That tier covers a subset of devices — which is why the KU5P
+  stand-in works — and large Virtex UltraScale+ HBM parts generally require the
+  Enterprise tier.
+
+We are deliberately **not** pursuing it. Closing this gap locally would mean a
+large device download and possibly a licence upgrade, to obtain an intermediate
+data point that step 1 of the AWS build supersedes entirely — and AWS's FPGA
+Developer AMI ships a Vivado licence that covers the target devices. The
+stand-in measurement plus 43% of margin is the honest position, and the real
+number arrives at the first build.
 
 ### A strategic caveat that belongs in the record
 
