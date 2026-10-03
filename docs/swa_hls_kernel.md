@@ -215,3 +215,102 @@ land in the same change as the claim it might invalidate.
 Also present: two `sdiv_32s_32s_31_36_seq_1` sequential dividers (36 cycles
 each, once per call) for `max_ins`/`max_del`. Cheap, but they are the only
 reason the design uses DSPs at all.
+
+---
+
+# Optimisation (8): deleting the band-trim rescans
+
+The co-sim run showed the DP loop `BAND` reaching II=1 as intended, but
+`TRIM_LO` and `TRIM_HI` achieving only **II=4 while running once per target
+row** — so the two band-trim rescans, not the DP, dominated the cycle count.
+
+## What the rescans were doing
+
+```c
+TRIM_LO: for (j = beg; j < end  && eh[j]==0; ++j);  beg = j;
+TRIM_HI: for (j = end; j >= beg && eh[j]==0; --j);  end = min(j+2, qlen);
+```
+
+Both only ask *where are the nonzero cells* — and `BAND` already saw that, as
+it wrote them. So `BAND` now tracks `first_nz` / `last_nz` and the rescans
+become arithmetic. Three details make the substitution exact:
+
+1. `TRIM_LO` examines `[beg, end-1]` and yields `end` when all are zero.
+2. `TRIM_HI` examines `[beg, end]` — one wider — and uses the **updated** `beg`,
+   yielding `beg-1` when all are zero.
+3. `eh[end]` was just set to `(h1, 0)`, so `TRIM_HI`'s first probe turns purely
+   on `h1 != 0`; if nonzero it stops immediately at `end`.
+
+`last_nz` is the max over `[beg_old, end-1]`; since `last_nz >= first_nz ==` the
+new `beg`, it is also the max over the narrowed range `TRIM_HI` would have
+scanned. And the rescans are only reached when `mm > 0` (an empty or all-zero
+band exits at `if (mm == 0) break;`), which guarantees `first_nz >= 0` or
+`h1 != 0`.
+
+## Proof that it is still bit-exact
+
+- **All 345,000+ captured records** across seven configurations: `hls ==
+  reference`, 0 mismatches.
+- **Randomized differential testing**, new (`fuzz_ksw.cpp`): 3.5M+ random cases
+  against the reference across several envelopes — normal, tiny (`qlen<=8`,
+  `tlen<=16`), and full (`qlen<=160`, `tlen<=1024`) — 0 mismatches.
+
+### Mutation check
+
+| mutant | result |
+|---|---|
+| MT2 drop the `h1 != 0` case | **RED** |
+| MT4 `first_nz` becomes `last_nz` | **RED** |
+| MT5 drop `e` from the nonzero test | **RED** |
+| MT6 `hi+2` -> `hi+1` | **RED** |
+| MT1 `beg` fallback `end` -> `beg` | GREEN — *equivalent* |
+| MT3 all-zero fallback `beg-1` -> `beg` | GREEN — *dead code* |
+
+The two survivors were not taken on trust. Host-only instrumentation
+(`KSW_INSTRUMENT`, fenced out of synthesis — verified zero residue under
+`-D__SYNTHESIS__`) counted how often each fallback is reached:
+
+| capture | `first_nz < 0` | all-zero |
+|---|---|---|
+| default | 1,003 | **0** |
+| `-E 20,20` | 24,357 | **0** |
+| `-O 30,30 -E 12,9` | 20,428 | **0** |
+| others | 28–82 | **0** |
+
+- **MT3 is dead code.** The all-zero fallback is reached zero times, in every
+  capture — as the reachability argument predicts, since all-zero implies
+  `mm == 0`, which exits earlier. It is kept only to mirror the reference.
+- **MT1 is genuinely equivalent.** Its branch *is* taken, thousands of times,
+  and still nothing changes — because reprocessing an all-zero prefix is a
+  no-op: `M = eh_h[j] = 0` so `M` stays 0, `e = 0`, `f` cannot rise above 0
+  through such a prefix, so `h = 0` and the cell re-stores `(0,0)`. `mj` is only
+  consulted when `mm > 0`. Even the `beg == 0` reseed is safe: `first_nz < 0`
+  at `beg == 0` means that row's own seed was already 0, i.e.
+  `h0 <= o_del + e_del*(i+1)`, so the next row's seed clamps to 0 too.
+  **The reference's `TRIM_LO` was purely a performance optimisation**, which is
+  exactly why removing the loops costs nothing in results.
+
+## Expected effect
+
+Per target row the inner work was roughly `bw*1` (BAND, II=1) plus `bw*4` twice
+(the two rescans at II=4) — about **9x** the DP's own cost. Removing them should
+cut the dominant term accordingly, though per-row loop entry/exit, pipeline
+flush and the two sequential dividers mean the end-to-end gain will be smaller.
+Re-run `KSW_STAGE=all` to measure it rather than trusting this estimate.
+
+# Widened co-simulation
+
+The first co-sim set was 24 records from a single scoring configuration, so it
+could not exercise the band clamp at all. It is now 72 records across four:
+
+| set | parameters | why |
+|---|---|---|
+| `default` (32) | `-O 6,6 -E 1,1 -w 100` | bwa-mem2 defaults |
+| `tight-gap` (16) | `-O 30,30 -E 12,9` | `max_ins`/`max_del` clamp binds |
+| `tight-ext` (12) | `-E 20,20` | clamp binds, symmetric |
+| `narrow-w` (12) | `-w 12` | band-shrink path active |
+
+Each record carries its own scoring parameters, so the sets coexist in one
+testbench. The generator now **excludes records where the reference disagrees
+with bwa-mem2** (the testbench compares against golden, so such a record would
+fail for a reason unrelated to the kernel) and says so in the generated header.

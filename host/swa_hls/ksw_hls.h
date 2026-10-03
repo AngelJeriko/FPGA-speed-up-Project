@@ -42,6 +42,14 @@
 #pragma once
 #include <cstdint>
 
+// Host-only instrumentation, fenced out of synthesis. Counts how often the
+// two all-zero fallback paths of the band-trim arithmetic are taken, so a
+// mutant surviving there can be told apart from a mutant that is equivalent.
+#if defined(KSW_INSTRUMENT) && !defined(__SYNTHESIS__)
+extern unsigned long long ksw_fb_first_nz_none;   // first_nz < 0  (beg -> end)
+extern unsigned long long ksw_fb_all_zero;        // h1==0 && last_nz<0
+#endif
+
 #ifndef KSW_MAX_QLEN
 #define KSW_MAX_QLEN 160        // rtl/bsw_pkg.sv :: MAX_QLEN
 #endif
@@ -154,6 +162,9 @@ static inline ksw_extend_out ksw_extend_hls(
         if (i >= tlen) break;
 
         int32_t t, f = 0, h1, mm = 0, mj = -1;
+        // (8) lowest/highest j in [beg,end) whose stored (h,e) is not (0,0),
+        // observed as BAND runs so the two rescan loops are not needed
+        int32_t first_nz = -1, last_nz = -1;
         uint8_t tb = target[i];
         if (tb >= KSW_M) tb = KSW_M - 1;                     // (6)
         const int8_t *q = &qp[tb * KSW_MAX_QLEN];
@@ -172,7 +183,8 @@ static inline ksw_extend_out ksw_extend_hls(
 #pragma HLS PIPELINE II=1
             if (j >= end) break;
             int32_t h, M = eh_h[j], e = eh_e[j];
-            eh_h[j] = h1;
+            const int32_t hw = h1;              // the value stored at eh_h[j]
+            eh_h[j] = hw;
             M = M ? M + q[j] : 0;
             h = M > e ? M : e;
             h = h > f ? h : f;
@@ -183,6 +195,10 @@ static inline ksw_extend_out ksw_extend_hls(
             e -= e_del; e = e > t ? e : t; eh_e[j] = e;
             t = M - oe_ins; t = t > 0 ? t : 0;
             f -= e_ins; f = f > t ? f : t;
+            if (hw != 0 || e != 0) {            // (8)
+                first_nz = first_nz < 0 ? j : first_nz;
+                last_nz  = j;
+            }
         }
         eh_h[end] = h1; eh_e[end] = 0;
 
@@ -203,23 +219,37 @@ static inline ksw_extend_out ksw_extend_hls(
             }
         }
 
-        // (2) shrink the band; both loops leave j at the reference's exit value
-      TRIM_LO:
-        for (j = beg; j < KSW_MAX_QLEN; ++j) {
-#pragma HLS LOOP_TRIPCOUNT min=0 max=KSW_MAX_QLEN
-#pragma HLS PIPELINE II=1
-            if (j >= end) break;
-            if (eh_h[j] != 0 || eh_e[j] != 0) break;
-        }
-        beg = j;
-      TRIM_HI:
-        for (j = end; j >= 0; --j) {
-#pragma HLS LOOP_TRIPCOUNT min=0 max=KSW_MAX_QLEN
-#pragma HLS PIPELINE II=1
-            if (j < beg) break;
-            if (eh_h[j] != 0 || eh_e[j] != 0) break;
-        }
-        end = j + 2 < qlen ? j + 2 : qlen;
+        // (8) Shrink the band. The reference rescans the row twice:
+        //
+        //   TRIM_LO: for (j = beg; j < end  && eh[j]==0; ++j);  beg = j;
+        //   TRIM_HI: for (j = end; j >= beg && eh[j]==0; --j);  end = min(j+2, qlen);
+        //
+        // Both scans only ask "where are the nonzero cells", which BAND already
+        // saw as it wrote them -- so first_nz/last_nz replace the rescans. Three
+        // details make the substitution exact:
+        //
+        //   a. TRIM_LO examines [beg, end-1] and yields `end` when all are zero.
+        //   b. TRIM_HI examines [beg, end] -- one wider -- and uses the *updated*
+        //      beg, yielding beg-1 when all are zero.
+        //   c. eh[end] was just set to (h1, 0), so TRIM_HI's first probe turns
+        //      purely on h1 != 0. If h1 != 0 it stops immediately at `end`.
+        //
+        // last_nz is the max over [beg_old, end-1]; since last_nz >= first_nz ==
+        // the new beg, it is also the max over the narrowed [new_beg, end-1],
+        // which is what TRIM_HI would have scanned.
+        //
+        // Reachability: the trims are only reached when mm > 0 (an empty or
+        // all-zero band exits at `if (mm == 0) break;` above), so mm > 0
+        // guarantees first_nz >= 0 or h1 != 0, and hi >= beg always holds.
+#if defined(KSW_INSTRUMENT) && !defined(__SYNTHESIS__)
+        if (first_nz < 0)           ksw_fb_first_nz_none++;
+        if (h1 == 0 && last_nz < 0) ksw_fb_all_zero++;
+#endif
+        beg = first_nz >= 0 ? first_nz : end;
+        const int32_t hi = h1 != 0   ? end
+                         : last_nz >= 0 ? last_nz
+                         : beg - 1;
+        end = hi + 2 < qlen ? hi + 2 : qlen;
     }
 
     out.score   = max;

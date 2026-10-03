@@ -19,7 +19,20 @@ echo "== 1. division transform (exhaustive) =="
 ./test_div_transform | tail -1
 
 echo
-echo "== 2. default-parameter golden set =="
+echo "== 2. randomized differential test vs the reference =="
+# The captured vectors only cover what bwa-mem2 produced on one dataset. The
+# fuzzer reaches the rare control-flow corners (empty bands, all-zero prefixes,
+# harsh scoring, degenerate lengths) that decide whether a surviving mutant is
+# equivalent or merely unexercised.
+for cfg in "1 400000 64 128" "4 200000 8 16" "3 150000 160 1024"; do
+    set -- $cfg
+    r=$(./fuzz_ksw --seed $1 --iters $2 --max-qlen $3 --max-tlen $4 | tail -1)
+    say "seed=$1 iters=$2 q<=$3 t<=$4" "$r"
+    case "$r" in PASS*) ;; *) fail=1 ;; esac
+done
+
+echo
+echo "== 3. default-parameter golden set =="
 zcat vectors/ecoli_swa_2k.bin.gz > "$tmp/g.bin"
 ./replay_swa "$tmp/g.bin" > "$tmp/g.out"
 for line in "reference vs golden" "hls       vs golden" "hls       vs reference"; do
@@ -29,7 +42,7 @@ for line in "reference vs golden" "hls       vs golden" "hls       vs reference"
 done
 
 echo
-echo "== 3. hls == reference on every vector =="
+echo "== 4. hls == reference on every vector =="
 for v in vectors/*.bin.gz; do
     zcat "$v" > "$tmp/v.bin"
     ./replay_swa "$tmp/v.bin" > "$tmp/v.out" 2>&1 || true
@@ -39,7 +52,7 @@ for v in vectors/*.bin.gz; do
 done
 
 echo
-echo "== 4. characterised divergences must stay red =="
+echo "== 5. characterised divergences must stay red =="
 # These are the records where ksw_extend2 disagrees with bwa-mem2. If one starts
 # agreeing, the edge moved and docs/swa_golden_capture.md is stale.
 for v in vectors/divergent_*.bin.gz; do
