@@ -169,6 +169,11 @@ Against the hand-written systolic core on the same device family:
 | BRAM_18K | 5 | 0 |
 | Fmax | 174.6 MHz (est.) | 219.2 MHz (post-route) |
 
+*(These are the pre-optimisation figures. After optimisation (8) below: 7,719
+LUT / 4,018 FF / 5 DSP / 4 BRAM, 17,183 cycles, 172.6 MHz — so 8.3x smaller and
+~41x slower, systolic ahead on area-time by ~4.9x. The conclusion does not
+move.)*
+
 So HLS is **7.6x smaller and ~51x slower** — the systolic array wins on
 area-time product by ~6.8x. This is the expected outcome and not a mark against
 HLS: the C source describes a scalar recurrence, and HLS faithfully built a
@@ -290,13 +295,49 @@ The two survivors were not taken on trust. Host-only instrumentation
   **The reference's `TRIM_LO` was purely a performance optimisation**, which is
   exactly why removing the loops costs nothing in results.
 
-## Expected effect
+## Measured effect (2026-10-03, Vitis HLS 2026.1)
 
-Per target row the inner work was roughly `bw*1` (BAND, II=1) plus `bw*4` twice
-(the two rescans at II=4) — about **9x** the DP's own cost. Removing them should
-cut the dominant term accordingly, though per-row loop entry/exit, pipeline
-flush and the two sequential dividers mean the end-to-end gain will be smaller.
-Re-run `KSW_STAGE=all` to measure it rather than trusting this estimate.
+| | before | after | change |
+|---|---|---|---|
+| static worst-case latency | 1,504,411 cyc | **176,282 cyc** | **8.53x better** |
+| measured, largest vector (qlen=131, tlen=257) | 20,100 cyc | **17,183 cyc** | 1.17x better |
+| LUT | 8,404 | **7,719** | -685 (-8.2%) |
+| FF | 4,631 | **4,018** | -613 (-13.2%) |
+| BRAM_18K | 5 | **4** | -1 |
+| DSP | 5 | 5 | - |
+| Estimated Fmax | 174.56 MHz | 172.61 MHz | -1.1% |
+
+csim / csynth / cosim all still PASS, 72/72 bit-exact.
+
+### The prediction above was wrong, and the reason is worth keeping
+
+The estimate of a 5-9x end-to-end latency win came from multiplying each trim
+loop's II (4) by its worst-case trip count (`MAX_QLEN`), which is how the static
+bound is computed. **On real data the trim loops exited almost immediately** —
+they `break` on the *first* nonzero cell, and after a productive DP row the
+cell at or next to `beg` is nonzero. So they cost a handful of cycles per row,
+not ~640, and measured latency barely depended on them.
+
+The static bound improved 8.53x, almost exactly as predicted, because the bound
+*does* assume the full trip count. The measured runtime improved 15%. Both
+numbers are real; they answer different questions:
+
+- the **8.53x** matters for a latency guarantee, scheduling budget, or any
+  worst-case argument — and it is the number the tool reports;
+- the **15%** is what an average workload actually sees.
+
+The lesson is the one this project keeps relearning in a new costume: a
+statically derived figure and a measured one can differ by 7x, and quoting
+either without saying which it is misleads. The same trap produced the
+`12.035 ms` headline earlier in this document.
+
+### What the change was actually worth
+
+A 15% latency win plus **8% fewer LUTs, 13% fewer FFs and one less BRAM**, at
+unchanged Fmax, for code that is also shorter. Worth keeping. But the honest
+summary is that it bought *area and a much tighter worst-case bound*, not the
+large average-case speedup predicted — and it does not change the architectural
+conclusion below.
 
 # Widened co-simulation
 
