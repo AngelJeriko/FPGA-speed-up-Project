@@ -359,8 +359,14 @@ else
     # from the committed capture (.bin.gz) via the C++ generator if missing.
     if [[ "$TB" == tb_bsw_ext ]]; then
         EO="$ROOT/host/extend_orchestrator"
-        VEC_TXT="$EO/vectors/ext_sw_vectors.txt"
+        # BSW_EXT_VEC overrides the golden set, so the same testbench can be run
+        # against vectors generated from a newer capture (see
+        # host/swa_hls/gen_rtl_vectors_from_cap.cpp). Unset = the committed set.
+        VEC_TXT="${BSW_EXT_VEC:-$EO/vectors/ext_sw_vectors.txt}"
         PLUSARGS=("+VEC=$VEC_TXT")
+        if [[ -n "${BSW_EXT_VEC:-}" && ! -f "$VEC_TXT" ]]; then
+            echo "BSW_EXT_VEC points at a missing file: $VEC_TXT" >&2; exit 1
+        fi
         if [[ ! -f "$VEC_TXT" ]]; then
             echo "Generating $VEC_TXT ..."
             [[ -f "$EO/vectors/ext_vec.bin" ]] || gunzip -kc "$EO/vectors/ext_vec.bin.gz" > "$EO/vectors/ext_vec.bin"

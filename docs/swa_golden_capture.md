@@ -257,3 +257,99 @@ host/swa_hls/replay_swa out.bin
 
 The captures are 2.5 GB and 0.4 GB, so they are not committed; the commands
 above regenerate them.
+
+---
+
+# Driving the new captures through the real RTL (2026-10-04)
+
+The captures above verify the C models. This section pushes them through the
+hand-written SystemVerilog `bsw_top` — the design that actually goes to silicon.
+
+`tb/tb_bsw_ext.sv` already did this against `ext_sw_vectors.txt`, 15,887
+extensions from the *older* `ext_capture` hook. The new captures come through
+`swa_capture.inc` at the `SeqPair` level and are a different, much larger
+dataset, so `host/swa_hls/gen_rtl_vectors_from_cap.cpp` converts them into the
+testbench's vector format.
+
+## Result: 34,000 extensions, 0 failures
+
+| Vector set | From | Extensions | Max tlen | Result |
+| --- | --- | --- | --- | --- |
+| `rtl_ecoli` | E. coli capture | 10,000 | 437 | **0 failures** |
+| `rtl_human` | 200k real ERR174310 pairs | 12,000 | 783 | **0 failures** |
+| `rtl_sim150` | 150 bp high-divergence set | 12,000 | **997** | **0 failures** |
+
+The sim150 set includes both records in the whole 2.7M capture with
+`tlen >= 900`, so this is the first time `bsw_top` has been exercised within 27
+bases of its `MAX_TLEN = 1024` limit — the same boundary the new `req_oversize`
+guard protects.
+
+`run_sim.sh` gained a `BSW_EXT_VEC` override so the same testbench can run
+against any generated set.
+
+## Which model supplies which expected value, and why
+
+Getting this wrong cost two debugging rounds, so it is worth stating plainly.
+
+**`score`, `qle`, `tle` come from bwa-mem2.** That is the real cross-check.
+Across all 34,000 records the full-DP array model agreed with bwa-mem2 on all
+three, every time — the generator drops any record where it does not, and it
+never fired.
+
+**`gscore` and `gtle` cannot come from bwa-mem2.** `bsw_top` computes the
+**full unbanded DP** and so updates `gscore`/`gtle` on every row; ksw stops once
+its band narrows past the query end. Both are correct for their own algorithm.
+Feeding ksw's raw values produced 865 mismatches in 12,000:
+
+- **864** were the sentinel difference: ksw leaves `gscore` at its `-1`
+  initialiser when no cell reaches the query end, while the array clamps to `0`.
+  Harmless — `orch.h:149/168` and bwa-mem2 both branch on `gscore <= 0`, so the
+  two values take the same path. `gen_bsw_mvsh.cpp:100` already documents the
+  convention ("RTL/golden convention: gscore clamped >=0") and
+  `check_fulldp.cpp` already records that the difference never changes the
+  assembly branch.
+- **1** was a genuine banded-vs-full difference. Record `qlen=2, tlen=52,
+  h0=52`:
+
+  | | score | qle | tle | gtle | gscore |
+  | --- | --- | --- | --- | --- | --- |
+  | ksw, banded w=100 | 52 | 0 | 0 | 2 | 44 |
+  | hw, full-DP array | 52 | 0 | 0 | **5** | **45** |
+  | **RTL** | 52 | 0 | 0 | **5** | **45** |
+
+  The RTL matches the array model exactly. It is right by its own
+  specification; ksw's band had narrowed and stopped looking.
+
+So the generator recomputes `gscore`/`gtle` with `hw_extend2`, which is exactly
+what `gen_ext_vectors.cpp` already does ("expected outputs come from the
+full-rectangle ARRAY model, not ksw"). Working this out from first principles
+rediscovered why that choice was made.
+
+**One caveat this implies:** `bsw_top` is bit-exact with bwa-mem2 on
+`score`/`qle`/`tle` unconditionally (within the envelope, at `w=100`), and on
+`gscore`/`gtle` only up to the banded-vs-full difference. The difference is
+benign under the documented consumer branch, but a `±1` `gscore` difference
+could in principle flip `gscore <= score - pen_clip` if a value sat exactly on
+that boundary. Not observed in 34,000 records; worth knowing.
+
+Records with `w != 100` are excluded. `bsw_top` is unbanded and matches the
+banded kernel only while `2w+1 >= qlen`, so the narrow-band probe captures
+(`-w 12`, `-w 30`) would diverge for reasons that are not RTL bugs.
+
+## Mutation check: the new vectors catch a bug the committed set misses
+
+| Mutant in `rtl/bsw_pe.sv` | ecoli | human | sim150 | committed set |
+| --- | --- | --- | --- | --- |
+| none (baseline) | 0 | 0 | 0 | 0 |
+| **gaps open from `H_new` instead of `M_term`** — the historic 2026-08-07 defect | 0 | 0 | **1** | **0** |
+| drop the gap-extension penalty (`E_ext = E_reg`) | 113 | 2420 | 1432 | 3342 |
+
+The second row is the coverage argument for this whole exercise. That mutant is
+the real bug fixed in `docs/bsw_gapopen_fix.md` — it inflates `gscore` for short
+reads, and the original note records that "existing goldens missed it (coverage
+gap)", which is why `disc_mvsh.txt` was written as a dedicated regression. The
+150 bp high-divergence set now catches it **organically**, and the committed
+golden set still does not.
+
+The third row confirms all four sets detect a gross arithmetic error, so the
+first two rows are measuring coverage rather than a broken harness.

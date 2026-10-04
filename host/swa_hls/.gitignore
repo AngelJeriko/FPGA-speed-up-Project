@@ -1,2 +1,4 @@
 replay_swa
 test_div_transform
+fuzz_ksw
+gen_rtl_vectors_from_cap
