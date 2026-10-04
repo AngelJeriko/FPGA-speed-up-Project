@@ -380,7 +380,64 @@ Under XSIM instead of Verilator: see `docs/rtl_xsim_runbook.md`.
 
 ---
 
-## 8. Evidence that the checks actually work
+## 8. Seeing the agreement, not just the pass count
+
+`tb_bsw_ext` prints only *failures*, so a clean run says "0 failures" and shows
+no numbers. `scripts/show_rtl_vs_bwamem2.sh` prints bwa-mem2's outputs and the
+simulated RTL's outputs side by side for the same extensions:
+
+```sh
+./scripts/show_rtl_vs_bwamem2.sh                              # E. coli, 20 rows
+./scripts/show_rtl_vs_bwamem2.sh --capture ~/cap_human/sim150_swa.bin --rows 40
+```
+
+```
+      |         bwa-mem2           |    bsw_top (RTL sim)       | verdict
+idx   |  score  qle  tle  gsc gtle |  score  qle  tle  gsc gtle |
+------+----------------------------+----------------------------+--------
+0     |    148    0    0  145    2 |    148    0    0  145    2 | match
+1     |    145   23   23  145   23 |    145   23   23  145   23 | match
+2     |    145   38   38  145   38 |    145   38   38  145   38 | match
+...
+2000 extensions compared
+  identical on all five outputs        : 1980 (99.00%)
+  score/qle/tle identical, gscore      : 8 sentinel (-1 vs 0), 12 banded-vs-full
+  genuine mismatches                   : 0
+
+score/qle/tle: 2000/2000 EXACT against bwa-mem2
+```
+
+The left block is bwa-mem2's own output, straight from the capture — **not** the
+array model's. So `gscore`/`gtle` disagreements are visible rather than hidden
+behind the recomputation the vector generator does, and the `verdict` column
+names which of the two documented reasons applies:
+
+| verdict | meaning |
+| --- | --- |
+| `match` | all five outputs identical |
+| `sentinel` | bwa-mem2 left `gscore` at `-1` (query end unreachable); the array clamps to `0`. Both consumers branch on `gscore <= 0` |
+| `band` | the full-DP array kept tracking the query end on rows where ksw's band had narrowed past it |
+| `MISMATCH` | a real disagreement on `score`/`qle`/`tle`, or `error` set |
+
+A row from the high-divergence human set showing the sentinel case plainly:
+
+```
+2     |     29   12   12   -1    0 |     29   12   12    0  191 | sentinel
+```
+
+`score`, `qle` and `tle` agree exactly; `gscore` is `-1` vs `0` and `gtle` is
+consequently meaningless on both sides.
+
+Rates differ by dataset, which is itself informative: E. coli reaches 99.0%
+all-five-identical, the 150 bp high-divergence human set only 85.4% — harsher
+data drives `gscore` into the unreachable-query-end case far more often. In both
+cases `score`/`qle`/`tle` are **exact**, and genuine mismatches are zero.
+
+The tool exits 0 on agreement and **1** on any genuine mismatch, and was
+mutation-checked: with `E_ext = E_reg` (gap-extension penalty dropped) it reports
+`FAIL: 1 genuine mismatches` and exits 1.
+
+## 9. Evidence that the checks actually work
 
 A passing testbench proves nothing until it has been shown to fail. Mutating
 `rtl/bsw_pe.sv`:
@@ -404,7 +461,7 @@ argument for keeping these newer vectors.
 
 ---
 
-## 9. Limits of this verification
+## 10. Limits of this verification
 
 - **It tests `bsw_top` only.** Not the AWS shell, PCIe, the register interface,
   the memory path, or anything upstream of extension.

@@ -79,11 +79,14 @@ int main(int argc, char **argv) {
     }
     const char *in = argv[1], *out = argv[2];
     int count = 12000, min_tlen = 900, max_qlen = 160, max_tlen = 1024;
+    const char *raw_out = nullptr;   // --emit-raw: bwa-mem2's OWN outputs, for
+                                     // a side-by-side against the RTL
     for (int i=3;i<argc;i++) {
         if (!strcmp(argv[i],"--count")    && i+1<argc) count    = atoi(argv[++i]);
         else if (!strcmp(argv[i],"--min-tlen") && i+1<argc) min_tlen = atoi(argv[++i]);
         else if (!strcmp(argv[i],"--max-qlen") && i+1<argc) max_qlen = atoi(argv[++i]);
         else if (!strcmp(argv[i],"--max-tlen") && i+1<argc) max_tlen = atoi(argv[++i]);
+        else if (!strcmp(argv[i],"--emit-raw") && i+1<argc) raw_out = argv[++i];
     }
 
     // ---- pass 1: index the eligible records (headers only, payloads skipped) --
@@ -126,7 +129,7 @@ int main(int argc, char **argv) {
     // ---- pass 2: emit -------------------------------------------------------
     // Buffer the records so the header count always matches what was actually
     // emitted: a record dropped by the model check below must not be counted.
-    std::string body;
+    std::string body, raw;
     long long emitted = 0;
     char line[256];
     std::vector<uint8_t> q, t;
@@ -180,6 +183,9 @@ int main(int argc, char **argv) {
         body += line;
         for (int i=0;i<r.qlen;i++) { snprintf(line,sizeof line,"%u%c", q[i], i+1==r.qlen?'\n':' '); body += line; }
         for (int i=0;i<r.tlen;i++) { snprintf(line,sizeof line,"%u%c", t[i], i+1==r.tlen?'\n':' '); body += line; }
+        snprintf(line,sizeof line,"%lld %d %d %d %d %d %d\n", emitted,
+                 r.score, r.qle, r.tle, r.gscore, r.gtle, r.max_off);
+        raw += line;
         emitted++;
         if (r.gscore < 0) clamped++;
         if (r.tlen>emax_tlen) emax_tlen=r.tlen;
@@ -189,7 +195,16 @@ int main(int argc, char **argv) {
     if (!o) { fprintf(stderr,"cannot write %s\n",out); return 2; }
     fprintf(o,"%lld\n", emitted);
     fwrite(body.data(),1,body.size(),o);
-    fclose(o); fclose(f);
+    fclose(o);
+    if (raw_out) {
+        FILE *rf = fopen(raw_out,"w");
+        if (!rf) { fprintf(stderr,"cannot write %s\n",raw_out); return 2; }
+        fprintf(rf,"# idx score qle tle gscore gtle max_off   (bwa-mem2's own outputs)\n");
+        fwrite(raw.data(),1,raw.size(),rf);
+        fclose(rf);
+        printf("raw       : bwa-mem2's own outputs -> %s\n", raw_out);
+    }
+    fclose(f);
 
     printf("scanned   : %lld records\n", total);
     printf("eligible  : %zu  (skipped %lld out-of-envelope, %lld with w!=100)\n",

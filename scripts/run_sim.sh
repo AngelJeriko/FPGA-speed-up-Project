@@ -364,6 +364,9 @@ else
         # host/swa_hls/gen_rtl_vectors_from_cap.cpp). Unset = the committed set.
         VEC_TXT="${BSW_EXT_VEC:-$EO/vectors/ext_sw_vectors.txt}"
         PLUSARGS=("+VEC=$VEC_TXT")
+        # BSW_EXT_DUMP makes the testbench record the DUT's own outputs, for the
+        # side-by-side in scripts/show_rtl_vs_bwamem2.sh. Off by default.
+        [[ -n "${BSW_EXT_DUMP:-}" ]] && PLUSARGS+=("+DUMP=$BSW_EXT_DUMP")
         if [[ -n "${BSW_EXT_VEC:-}" && ! -f "$VEC_TXT" ]]; then
             echo "BSW_EXT_VEC points at a missing file: $VEC_TXT" >&2; exit 1
         fi

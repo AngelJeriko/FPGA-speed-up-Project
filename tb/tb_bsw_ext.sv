@@ -32,6 +32,8 @@ module tb_bsw_ext
     );
 
     int fd, got, cnt, i, b;
+    int dfd = 0;              // +DUMP=<file>: record what the RTL produced
+    string dump_path;
     int side, qlen, tlen, h0, eb, o_del, e_del, o_ins, e_ins, zdrop;
     int e_score, e_qle, e_tle, e_gscore, e_gtle, e_maxoff;
     int fails, maxoff_diffs;
@@ -60,6 +62,15 @@ module tb_bsw_ext
             path = "host/extend_orchestrator/vectors/ext_sw_vectors.txt";
         fd = $fopen(path, "r");
         if (fd == 0) begin $display("FATAL: cannot open %s", path); $finish; end
+
+        // Optional: write the DUT's six outputs per extension so a side-by-side
+        // against bwa-mem2 can be produced (scripts/show_rtl_vs_bwamem2.sh).
+        // Off unless +DUMP is given, so the regression suite is unaffected.
+        if ($value$plusargs("DUMP=%s", dump_path)) begin
+            dfd = $fopen(dump_path, "w");
+            if (dfd == 0) begin $display("FATAL: cannot write %s", dump_path); $finish; end
+            $fdisplay(dfd, "# idx score qle tle gscore gtle max_off error");
+        end
 
         do_reset();
         got = $fscanf(fd, "%d", cnt);
@@ -111,10 +122,16 @@ module tb_bsw_ext
                         $signed(result.score), e_score, result.qle, e_qle, result.tle, e_tle,
                         $signed(result.gscore), e_gscore, result.gtle, e_gtle, result.error);
             end
+            if (dfd != 0)
+                $fdisplay(dfd, "%0d %0d %0d %0d %0d %0d %0d %0b", i,
+                          $signed(result.score), result.qle, result.tle,
+                          $signed(result.gscore), result.gtle, result.max_off,
+                          result.error);
             if (result.max_off !== e_maxoff) maxoff_diffs = maxoff_diffs + 1;
         end
 
         $fclose(fd);
+        if (dfd != 0) $fclose(dfd);
         $display("tb_bsw_ext: %0d extensions, %0d failures, %0d max_off diffs (informational) -> %s",
                  cnt, fails, maxoff_diffs, (fails==0) ? "ALL PASS" : "FAIL");
         $finish;
