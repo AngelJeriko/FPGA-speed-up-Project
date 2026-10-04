@@ -4,8 +4,65 @@
 how it's verified, what the numbers are, and what remains before it runs a real
 workload on hardware.
 
-Last updated: 2026-08-06. Authoritative sources for detail are cited inline
-(`docs/…`, `rtl/…`, `tb/…`); this file is the map, not the territory.
+Authoritative sources for detail are cited inline (`docs/…`, `rtl/…`, `tb/…`);
+this file is the map, not the territory.
+
+---
+
+## Current status (2026-10-04)
+
+**Sections 0 onwards were written 2026-08-06 and predate the F2 pivot.** They
+remain accurate about the compute RTL and the project's premise; treat their
+dates, HEAD references and "next step" statements as superseded by this block.
+
+**Target changed: AWS f2.6xlarge / Virtex UltraScale+ VU47P** (was
+f1.2xlarge / VU9P). The F1 flow is intact but superseded. See
+`docs/f2_bringup.md`, `docs/f2_build_runbook.md`.
+
+**Timing resolved.** F2 fixes `clk_main_a0` at 250 MHz with no recipe option.
+`bsw_top` measured **219.2 MHz** post-route on an UltraScale+ `-2` stand-in
+(12% short), so the design runs two clock domains: the AWS-facing side at
+250 MHz and the compute core at 125 MHz behind a CDC — 43% under the measured
+limit. Both single-clock and CDC variants synthesise clean on real Vivado.
+Detail: `docs/synth_ooc_results.md`.
+
+**Correctness, as of now:**
+
+| Evidence | Scale | Result |
+| --- | --- | --- |
+| C models vs bwa-mem2, human + E. coli captures | **18,156,029 extensions** | bit-exact |
+| `bsw_top` RTL vs bwa-mem2 | **169,468 extensions** (E. coli set exhaustive) | 0 failures |
+| HLS kernel, C-sim + synth + **co-simulation** | 72 vectors, 4 scoring configs | all PASS |
+| Randomised differential test vs the reference | 3.5M+ cases | 0 mismatches |
+
+**Two real defects were found and fixed in this period**, both by widening the
+data rather than by reading code:
+
+- **No `tlen > MAX_TLEN` guard** in `bsw_ctrl_fsm.sv`. The target index is
+  truncated to 10 bits, so an oversize request silently *wrapped* and returned a
+  confident wrong answer with `error = 0`. Found by measuring `tlen` at 997
+  against the 1024 limit on high-divergence human reads. Fixed, mutation-checked.
+- **The gap-open regression was never executed.** `disc_mvsh.txt` existed and
+  worked but no script ran it, and the committed golden set does not catch that
+  bug — so nothing in CI did. Fixed by `scripts/run_rtl_regression.sh`.
+
+**Verification entry points:**
+
+```sh
+./scripts/run_rtl_regression.sh --quick   # ~1 min, the two highest-value sets
+./scripts/run_rtl_regression.sh           # ~5 min, all five sets
+make -C host/swa_hls check                # C models, division proof, fuzzer
+```
+
+Read `docs/rtl_verification.md` for exactly what is compared against which
+model and why — in particular, `score`/`qle`/`tle` come from bwa-mem2 while
+`gscore`/`gtle` come from the full-DP array model, for reasons that matter.
+
+**Open, and only closable on AWS:** the full build against the shell, the AFI
+bake, and a silicon run. `docs/aws_readiness.md` is the readiness case,
+including a toolchain constraint found late — AWS's F2 kit supports Vivado
+2024.1–2025.2, and the local install is 2026.1, so the build belongs on an EC2
+instance with the FPGA Developer AMI.
 
 ---
 
