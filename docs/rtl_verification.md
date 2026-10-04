@@ -263,23 +263,87 @@ the "bit-exact" claim needs its qualifier.
 
 ## 5. Results
 
+### Committed sets (what the regression suite runs)
+
 | Vector set | Source | Extensions | Max `tlen` | Result |
 | --- | --- | --- | --- | --- |
+| `disc_mvsh.txt` | hand-written for the gap-open fix | 1 | 26 | **0 failures** |
 | `ext_sw_vectors.txt` | older `ext_capture`, HG00733 | 15,887 | — | **0 failures** |
 | `rtl_ecoli` | E. coli capture | 10,000 | 437 | **0 failures** |
 | `rtl_human` | 200k real ERR174310 pairs | 12,000 | 783 | **0 failures** |
 | `rtl_sim150` | 150 bp high-divergence | 12,000 | **997** | **0 failures** |
 
+Full suite runtime: **5 min 19 s** for 49,888 extensions.
+
+### Deeper one-off runs (2026-10-04)
+
+Larger samples, run once to probe for anything the committed sets miss. Nothing
+turned up — which is the useful result.
+
+| Vector set | Extensions | Max `tlen` | Result |
+| --- | --- | --- | --- |
+| E. coli | **49,468 — the complete capture, not a sample** | 437 | **0 failures** |
+| human real | 60,000 | 783 | **0 failures** |
+| human 150 bp stress | 60,000 | **997** | **0 failures** |
+| | **169,468 total** | | **0 failures** |
+
+The E. coli row is worth noting: 49,468 is every record the capture contains, so
+for that dataset the RTL has been checked **exhaustively** rather than sampled.
+
 The `rtl_sim150` set includes both records in its entire 2.7M-record capture
 with `tlen >= 900`, so it is the only set that exercises `bsw_top` within 27
-bases of its `MAX_TLEN = 1024` limit.
+bases of its `MAX_TLEN = 1024` limit. Deepening the sample does not help there —
+two records is all the data holds.
 
 Runtime under Verilator: ~84 s for 15,887 extensions, so roughly **5 ms per
 extension**, dominated by simulating a 160-PE systolic array over `tlen` rows.
 
 ---
 
-## 6. How to run it
+## 6. The regression suite
+
+`scripts/run_sim.sh tb_bsw_ext` runs **only** `ext_sw_vectors.txt`, and that set
+does not catch the historic gaps-open-from-H defect. Two sets do, and until
+2026-10-04 neither was executed by anything:
+
+- **`disc_mvsh.txt`** — the hand-written 1-record regression for exactly that
+  bug, written when it was fixed. It was referenced in `rtl/bsw_pe.sv`'s
+  comments and in three documents, but **no script ran it.** Verified: 1 failure
+  under the mutant, 0 at baseline.
+- **`rtl_sim150`** — catches the same bug organically out of real capture data.
+
+`scripts/run_rtl_regression.sh` runs every set and fails if any does:
+
+```sh
+./scripts/run_rtl_regression.sh --quick    # disc_mvsh + sim150, ~1 min
+./scripts/run_rtl_regression.sh            # all five sets, ~5 min
+```
+
+```
+SET         RECORDS    RESULT  NOTE
+---------- -------- ---------  ----
+disc_mvsh         1      PASS  the gap-open regression: gaps must open from M, not H
+sim150        12000      PASS  150bp high-divergence; catches gap-open organically; max tlen 997
+```
+
+Quick mode is ordered deliberately: those two sets catch the most per second of
+runtime. The full mode adds the committed golden set, E. coli and real human
+reads, and takes 5 min 19 s in total.
+
+**The suite itself is mutation-checked** — a regression suite that cannot go red
+is decoration:
+
+| | `--quick` result | exit code |
+| --- | --- | --- |
+| baseline | `rtl regression: OK` | 0 |
+| gaps open from `H_new` | **both sets `FAIL(1)`**, `rtl regression: FAILED` | **1** |
+
+All sets share one `BSW_BUILD_DIR`, so Verilator compiles once and the remaining
+sets are re-runs. **Do not run two sims concurrently against the same build
+directory** — they clash over `obj_tb_bsw_ext` and both produce no output. Set
+`BSW_BUILD_DIR` per run if parallelising.
+
+## 7. How to run it
 
 The committed golden set:
 
@@ -287,7 +351,13 @@ The committed golden set:
 bash scripts/run_sim.sh tb_bsw_ext
 ```
 
-Any other vector set, via the `BSW_EXT_VEC` override:
+The whole regression suite:
+
+```sh
+./scripts/run_rtl_regression.sh
+```
+
+Any single other vector set, via the `BSW_EXT_VEC` override:
 
 ```sh
 zcat host/swa_hls/vectors/rtl/rtl_sim150.txt.gz > /tmp/v.txt
@@ -310,7 +380,7 @@ Under XSIM instead of Verilator: see `docs/rtl_xsim_runbook.md`.
 
 ---
 
-## 7. Evidence that the checks actually work
+## 8. Evidence that the checks actually work
 
 A passing testbench proves nothing until it has been shown to fail. Mutating
 `rtl/bsw_pe.sv`:
@@ -334,7 +404,7 @@ argument for keeping these newer vectors.
 
 ---
 
-## 8. Limits of this verification
+## 9. Limits of this verification
 
 - **It tests `bsw_top` only.** Not the AWS shell, PCIe, the register interface,
   the memory path, or anything upstream of extension.
