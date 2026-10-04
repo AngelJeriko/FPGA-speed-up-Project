@@ -54,6 +54,9 @@ attempt — each is a legitimate independent extension call with its own `w`.
 
 ## Reproducing
 
+A line-by-line walkthrough of both scripts — every flag, and the guards that
+exist because something once went wrong — is in `docs/ecoli_dataset.md`.
+
 ```sh
 ./scripts/make_ecoli_dataset.sh      # ASM584v2 + 5,000 wgsim pairs x 150 bp, seed 42
 ./scripts/capture_swa_ecoli.sh       # patch, build, align, verify

@@ -136,6 +136,7 @@ hg38, so the whole thing regenerates from scratch in under a minute:
 
 ```bash
 scripts/make_ecoli_dataset.sh          # ~40 s cold, mostly the reference download
+                                      # walkthrough: docs/ecoli_dataset.md
 ```
 
 Produces `~/ref_ecoli/` (reference + bwa-mem2 index) and `~/reads_ecoli/`
