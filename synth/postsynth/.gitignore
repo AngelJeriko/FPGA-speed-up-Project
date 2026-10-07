@@ -1,4 +1,15 @@
-out/
+# Synthesis output is large and machine-specific: the funcsim netlist alone was
+# 43 MB on the first run, and the utilization report has a row per PE. Keep it all
+# out of the repo...
+out/*
+
+# ...EXCEPT the compact summary. That file is under a page and exists precisely so
+# a run's result can be shared without copying a console, so it must be committable.
+# Note this needs `out/*` above rather than `out/`: a trailing-slash directory
+# pattern stops git descending into the directory at all, and a negation inside it
+# would then never be reached.
+!out/step0_summary.txt
+
 *.jou
 *.log
 *.v
