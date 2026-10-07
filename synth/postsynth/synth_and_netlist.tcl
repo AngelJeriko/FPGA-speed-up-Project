@@ -91,6 +91,15 @@ if {![info exists ::PART] && [info exists ::argv] && [llength $::argv] > 0} {
 if {![info exists ::TOPMOD] && [info exists ::argv] && [llength $::argv] > 1} {
     set ::TOPMOD [lindex $::argv 1]
 }
+# NPE shrinks the PE array via a Verilog define. XSIM's BASIC licence tier refuses a
+# design with more than 50,000 instances and the full 160-PE netlist has 166,514, so
+# a narrower array is the only route to gate-level simulation on that licence.
+# Vectors must then be restricted to qlen <= NPE (see
+# scripts/filter_vectors_by_qlen.py), because bsw_ctrl_fsm correctly REJECTS a longer
+# query with error=1 rather than computing a wrong answer.
+if {![info exists ::NPE] && [info exists ::argv] && [llength $::argv] > 2} {
+    set ::NPE [lindex $::argv 2]
+}
 if {[info exists ::PART] && $::PART ne ""} {
     set part $::PART
 } elseif {[llength [get_parts -quiet $exact]] > 0} {
@@ -144,7 +153,16 @@ if {[catch {
     foreach f $files { read_verilog -sv $rtl/$f }
     # OOC: no I/O buffers inserted, so the netlist's ports stay plain wires and the
     # testbench can drive them directly.
-    synth_design -top $top -part $part -mode out_of_context
+    set defs {}
+    if {[info exists ::NPE] && $::NPE ne ""} {
+        lappend defs "BSW_FLAT_NPE=$::NPE"
+        puts "### N_PE overridden to $::NPE -- vectors MUST have qlen <= $::NPE ###"
+    }
+    if {[llength $defs] > 0} {
+        synth_design -top $top -part $part -mode out_of_context -verilog_define $defs
+    } else {
+        synth_design -top $top -part $part -mode out_of_context
+    }
     # A clock is needed only so report_timing_summary has something to say; this is
     # NOT a timing measurement and the period is not a target.
     create_clock -name clk -period 4.0 [get_ports clk]
@@ -259,6 +277,7 @@ catch {
     puts $fh "vivado        : [version -short]"
     puts $fh "part          : $part   (exact F2 device: [expr {$is_exact ? {YES} : {NO -- proxy}}])"
     puts $fh "top module    : $top"
+    puts $fh "N_PE          : [expr {[info exists ::NPE] && $::NPE ne "" ? $::NPE : "160 (default)"}]"
     puts $fh ""
     puts $fh "parts available:"
     foreach pp [concat [list $exact] $proxies] {
@@ -275,6 +294,10 @@ catch {
     puts $fh "  FF   : $nff"
     puts $fh "  DSP48E2 : $ndsp"
     puts $fh "  BRAM : $nbram    URAM : $nuram"
+    puts $fh "  total cells (leaf) : [llength [get_cells -quiet -hier -filter {IS_PRIMITIVE == 1}]]"
+    puts $fh "  NOTE: XSIM BASIC licence refuses >50,000 INSTANCES. The 160-PE netlist"
+    puts $fh "        reported 166,514 and was rejected. If xsim refuses this one, its"
+    puts $fh "        error prints the exact count -- lower NPE and re-run."
     puts $fh ""
 
     # Error / warning tallies straight out of the log, plus one example per ID.

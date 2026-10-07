@@ -337,6 +337,14 @@ else
     # the wrapper is transparent BEFORE anyone trusts a netlist result.
     if [[ "$TB" == tb_bsw_ext_flat ]]; then
         RTL_FILES+=("$ROOT/synth/postsynth/bsw_top_flat.sv")
+        # BSW_NPE shrinks the PE array, to mirror a reduced-size gate-level build
+        # (XSIM's BASIC licence caps a design at 50,000 instances; the 160-PE netlist
+        # has 166,514). Vectors must then have qlen <= BSW_NPE, because the FSM
+        # rejects a longer query outright. Unset = the full 160.
+        if [[ -n "${BSW_NPE:-}" ]]; then
+            VDEFINES+=("+define+BSW_FLAT_NPE=$BSW_NPE")
+            echo "N_PE overridden to $BSW_NPE (vectors must have qlen <= $BSW_NPE)"
+        fi
     fi
     # tb_bsw_axil (board-bringup): the AXI4-Lite register-file wrapper around
     # bsw_top for AWS F1 minimal bring-up. Self-checking (drives AXI-Lite, compares

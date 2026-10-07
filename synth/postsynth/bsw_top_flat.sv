@@ -48,10 +48,29 @@
 // unit. synth_and_netlist.tcl reads bsw_pkg.sv first, and run_sim.sh lists it as
 // RTL_FILES[0].
 
+// N_PE is driven by a DEFINE rather than a parameter, so both tools can shrink the
+// array from one switch:
+//     with Verilator:  +define+BSW_FLAT_NPE=8
+//     with Vivado:     synth_design -verilog_define BSW_FLAT_NPE=8
+//
+// WHY A DEFINE AND NOT A PARAMETER: overriding a parameter from the command line
+// (`-G` in Verilator, `-generic` in Vivado) only reaches the TOP module. Here the top
+// is the testbench, which instantiates this wrapper without passing N_PE, so neither
+// switch can reach it. A define reaches any file in the compilation.
+//
+// WHY SHRINK AT ALL: XSIM's BASIC licence tier refuses a design with more than
+// 50,000 instances, and the 160-PE gate-level netlist has 166,514. A reduced array
+// is the only way to get gate-level evidence on that licence. Vectors must then be
+// restricted to qlen <= N_PE, since bsw_ctrl_fsm correctly REJECTS a longer query
+// (error=1) rather than computing a wrong answer.
+`ifndef BSW_FLAT_NPE
+  `define BSW_FLAT_NPE BAND_WIDTH
+`endif
+
 module bsw_top_flat
     import bsw_pkg::*;
 #(
-    parameter int N_PE = BAND_WIDTH
+    parameter int N_PE = `BSW_FLAT_NPE
 )(
     input  logic                           clk,
     input  logic                           rst_n,

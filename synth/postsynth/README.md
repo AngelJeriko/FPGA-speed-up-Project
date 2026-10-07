@@ -128,6 +128,89 @@ counter now requires a `WARNING:`/`ERROR:` prefix, which echoed script text neve
 has. Worth remembering generally: grepping a Vivado batch log for a phrase will
 match the script that produced it.
 
+## STEP 2 is licence-blocked on this install — and what replaces it
+
+The gate-level run got all the way through `xvlog` and `xelab`: the 41 MB netlist
+compiled, elaborated against the real primitive models (`CARRY8`, `LUT1`-`LUT6`,
+`FDRE`, `FDSE`, `MUXF7/F8`, `DSP48E2`), and the snapshot built. Then:
+
+```
+ERROR: The current Vivado Simulator license tier you have, BASIC, does not meet the
+requirement to run the number of instances in this design. Number of instances in
+this design, 166514, exceed maximum allowed 50000.
+```
+
+**That ceiling is on design size, not run length, so running fewer vectors cannot
+help.** The 160-PE netlist is 3.3x over the limit.
+
+### What the instance budget allows
+
+Scaling from the measured 160-PE synthesis (array 80,180 / FSM 27,587 / tracker
+15,307 cells; 123,383 cells -> 166,514 instances, ratio ~1.35):
+
+| N_PE | approx cells | approx instances | fits BASIC? |
+|---|---|---|---|
+| 8 | 32,361 | ~43,700 | **yes** (87% of cap) |
+| 16 | 37,135 | ~50,100 | marginal / no |
+| 32 | 46,684 | ~63,000 | no |
+| 160 | 123,383 | 166,514 | no |
+
+The FSM dominates the floor: it latches `target[1024]` (3,072 flops) and does not
+shrink with `N_PE`. So `N_PE=8` is the only configuration with real headroom.
+
+### The reduced-array route, validated in RTL
+
+`N_PE` in `bsw_top_flat` is driven by a **define**, so both tools shrink the array
+from one switch (a `-G`/`-generic` parameter override only reaches the TOP module,
+which here is the testbench, so it cannot reach the wrapper):
+
+```
+vivado -mode batch -source synth/postsynth/synth_and_netlist.tcl -tclargs xcku5p-ffvb676-2-e bsw_top_flat 8
+BSW_NPE=8 ./scripts/run_sim.sh tb_bsw_ext_flat      # the RTL side
+```
+
+Vectors must then satisfy `qlen <= N_PE`, because `bsw_ctrl_fsm` correctly
+**rejects** a longer query (`error=1`, all outputs zeroed) rather than computing a
+wrong answer. `scripts/filter_vectors_by_qlen.py` builds the subsets;
+`sim/xsim/vectors/vec_ecoli_qlen8.txt` holds 200 real E. coli extensions with
+`qlen` 1..8 (there are 498 such in the 10,000, since a seed's left-extension near a
+read's start is short).
+
+Verified on this box:
+
+| Check | Result |
+|---|---|
+| `N_PE=8`, `qlen<=8` vectors | **200/200, 0 failures** |
+| `N_PE=8`, unfiltered vectors | rejected with `err=1`, outputs zeroed — never a wrong answer |
+| `N_PE=160` default unchanged | 200/200 |
+
+So the filter is load-bearing, and the reduction is safe rather than papering over
+anything.
+
+### Randomized register init — the available substitute for 4-state
+
+`scripts/run_xinit_check.sh` fills uninitialised registers with random values
+instead of Verilator's silent zeros, which is the closest local approximation of the
+power-on hazard XSIM's 4-state engine would have exposed. **10/10 seeds pass** on
+200 real extensions.
+
+That claim is only worth something because the check was shown to go red, and
+getting there corrected a mistake: with the compile-time switches
+(`--x-initial unique --x-assign unique`) **alone** the test is INERT — deleting
+`bsw_ctrl_fsm`'s state-register reset entirely still gave 5/5 passes. The runtime
+plusarg `+verilator+rand+reset+2` is load-bearing; with it, that same mutant **hangs
+on seed 1**. It is also probabilistic: only 1 of 3 seeds caught it.
+
+An earlier mutant (removing the `pr_i`/`pr_j` reset in `bsw_max_tracker`) passed all
+seeds even with randomization on. That one is *equivalent*, not uncovered — those
+registers are fully written before ever being read.
+
+### Where full-design gate-level belongs
+
+On the **FPGA Developer AMI** on EC2, which ships a full Vivado/XSIM licence. That
+is not extra infrastructure: the F2 build has to happen there anyway, because the
+AWS HDK supports Vivado 2024.1-2025.2 and this box has 2026.1.
+
 ## Known trip-ups, already fixed
 
 These cost a Vivado run each; recorded so they are not rediscovered.
@@ -146,7 +229,9 @@ directory unless told (`-I`), while Vivado does. So "it compiles under Verilator
 says nothing about Vivado's include resolution, and vice versa.
 
 **`// Verilator ...` as the first words of a comment** is parsed as a Verilator
-pragma: `Unknown verilator comment`. Reword so the word is not comment-initial.
+pragma: `Unknown verilator comment`. Detection is case-insensitive and ignores
+leading whitespace, so `//     verilator ...` trips it too. This bit twice. Reword so
+the word is not comment-initial.
 
 **`xsim` plusargs on Windows.** `xsim.bat` is a batch wrapper and **cmd.exe treats
 `=` as a token delimiter**, so `-testplusarg VEC=C:/path` arrives as three tokens
