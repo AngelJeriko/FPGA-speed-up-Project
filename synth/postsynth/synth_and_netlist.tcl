@@ -49,14 +49,11 @@ puts "  vivado version : [version -short]"
 puts "  repo root      : $root"
 puts "  output dir     : $out"
 
-# Licence: a BASIC/no-licence install still synthesizes free parts, but it is worth
-# recording, because it is the usual reason a large device is missing.
-if {[catch {
-    set feats {}
-    foreach f [get_license_features -quiet] { lappend feats $f }
-    if {[llength $feats] == 0} { puts "  licence feats  : (none reported)" } \
-    else { puts "  licence feats  : [join [lrange $feats 0 9] {, }]" }
-} msg]} { puts "  licence feats  : (query failed: $msg)" }
+# Licence: not queried here. `get_license_features` does not exist in 2026.1, and
+# Vivado already prints the licence in its own startup banner, e.g.
+#   INFO: [Common 17-3922] A valid Vivado Design Suite BASIC license has been detected.
+# A BASIC licence synthesizes the free device families fine; it is simply the usual
+# reason a large device such as xcvu47p is absent from the install.
 
 # ---------------------------------------------------------------------------
 # Part selection. The exact F2 device first; then same-generation / same-speed-grade
@@ -139,6 +136,11 @@ puts "### top module: $top ###"
 
 if {[catch {
     create_project -in_memory -part $part -force
+    # Give the fileset rtl/ as an include path. Not needed by the current file set
+    # (a `include resolves relative to the including file, and rtl/*.sv sit beside
+    # bsw_pkg.sv), but a wrapper living outside rtl/ cannot resolve one -- which is
+    # how the first bsw_top_flat run failed. Harmless where unnecessary.
+    catch { set_property include_dirs [list $rtl] [current_fileset] }
     foreach f $files { read_verilog -sv $rtl/$f }
     # OOC: no I/O buffers inserted, so the netlist's ports stay plain wires and the
     # testbench can drive them directly.

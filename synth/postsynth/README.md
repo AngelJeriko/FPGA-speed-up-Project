@@ -88,6 +88,45 @@ Step 1, independently:
 .\sim\xsim\run_bsw_ext.ps1 -Vec sim/xsim/vectors/vec_ecoli_20.txt
 ```
 
+## Known trip-ups, already fixed
+
+These cost a Vivado run each; recorded so they are not rediscovered.
+
+**Include paths.** An include directive resolves relative to the **including file's
+own directory**. `rtl/*.sv` can include `bsw_pkg.sv` because it sits beside them;
+`synth/postsynth/bsw_top_flat.sv` cannot, and Vivado 2026.1 failed with
+`[Synth 8-9263] cannot open include file 'bsw_pkg.sv'`. Verilator hid it, because
+`run_sim.sh` passes `-I rtl`. The wrapper therefore has **no include directive** --
+every flow compiles `rtl/bsw_pkg.sv` ahead of it, so `import bsw_pkg::*` resolves
+from the compilation unit. The Tcl also sets `include_dirs` on the fileset as
+belt-and-braces for any future wrapper outside `rtl/`.
+
+Note the two tools differ here: Verilator does **not** search the including file's
+directory unless told (`-I`), while Vivado does. So "it compiles under Verilator"
+says nothing about Vivado's include resolution, and vice versa.
+
+**`// Verilator ...` as the first words of a comment** is parsed as a Verilator
+pragma: `Unknown verilator comment`. Reword so the word is not comment-initial.
+
+**`get_license_features` does not exist in 2026.1.** Not needed -- Vivado prints the
+licence in its own startup banner (`[Common 17-3922]`).
+
+## Part inventory on the development box (2026.1, BASIC licence)
+
+| Family | Parts | |
+|---|---|---|
+| `xcvu47p` (the real F2 device) | **0** | not installed |
+| `xcvu9p` | 0 | not installed |
+| `xcku5p` | **36** | **installed — the proxy in use** |
+| `xczu7` | 0 | not installed |
+| `xc7v` / `xc7k` / `xc7a` | 203 / 212 / 210 | installed |
+
+So `xcku5p-ffvb676-2-e` is the automatic choice: Kintex UltraScale+, the **same
+fabric generation and the same `-2` speed grade** as the VU47P. For steps 0–2 that
+is the right proxy, since synthesizability and netlist equivalence are
+language-and-inference questions. Only resource mapping and timing are
+device-specific, and neither is claimed here.
+
 ## Output: paste one file, not the console
 
 This run prints tens of thousands of lines -- the DSP inference tables are hundreds

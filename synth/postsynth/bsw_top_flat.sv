@@ -34,7 +34,19 @@
 // cl_bsw_top, which have flat ports already. This lives under synth/ rather than
 // rtl/ so nobody mistakes it for shipping hardware.
 
-`include "bsw_pkg.sv"
+// NO include directive for bsw_pkg.sv here -- deliberately.
+//
+// An include directive resolves relative to the INCLUDING file's own directory.
+// rtl/*.sv can include bsw_pkg.sv because it sits beside them; this file cannot,
+// because it lives in synth/postsynth/. Vivado 2026.1 failed exactly there:
+//   ERROR: [Synth 8-9263] cannot open include file 'bsw_pkg.sv'
+//          [synth/postsynth/bsw_top_flat.sv:37]
+// This was masked under Verilator, because run_sim.sh passes -I rtl.
+//
+// None is needed: every flow that compiles this file also compiles
+// rtl/bsw_pkg.sv ahead of it, so `import bsw_pkg::*` resolves from the compilation
+// unit. synth_and_netlist.tcl reads bsw_pkg.sv first, and run_sim.sh lists it as
+// RTL_FILES[0].
 
 module bsw_top_flat
     import bsw_pkg::*;
