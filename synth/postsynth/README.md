@@ -128,6 +128,21 @@ counter now requires a `WARNING:`/`ERROR:` prefix, which echoed script text neve
 has. Worth remembering generally: grepping a Vivado batch log for a phrase will
 match the script that produced it.
 
+## STEP 0 at N_PE=16 — clean (2026-10-07)
+
+```
+errors            : 0     critical warnings : 0
+inferred latches  : 0     multi-driven nets : 0     black boxes : 0
+LUT 11,178   FF 5,918   DSP 0   BRAM 0   URAM 0
+total leaf cells  : 18,124        netlist 4.9 MB
+```
+
+Same four warning causes as the 160-PE run, with `Synth 8-6014` now at 100+ because
+the unused query-latch bits are being removed -- expected, and the reason the design
+shrank so much more than projected.
+
+Netlist header unchanged and correct: eleven intact vector ports.
+
 ## STEP 2 is licence-blocked on this install — and what replaces it
 
 The gate-level run got all the way through `xvlog` and `xelab`: the 41 MB netlist
@@ -148,15 +163,28 @@ help.** The 160-PE netlist is 3.3x over the limit.
 Scaling from the measured 160-PE synthesis (array 80,180 / FSM 27,587 / tracker
 15,307 cells; 123,383 cells -> 166,514 instances, ratio ~1.35):
 
-| N_PE | approx cells | approx instances | fits BASIC? |
+| N_PE | leaf cells | xsim instances | fits BASIC? |
 |---|---|---|---|
 | 8 | — | — | **invalid configuration, see below** |
-| 16 | 37,135 | ~50,100 | **minimum legal N_PE**; estimate is at the cap, measure it |
-| 32 | 46,684 | ~63,000 | no |
-| 160 | 123,383 | 166,514 | no |
+| 16 | **18,124** (measured) | well under the cap | **yes, comfortably** |
+| 32 | ~28,500 (projected) | — | very likely |
+| 64 | ~49,500 (projected) | — | borderline |
+| 160 | 123,383 (measured) | 166,514 | no |
 
-The FSM dominates the floor: it latches `target[1024]` (3,072 flops) and does not
-shrink with `N_PE`.
+**My earlier projection for N_PE=16 was badly wrong and is corrected above.** I
+predicted ~50,100 instances, right at the cap; the real synthesis produced **18,124
+leaf cells** and a 4.9 MB netlist (against 41 MB at 160 PEs).
+
+The error was assuming the FSM is a fixed floor because it latches `target[1024]`.
+It is not: with `N_PE=16` the unused query latch disappears entirely -- 100+
+`Unused sequential element query_q_reg[n] was removed` warnings -- taking the FSM
+from 27,587 cells to **7,795**. The 140 DSP48E2s also vanish (0 at N_PE=16).
+Measured breakdown: array 7,886 / FSM 7,795 / tracker 2,356.
+
+The practical consequence is that there is far more headroom than expected, so once
+a clean run exists at 16 it is worth moving up to **N_PE=32**, which doubles the
+usable vector pool (2,092 of the 10,000 real extensions have `qlen <= 32`, against
+1,045 at 16).
 
 **CORRECTION — N_PE=8 does not work, and an earlier version of this file wrongly
 said it did.** `bsw_max_tracker` computes `MIDNODES = RNPOW >> MIDLEV`, so with the
@@ -344,6 +372,24 @@ script printed its success guidance under a failed run. The runner now judges th
 captured output on content -- licence refusal, `Could not obtain`, `ERROR:`, a
 missing dump file, or a missing testbench summary line -- rather than trusting the
 exit code.
+
+**A stalled simulation survives closing the terminal, and locks its own
+executable.** The abandoned 10-hour run left `xsimk.exe` held open, and the next
+`xelab` died at link time with what looks like a permissions fault:
+
+```
+ERROR: [XSIM 43-3345] Unable to remove previous simulation file
+       xsim.dir/<snapshot>/xsimk.exe ... Access is denied
+ERROR: [XSIM 43-3238] Failed to link the design.
+```
+
+The runner now checks for leftover `xsimk` / `xelab` / `xvlog` processes before
+doing any work and names them with their start times. `-KillStray` stops them;
+`-Clean` also wipes the work directory. To do it by hand:
+
+```
+Get-Process xsimk,xelab,xvlog -ErrorAction SilentlyContinue | Stop-Process -Force
+```
 
 **`xsim` plusargs on Windows.** `xsim.bat` is a batch wrapper and **cmd.exe treats
 `=` as a token delimiter**, so `-testplusarg VEC=C:/path` arrives as three tokens

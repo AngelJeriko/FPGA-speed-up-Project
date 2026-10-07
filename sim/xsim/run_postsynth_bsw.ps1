@@ -29,7 +29,12 @@ param(
   [string]$Vec       = "sim/xsim/vectors/vec_ecoli_5.txt",
   [string]$Netlist   = "synth/postsynth/out/bsw_top_flat_funcsim.v",
   [string]$Top       = "tb_bsw_ext_flat",
-  [string]$Dump      = ""
+  [string]$Dump      = "",
+  # Stop leftover xsimk/xelab/xvlog processes instead of erroring out. They survive
+  # closing the terminal and lock the simulation executable.
+  [switch]$KillStray,
+  # Delete the work directory first, for a genuinely fresh elaboration.
+  [switch]$Clean
 )
 $ErrorActionPreference = "Stop"
 
@@ -120,6 +125,41 @@ $dumpFwd = (Join-Path $work $Dump) -replace '\\','/'
 Write-Host "netlist : $netlistPath ($([math]::Round((Get-Item $netlistPath).Length/1MB,1)) MB)"
 Write-Host "vectors : $vecFwd  ($n extensions)"
 Write-Host "dump    : $dumpFwd"
+
+# ---------------------------------------------------------------------------
+# PRE-FLIGHT: a leftover simulation process holds a lock on its own executable.
+#
+# An earlier gate-level run stalled (the testbench watchdog could not fire then) and
+# was abandoned by closing the terminal -- which does NOT kill xsimk.exe. The next
+# xelab then failed at LINK time with a message that reads like a permissions bug:
+#     ERROR: [XSIM 43-3345] Unable to remove previous simulation file
+#            xsim.dir/<snapshot>/xsimk.exe ... Access is denied
+#     ERROR: [XSIM 43-3238] Failed to link the design.
+# Detect it up front and say so, rather than spending minutes on xvlog and xelab
+# only to die at the end.
+# ---------------------------------------------------------------------------
+$stray = @(Get-Process -Name xsimk, xelab, xvlog -ErrorAction SilentlyContinue)
+if ($stray.Count -gt 0) {
+  Write-Host ""
+  Write-Host "LEFTOVER SIMULATOR PROCESSES:" -ForegroundColor Yellow
+  $stray | ForEach-Object { Write-Host ("  {0} (pid {1}, started {2})" -f $_.Name, $_.Id, $_.StartTime) }
+  if ($KillStray) {
+    Write-Host "stopping them (-KillStray was given) ..."
+    $stray | Stop-Process -Force
+    Start-Sleep -Seconds 2
+  } else {
+    throw ("a previous simulation is still running and holds a lock on its own " +
+           "executable, so xelab cannot relink.`n" +
+           "Stop it with:  Get-Process xsimk,xelab,xvlog -ErrorAction SilentlyContinue | Stop-Process -Force`n" +
+           "or re-run this script with -KillStray to do it automatically.")
+  }
+}
+
+if ($Clean -and (Test-Path $work)) {
+  Write-Host "removing previous work directory (-Clean) ..."
+  Remove-Item -Recurse -Force $work -ErrorAction Stop
+  New-Item -ItemType Directory -Force -Path $work | Out-Null
+}
 
 Push-Location $work
 try {

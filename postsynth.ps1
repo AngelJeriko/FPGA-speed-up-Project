@@ -19,7 +19,11 @@ param(
   [string]$VivadoBin = "D:\AMD_Vivado\2026.1\Vivado\bin",
   [int]$Npe          = 16,
   [string]$Part      = "xcku5p-ffvb676-2-e",
-  [switch]$SkipSynth
+  [switch]$SkipSynth,
+  # Passed through: stop leftover simulator processes that hold a lock on
+  # xsimk.exe, and/or wipe the simulation work directory first.
+  [switch]$KillStray,
+  [switch]$Clean
 )
 $ErrorActionPreference = "Stop"
 $repo = $PSScriptRoot
@@ -51,7 +55,10 @@ Write-Host "`n################ STEP 0 SUMMARY ################" -ForegroundColor
 Get-Content $summary
 
 Write-Host "`n################ STEP 2: simulate the netlist ################" -ForegroundColor Cyan
-& (Join-Path $repo "sim\xsim\run_postsynth_bsw.ps1") -VivadoBin $VivadoBin -Vec $vec
+$step2 = @{ VivadoBin = $VivadoBin; Vec = $vec }
+if ($KillStray) { $step2['KillStray'] = $true }
+if ($Clean)     { $step2['Clean']     = $true }
+& (Join-Path $repo "sim\xsim\run_postsynth_bsw.ps1") @step2
 
 $dump = "sim/xsim/xsim_postsynth_work/postsynth_vec_ecoli_qlen$Npe.txt"
 $ref  = "sim/xsim/reference/verilator_ecoli_qlen$Npe.txt"
