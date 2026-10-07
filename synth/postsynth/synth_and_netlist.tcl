@@ -91,6 +91,9 @@ set is_exact 0
 if {![info exists ::PART] && [info exists ::argv] && [llength $::argv] > 0} {
     set ::PART [lindex $::argv 0]
 }
+if {![info exists ::TOPMOD] && [info exists ::argv] && [llength $::argv] > 1} {
+    set ::TOPMOD [lindex $::argv 1]
+}
 if {[info exists ::PART] && $::PART ne ""} {
     set part $::PART
 } elseif {[llength [get_parts -quiet $exact]] > 0} {
@@ -114,21 +117,41 @@ puts "### synthesizing on: $part   (exact F2 device: [expr {$is_exact ? {YES} : 
 set files {bsw_pkg.sv bsw_score_matrix.sv bsw_pe.sv bsw_systolic_array.sv
            bsw_max_tracker.sv bsw_ctrl_fsm.sv bsw_top.sv}
 
+# WHICH TOP? Default is bsw_top_flat, NOT bsw_top.
+#
+# The first real 2026.1 run settled this. `write_verilog -mode funcsim` SCALARIZES
+# aggregate ports: bsw_top's `base_t [159:0] query_i` came out as 160 separate
+# ports named \query_i[159] and so on, and `target_i` as 1024 more. The netlist
+# therefore has ~1200 ports where the RTL had three, and no port called `query_i`
+# exists for a testbench to bind to.
+#
+# bsw_top_flat wraps bsw_top in plain 1-D vector ports, which the writer keeps
+# intact. It is continuous assignments only -- no logic, no state -- and it is
+# verified transparent under Verilator (tb_bsw_ext_flat, same vectors, identical
+# results, and shown to go red when the mapping is deliberately corrupted).
+#
+# Set TOPMOD to bsw_top to synthesize the bare core instead -- useful for area and
+# warning checks, useless for simulation.
+if {![info exists ::TOPMOD] || $::TOPMOD eq ""} { set ::TOPMOD bsw_top_flat }
+set top $::TOPMOD
+if {$top eq "bsw_top_flat"} { lappend files ../synth/postsynth/bsw_top_flat.sv }
+puts "### top module: $top ###"
+
 if {[catch {
     create_project -in_memory -part $part -force
     foreach f $files { read_verilog -sv $rtl/$f }
     # OOC: no I/O buffers inserted, so the netlist's ports stay plain wires and the
     # testbench can drive them directly.
-    synth_design -top bsw_top -part $part -mode out_of_context
+    synth_design -top $top -part $part -mode out_of_context
     # A clock is needed only so report_timing_summary has something to say; this is
     # NOT a timing measurement and the period is not a target.
     create_clock -name clk -period 4.0 [get_ports clk]
 
-    report_utilization -hierarchical -file $out/bsw_top_util.rpt
-    report_timing_summary -max_paths 3 -file $out/bsw_top_timing_rough.rpt
+    report_utilization -hierarchical -file $out/${top}_util.rpt
+    report_timing_summary -max_paths 3 -file $out/${top}_timing_rough.rpt
 
     # ---- the artifact STEP 2 needs ----
-    write_verilog -mode funcsim -force $out/bsw_top_funcsim.v
+    write_verilog -mode funcsim -force $out/${top}_funcsim.v
 } msg]} {
     puts ""
     puts "##### SYNTHESIS FAILED #####"
@@ -147,12 +170,27 @@ puts "--- red flags (these are the Verilator-invisible failure modes) ---"
 set nlatch 0
 catch { set nlatch [llength [get_cells -quiet -hier -filter {PRIMITIVE_TYPE =~ REGISTER.latch.*}]] }
 puts [format "  inferred latches        : %d %s" $nlatch [expr {$nlatch == 0 ? "(good)" : "<<< INVESTIGATE"}]]
-set ndsp   [llength [get_cells -quiet -hier -filter {REF_NAME =~ DSP*}]]
+# Count by REF_NAME, not PRIMITIVE_TYPE. Two traps, both hit on the first real run:
+# PRIMITIVE_TYPE "LUT.*" matches nothing (Vivado spells it LUT.values.LUT6), and
+# Unisim transformation splits each DSP48E2 into 9 sub-cells, so a DSP48E2 filter
+# over-counts 140 DSPs as 1260. The authoritative figures are synth_design's own
+# "Report Cell Usage" table; these are a cross-check of it.
+set nlut   0
+foreach k {LUT1 LUT2 LUT3 LUT4 LUT5 LUT6} {
+    incr nlut [llength [get_cells -quiet -hier -filter "REF_NAME == $k"]]
+}
+set nff    0
+foreach k {FDRE FDSE FDCE FDPE} {
+    incr nff [llength [get_cells -quiet -hier -filter "REF_NAME == $k"]]
+}
+set ndsp   [llength [get_cells -quiet -hier -filter {REF_NAME == DSP48E2}]]
 set nbram  [llength [get_cells -quiet -hier -filter {REF_NAME =~ RAMB*}]]
 set nuram  [llength [get_cells -quiet -hier -filter {REF_NAME =~ URAM*}]]
-set nff    [llength [get_cells -quiet -hier -filter {PRIMITIVE_TYPE =~ REGISTER.*}]]
-set nlut   [llength [get_cells -quiet -hier -filter {PRIMITIVE_TYPE =~ LUT.*}]]
 puts [format "  LUT / FF / DSP / BRAM / URAM : %d / %d / %d / %d / %d" $nlut $nff $ndsp $nbram $nuram]
+set nmdrv [llength [get_nets -quiet -hier -filter {ROUTE_STATUS == MULTIDRIVEN}]]
+puts [format "  multi-driven nets       : %d %s" $nmdrv [expr {$nmdrv == 0 ? "(good)" : "<<< INVESTIGATE"}]]
+set nbbox [llength [get_cells -quiet -hier -filter {IS_BLACKBOX == 1}]]
+puts [format "  black boxes             : %d %s" $nbbox [expr {$nbbox == 0 ? "(good)" : "<<< INVESTIGATE"}]]
 
 # The netlist's module header settles whether the packed structs and packed arrays on
 # bsw_top's ports (bsw_config_t cfg_i, base_t [1023:0] target_i, bsw_result_t result_o)
@@ -160,13 +198,13 @@ puts [format "  LUT / FF / DSP / BRAM / URAM : %d / %d / %d / %d / %d" $nlut $nf
 # entirely on this, so print it.
 puts ""
 puts "--- funcsim netlist module header (decides the STEP 2 wiring) ---"
-set nl $out/bsw_top_funcsim.v
+set nl $out/${top}_funcsim.v
 if {[file exists $nl]} {
     puts "  file: $nl  ([file size $nl] bytes)"
     set fh [open $nl r]
     set n 0 ; set inmod 0
     while {[gets $fh line] >= 0} {
-        if {[string match "*module bsw_top*" $line]} { set inmod 1 }
+        if {[string match "*module $top*" $line]} { set inmod 1 }
         if {$inmod} {
             puts "  | $line"
             incr n
@@ -189,5 +227,5 @@ puts ""
 puts "#############################################################"
 puts "### DONE. Paste back: the part inventory, the red flags, the"
 puts "### netlist module header, and the message summary."
-puts "### Keep $out/bsw_top_funcsim.v on this machine -- STEP 2 uses it."
+puts "### Keep $out/${top}_funcsim.v on this machine -- STEP 2 uses it."
 puts "#############################################################"

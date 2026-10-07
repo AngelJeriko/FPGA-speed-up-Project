@@ -330,6 +330,14 @@ else
         "$RTL/bsw_top.sv"
         "$RTL/bsw_axis_adapter.sv"
     )
+    # tb_bsw_ext_flat: the same vectors through bsw_top_flat, whose ports are plain
+    # vectors rather than packed structs/arrays. Vivado's funcsim netlist writer
+    # scalarizes aggregate ports, so only the flat wrapper can be driven by one
+    # testbench both as RTL and as a post-synthesis netlist. Running it here proves
+    # the wrapper is transparent BEFORE anyone trusts a netlist result.
+    if [[ "$TB" == tb_bsw_ext_flat ]]; then
+        RTL_FILES+=("$ROOT/synth/postsynth/bsw_top_flat.sv")
+    fi
     # tb_bsw_axil (board-bringup): the AXI4-Lite register-file wrapper around
     # bsw_top for AWS F1 minimal bring-up. Self-checking (drives AXI-Lite, compares
     # to a bare bsw_top reference); no external vectors.
@@ -357,7 +365,7 @@ else
     fi
     # tb_bsw_ext checks bsw_top against real-data ksw vectors; bootstrap them
     # from the committed capture (.bin.gz) via the C++ generator if missing.
-    if [[ "$TB" == tb_bsw_ext ]]; then
+    if [[ "$TB" == tb_bsw_ext || "$TB" == tb_bsw_ext_flat ]]; then
         EO="$ROOT/host/extend_orchestrator"
         # BSW_EXT_VEC overrides the golden set, so the same testbench can be run
         # against vectors generated from a newer capture (see
