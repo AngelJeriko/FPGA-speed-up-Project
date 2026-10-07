@@ -79,9 +79,30 @@ try {
   & "$VivadoBin\xelab.bat" $Top glbl -s "${Top}_ps" --timescale 1ns/1ps -O0 -relax -L unisims_ver -L unisim -L secureip
   if ($LASTEXITCODE -ne 0) { throw "xelab failed ($LASTEXITCODE)" }
 
+  # Pass the plusargs through an OPTIONS FILE, not on the command line.
+  #
+  # WHY: xsim.bat is a batch wrapper, and cmd.exe treats "=" as a token delimiter
+  # when it parses a batch file's arguments. So `-testplusarg VEC=C:/path` arrives
+  # as THREE tokens -- `-testplusarg`, `VEC`, and a bare `C:/path` -- and xsim
+  # rejects it with:
+  #     Expected a switch but found C
+  # Quoting does not reliably survive the PowerShell -> cmd -> exe hop. xsim's own
+  # documented `-f` switch reads options from a file, which cmd never tokenizes, so
+  # paths with drive letters and "=" pass through intact.
+  # Only the plusargs go in the file -- those are the tokens containing "=".
+  # -runall stays on the command line, where it is safe (no "=" to tokenize on) and
+  # where it does not depend on the options file accepting run-control switches.
+  $optsFile = Join-Path $work "xsim_opts.txt"
+  @(
+    "-testplusarg VEC=$vecFwd"
+    "-testplusarg DUMP=$dumpFwd"
+  ) | Set-Content -Path $optsFile -Encoding ASCII
+  Write-Host "`nxsim options file:"
+  Get-Content $optsFile | ForEach-Object { Write-Host "  $_" }
+
   Write-Host "`n== 4/4 xsim (run) -- gate level, be patient =="
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  & "$VivadoBin\xsim.bat" "${Top}_ps" -runall -testplusarg "VEC=$vecFwd" -testplusarg "DUMP=$dumpFwd"
+  & "$VivadoBin\xsim.bat" "${Top}_ps" -runall -f $optsFile
   if ($LASTEXITCODE -ne 0) { throw "xsim failed ($LASTEXITCODE)" }
   $sw.Stop()
   Write-Host "`nsim wall-clock: $([math]::Round($sw.Elapsed.TotalSeconds,1)) s for $n extensions"

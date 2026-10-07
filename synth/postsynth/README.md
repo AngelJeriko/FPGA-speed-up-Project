@@ -148,6 +148,17 @@ says nothing about Vivado's include resolution, and vice versa.
 **`// Verilator ...` as the first words of a comment** is parsed as a Verilator
 pragma: `Unknown verilator comment`. Reword so the word is not comment-initial.
 
+**`xsim` plusargs on Windows.** `xsim.bat` is a batch wrapper and **cmd.exe treats
+`=` as a token delimiter**, so `-testplusarg VEC=C:/path` arrives as three tokens
+(`-testplusarg`, `VEC`, `C:/path`) and xsim reports `Expected a switch but found C`.
+Quoting does not reliably survive the PowerShell -> cmd -> exe hop. Both runners now
+write the plusargs to an options file and pass `-f <file>`, which cmd never
+tokenizes. `-runall` stays on the command line, having no `=`.
+
+**The funcsim netlist exceeds xvlog's line counter.** `WARNING: [VRFC 10-10065] line
+number 1048576 exceeds maximum value 1048575` -- the netlist is over a million lines.
+Cosmetic; it only affects line numbers in later diagnostics for that file.
+
 **`get_license_features` does not exist in 2026.1.** Not needed -- Vivado prints the
 licence in its own startup banner (`[Common 17-3922]`).
 

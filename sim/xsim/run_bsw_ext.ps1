@@ -47,8 +47,20 @@ try {
   & "$VivadoBin\xelab.bat" $Top -s ${Top}_sim --timescale 1ns/1ps -O0 -relax
   if ($LASTEXITCODE -ne 0) { throw "xelab failed ($LASTEXITCODE)" }
 
+  # Plusargs go through an options file, not the command line: xsim.bat is a batch
+  # wrapper and cmd.exe treats "=" as a token delimiter, so `-testplusarg VEC=C:/x`
+  # splits into `-testplusarg`, `VEC`, `C:/x` and xsim reports
+  # "Expected a switch but found C". The documented `-f` switch avoids cmd's
+  # tokenizer entirely. (Confirmed on 2026.1 via run_postsynth_bsw.ps1.)
+  # Only the plusarg goes in the file (it is the token containing "="); -runall is
+  # safe on the command line.
+  $optsFile = Join-Path $work "xsim_opts.txt"
+  @(
+    "-testplusarg VEC=$Vec"
+  ) | Set-Content -Path $optsFile -Encoding ASCII
+
   Write-Host "`n== 3/3 xsim (run) =="
-  & "$VivadoBin\xsim.bat" "${Top}_sim" -runall -testplusarg "VEC=$Vec"
+  & "$VivadoBin\xsim.bat" "${Top}_sim" -runall -f $optsFile
   if ($LASTEXITCODE -ne 0) { throw "xsim failed ($LASTEXITCODE)" }
 }
 finally { Pop-Location }
