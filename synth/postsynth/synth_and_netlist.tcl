@@ -187,10 +187,25 @@ set ndsp   [llength [get_cells -quiet -hier -filter {REF_NAME == DSP48E2}]]
 set nbram  [llength [get_cells -quiet -hier -filter {REF_NAME =~ RAMB*}]]
 set nuram  [llength [get_cells -quiet -hier -filter {REF_NAME =~ URAM*}]]
 puts [format "  LUT / FF / DSP / BRAM / URAM : %d / %d / %d / %d / %d" $nlut $nff $ndsp $nbram $nuram]
-set nmdrv [llength [get_nets -quiet -hier -filter {ROUTE_STATUS == MULTIDRIVEN}]]
-puts [format "  multi-driven nets       : %d %s" $nmdrv [expr {$nmdrv == 0 ? "(good)" : "<<< INVESTIGATE"}]]
-set nbbox [llength [get_cells -quiet -hier -filter {IS_BLACKBOX == 1}]]
-puts [format "  black boxes             : %d %s" $nbbox [expr {$nbbox == 0 ? "(good)" : "<<< INVESTIGATE"}]]
+# ROUTE_STATUS is an IMPLEMENTATION property -- post-synthesis it may not exist at
+# all, and an unknown property inside a -filter expression throws even with -quiet.
+# So guard it, and treat the synthesis log as the primary signal: a genuinely
+# multiply-driven net always produces a Synth warning, which the histogram below
+# catches regardless of whether this query works.
+set nmdrv -1
+catch { set nmdrv [llength [get_nets -quiet -hier -filter {ROUTE_STATUS == MULTIDRIVEN}]] }
+if {$nmdrv < 0} {
+    puts "  multi-driven nets       : (not queryable post-synth; see warning histogram)"
+} else {
+    puts [format "  multi-driven nets       : %d %s" $nmdrv [expr {$nmdrv == 0 ? "(good)" : "<<< INVESTIGATE"}]]
+}
+set nbbox -1
+catch { set nbbox [llength [get_cells -quiet -hier -filter {IS_BLACKBOX == 1}]] }
+if {$nbbox < 0} {
+    puts "  black boxes             : (not queryable; see Report BlackBoxes in the log)"
+} else {
+    puts [format "  black boxes             : %d %s" $nbbox [expr {$nbbox == 0 ? "(good)" : "<<< INVESTIGATE"}]]
+}
 
 # The netlist's module header settles whether the packed structs and packed arrays on
 # bsw_top's ports (bsw_config_t cfg_i, base_t [1023:0] target_i, bsw_result_t result_o)
@@ -223,9 +238,110 @@ catch {
     if {[file exists $::LOG]} { source $root/synth/ooc/summarize_msgs.tcl }
 }
 
+# ---------------------------------------------------------------------------
+# Write a COMPACT summary to a file.
+#
+# WHY: the console output of this run is tens of thousands of lines -- the DSP
+# inference tables alone are hundreds, and a 160-PE instance-area table is
+# hundreds more. A terminal scrollback buffer will not hold it, and asking anyone
+# to copy it out of a console is a waste of their time. Everything decisive about
+# this run fits in well under a page, so write that page out.
+#
+# (The full log is never lost either: `vivado -mode batch` always writes the
+# complete console output to vivado.log in the current directory.)
+# ---------------------------------------------------------------------------
+catch {
+    set sf $out/step0_summary.txt
+    set fh [open $sf w]
+    puts $fh "bsw STEP 0 summary -- [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+    puts $fh "vivado        : [version -short]"
+    puts $fh "part          : $part   (exact F2 device: [expr {$is_exact ? {YES} : {NO -- proxy}}])"
+    puts $fh "top module    : $top"
+    puts $fh ""
+    puts $fh "parts available:"
+    foreach pp [concat [list $exact] $proxies] {
+        if {[llength [get_parts -quiet $pp]] > 0} { puts $fh "  $pp" }
+    }
+    puts $fh ""
+    puts $fh "red flags:"
+    puts $fh "  inferred latches  : $nlatch"
+    puts $fh "  multi-driven nets : $nmdrv"
+    puts $fh "  black boxes       : $nbbox"
+    puts $fh ""
+    puts $fh "resources:"
+    puts $fh "  LUT  : $nlut"
+    puts $fh "  FF   : $nff"
+    puts $fh "  DSP48E2 : $ndsp"
+    puts $fh "  BRAM : $nbram    URAM : $nuram"
+    puts $fh ""
+
+    # Error / warning tallies straight out of the log, plus one example per ID.
+    set nerr 0 ; set ncrit 0
+    array set wc {} ; array set wex {}
+    if {[file exists $::LOG]} {
+        set lh [open $::LOG r] ; set ltxt [read $lh] ; close $lh
+        foreach line [split $ltxt "\n"] {
+            if {[string match "ERROR:*" $line]} { incr nerr }
+            if {[string match "CRITICAL WARNING:*" $line]} { incr ncrit }
+            if {[string match "WARNING:*" $line]} {
+                set id "(unlabelled)"
+                regexp {\[([A-Za-z_]+ [0-9]+-[0-9]+)\]} $line -> id
+                incr wc($id)
+                if {![info exists wex($id)]} { set wex($id) [string trim $line] }
+            }
+        }
+    }
+    set nmd_log 0
+    if {[info exists ltxt]} {
+        foreach line [split $ltxt "\n"] {
+            if {[string match -nocase "*multiply driven*" $line] ||
+                [string match -nocase "*multi-driven*" $line]} { incr nmd_log }
+        }
+    }
+    puts $fh "  multi-driven mentions in log : $nmd_log"
+    puts $fh ""
+    puts $fh "messages:"
+    puts $fh "  errors            : $nerr"
+    puts $fh "  critical warnings : $ncrit"
+    set rows {}
+    foreach id [array names wc] { lappend rows [list $wc($id) $id $wex($id)] }
+    set rows [lsort -integer -decreasing -index 0 $rows]
+    puts $fh "  warning causes    : [llength $rows] distinct"
+    foreach r $rows {
+        lassign $r n id ex
+        if {[string length $ex] > 150} { set ex "[string range $ex 0 147]..." }
+        puts $fh [format "    %6d x %-16s %s" $n $id $ex]
+    }
+    puts $fh ""
+
+    # The netlist's port header, which decides whether a testbench can bind to it.
+    puts $fh "netlist: [file tail $nl]  ([file size $nl] bytes)"
+    if {[file exists $nl]} {
+        set nh [open $nl r] ; set k 0 ; set inm 0
+        while {[gets $nh line] >= 0} {
+            if {[string match "*module $top*" $line]} { set inm 1 }
+            if {$inm} {
+                puts $fh "  | [string trim $line]"
+                incr k
+                if {[string match "*);*" $line] || $k > 24} { break }
+            }
+        }
+        close $nh
+        if {$k > 24} { puts $fh "  | ... (truncated; full header is in the netlist)" }
+    }
+    close $fh
+    puts ""
+    puts "#############################################################"
+    puts "### COMPACT SUMMARY written to:"
+    puts "###   $sf"
+    puts "### Paste THAT file -- not the console. It is under a page."
+    puts "#############################################################"
+}
+
 puts ""
 puts "#############################################################"
-puts "### DONE. Paste back: the part inventory, the red flags, the"
-puts "### netlist module header, and the message summary."
+puts "### DONE. Paste synth/postsynth/out/step0_summary.txt -- that one"
+puts "### file has the part, the red flags, the warning causes and the"
+puts "### netlist port header. No need to copy the console."
 puts "### Keep $out/${top}_funcsim.v on this machine -- STEP 2 uses it."
 puts "#############################################################"

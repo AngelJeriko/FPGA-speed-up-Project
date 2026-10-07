@@ -88,6 +88,23 @@ Step 1, independently:
 .\sim\xsim\run_bsw_ext.ps1 -Vec sim/xsim/vectors/vec_ecoli_20.txt
 ```
 
+## Output: paste one file, not the console
+
+This run prints tens of thousands of lines -- the DSP inference tables are hundreds
+long, and the per-instance area table has a row for each of 160 PEs. No terminal
+scrollback holds that, and copying it out of a console is a waste of effort.
+
+So the script writes **`out/step0_summary.txt`**: part, top module, available parts,
+red flags, resource counts, every warning cause with one example, and the netlist's
+port header. Under a page. That is the file to share.
+
+Nothing is ever lost either way: `vivado -mode batch` writes the complete console
+output to `vivado.log` in the directory you ran it from. To find anything in it:
+
+```
+Select-String "synthesizing on|CRITICAL|^ERROR" vivado.log
+```
+
 ## STEP 0 results — run 2026-10-06, Vivado 2026.1
 
 **Verdict: clean. No evidence of the failure class this directory exists to find.**
