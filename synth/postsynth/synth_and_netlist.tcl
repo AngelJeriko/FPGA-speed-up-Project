@@ -293,14 +293,24 @@ catch {
             }
         }
     }
+    # Count multi-driven findings ONLY from real tool messages.
+    #
+    # The naive grep over the whole log reported 7 on a run whose netlist query said
+    # 0, which is a false alarm: `vivado -mode batch` ECHOES the sourced script into
+    # the log, so this file's own comments and puts strings containing the phrase get
+    # counted as findings. Requiring a WARNING:/ERROR: prefix excludes echoed script
+    # text, since a real finding is always a prefixed tool message.
     set nmd_log 0
     if {[info exists ltxt]} {
         foreach line [split $ltxt "\n"] {
+            if {!([string match "WARNING:*" $line] ||
+                  [string match "CRITICAL WARNING:*" $line] ||
+                  [string match "ERROR:*" $line])} { continue }
             if {[string match -nocase "*multiply driven*" $line] ||
                 [string match -nocase "*multi-driven*" $line]} { incr nmd_log }
         }
     }
-    puts $fh "  multi-driven mentions in log : $nmd_log"
+    puts $fh "  multi-driven in tool messages : $nmd_log"
     puts $fh ""
     puts $fh "messages:"
     puts $fh "  errors            : $nerr"

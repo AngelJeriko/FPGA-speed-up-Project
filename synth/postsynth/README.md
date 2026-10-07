@@ -88,6 +88,46 @@ Step 1, independently:
 .\sim\xsim\run_bsw_ext.ps1 -Vec sim/xsim/vectors/vec_ecoli_20.txt
 ```
 
+## STEP 0 on the flat top — run 2026-10-06, Vivado 2026.1, xcku5p-ffvb676-2-e
+
+**Clean, and the wrapper works.**
+
+```
+errors            : 0
+critical warnings : 0
+inferred latches  : 0
+multi-driven nets : 0
+black boxes       : 0
+```
+
+Resources are **identical** to the bare `bsw_top` run — 89,752 LUT / 27,265 FF /
+140 DSP48E2 / 0 BRAM / 0 URAM — which is the expected result and a useful check:
+`bsw_top_flat` is continuous assignments only, so it must cost zero logic. Same four
+warning causes at the same counts (100 / 18 / 3 / 1).
+
+The netlist port header is what this run existed to produce:
+
+```
+module bsw_top_flat
+   (clk, rst_n, restart_mode, req_valid_i, req_ready_o,
+    query_flat_i, target_flat_i, cfg_flat_i,
+    result_valid_o, result_ready_i, result_flat_o);
+```
+
+Eleven ports, all intact — against roughly 1,200 scalarized ports when `bsw_top`
+was synthesized directly. `tb_bsw_ext_flat` can bind to this, so **step 2 is
+unblocked**.
+
+### A false alarm in this script, since fixed
+
+The first flat run's summary reported `multi-driven mentions in log : 7` while the
+netlist query said `multi-driven nets : 0`. The query was right. `vivado -mode
+batch` **echoes the sourced script into the log**, so a plain grep counted this
+file's own comments and `puts` strings containing the phrase as findings. The
+counter now requires a `WARNING:`/`ERROR:` prefix, which echoed script text never
+has. Worth remembering generally: grepping a Vivado batch log for a phrase will
+match the script that produced it.
+
 ## Known trip-ups, already fixed
 
 These cost a Vivado run each; recorded so they are not rediscovered.
