@@ -42,12 +42,77 @@ if (-not (Test-Path $netlistPath)) {
   throw "netlist not found: $netlistPath`nRun STEP 0 first: vivado -mode batch -source synth/postsynth/synth_and_netlist.tcl"
 }
 
+# ---------------------------------------------------------------------------
+# STALE-NETLIST GUARD.
+#
+# A failed synthesis leaves the PREVIOUS netlist on disk, and simulating that is
+# worse than not simulating at all -- it looks like a verification result for
+# sources it was not built from. This bit us for real: an N_PE=8 synthesis died in
+# bsw_max_tracker, write_verilog never ran, and this script then re-simulated the
+# stale 160-PE netlist and reported its 166,514 instances, exactly as if the
+# reduction had silently failed to apply.
+#
+# synth_and_netlist.tcl deletes the netlist and this marker BEFORE synthesising and
+# rewrites them only on success, so a present, newer-than-sources marker means the
+# netlist really does correspond to the current RTL.
+# ---------------------------------------------------------------------------
+$infoPath = Join-Path (Split-Path $netlistPath) "netlist_info.txt"
+if (-not (Test-Path $infoPath)) {
+  throw ("no netlist_info.txt beside the netlist: $infoPath`n" +
+         "That marker is written only by a SUCCESSFUL synthesis, so the netlist on " +
+         "disk is stale or was produced before this guard existed.`n" +
+         "Re-run STEP 0: vivado -mode batch -source synth/postsynth/synth_and_netlist.tcl")
+}
+$info = @{}
+Get-Content $infoPath | ForEach-Object {
+  if ($_ -match '^\s*([^=]+)=(.*)$') { $info[$matches[1].Trim()] = $matches[2].Trim() }
+}
+Write-Host "netlist built: top=$($info['top']) N_PE=$($info['npe']) part=$($info['part']) at $($info['written'])"
+
+# The netlist must be newer than every source it was built from.
+$srcs = @(
+  (Join-Path $repo "synth\postsynth\bsw_top_flat.sv")
+) + (Get-ChildItem (Join-Path $repo "rtl") -Filter "bsw_*.sv" | ForEach-Object { $_.FullName })
+$netTime = (Get-Item $netlistPath).LastWriteTime
+$newer = $srcs | Where-Object { (Test-Path $_) -and ((Get-Item $_).LastWriteTime -gt $netTime) }
+if ($newer) {
+  Write-Host ""
+  Write-Host "SOURCES NEWER THAN THE NETLIST:" -ForegroundColor Yellow
+  $newer | ForEach-Object { Write-Host "  $_" }
+  throw "the netlist predates the RTL above; re-run STEP 0 before simulating it"
+}
+
+# N_PE decides the largest qlen the array can accept. A vector with a longer query
+# is REJECTED by bsw_ctrl_fsm (error=1), so every record would fail for a reason
+# that has nothing to do with synthesis. Check before burning a gate-level run.
+$npe = 0
+if (-not [int]::TryParse($info['npe'], [ref]$npe)) { $npe = 0 }
+
 # Vector and dump paths go into Verilog $fopen through a plusarg, where a backslash
 # is an escape character -- so forward slashes only.
 $vecPath = (Join-Path $repo $Vec)
 if (-not (Test-Path $vecPath)) { throw "vector file not found: $vecPath" }
 $vecFwd = (Resolve-Path $vecPath).Path -replace '\\','/'
 $n = (Get-Content $vecFwd -First 1)
+
+if ($npe -gt 0) {
+  # Field 2 of each record header is qlen; records are 3 lines each after the count.
+  $maxQ = 0; $i = 1
+  $vlines = Get-Content $vecPath
+  while ($i -lt $vlines.Count) {
+    $f = ($vlines[$i] -split '\s+') | Where-Object { $_ -ne '' }
+    if ($f.Count -ge 2) { $q = [int]$f[1]; if ($q -gt $maxQ) { $maxQ = $q } }
+    $i += 3
+  }
+  Write-Host "max qlen in vectors: $maxQ   (array accepts qlen <= $npe)"
+  if ($maxQ -gt $npe) {
+    throw ("these vectors need qlen up to $maxQ but the netlist was built with " +
+           "N_PE=$npe, so bsw_ctrl_fsm would REJECT the longer records (error=1) " +
+           "and every one would fail for reasons unrelated to synthesis.`n" +
+           "Use a filtered set, e.g. " +
+           "python scripts/filter_vectors_by_qlen.py <src> <dst> $npe 200")
+  }
+}
 
 if ($Dump -eq "") { $Dump = "postsynth_$([System.IO.Path]::GetFileNameWithoutExtension($Vec)).txt" }
 $dumpFwd = (Join-Path $work $Dump) -replace '\\','/'
@@ -102,9 +167,29 @@ try {
 
   Write-Host "`n== 4/4 xsim (run) -- gate level, be patient =="
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  & "$VivadoBin\xsim.bat" "${Top}_ps" -runall -f $optsFile
-  if ($LASTEXITCODE -ne 0) { throw "xsim failed ($LASTEXITCODE)" }
+  # xsim's exit code is NOT a reliable success signal: when it refused to start over
+  # the BASIC licence instance cap it printed ERROR and still exited 0, so the
+  # original check passed and this script went on to print success guidance. Capture
+  # the output and judge it on content as well.
+  $xout = & "$VivadoBin\xsim.bat" "${Top}_ps" -runall -f $optsFile 2>&1
+  $xout | ForEach-Object { Write-Host $_ }
   $sw.Stop()
+  if ($LASTEXITCODE -ne 0) { throw "xsim failed ($LASTEXITCODE)" }
+  if ($xout -match 'does not meet the requirement to run the number of instances') {
+    throw ("xsim refused the design: the BASIC simulator licence caps instances at " +
+           "50,000. Rebuild the netlist with a smaller N_PE (see " +
+           "synth/postsynth/README.md) -- the error line above prints the exact count.")
+  }
+  if ($xout -match 'Could not obtain the necessary license|Simulation engine failed to start|^ERROR:') {
+    throw "xsim reported an error (see output above) despite exit code $LASTEXITCODE"
+  }
+  if (-not (Test-Path $dumpFwd)) {
+    throw "xsim produced no dump file at $dumpFwd -- the run did not reach the testbench"
+  }
+  $summary = $xout | Select-String -Pattern "${Top}: .* extensions" | Select-Object -First 1
+  if (-not $summary) { throw "no summary line from the testbench -- the run did not complete" }
+  Write-Host ""
+  Write-Host "SUMMARY: $summary"
   Write-Host "`nsim wall-clock: $([math]::Round($sw.Elapsed.TotalSeconds,1)) s for $n extensions"
 }
 finally { Pop-Location }

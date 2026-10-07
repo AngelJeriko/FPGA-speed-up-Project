@@ -137,6 +137,30 @@ module bsw_max_tracker
     localparam int MIDNODES = RNPOW >> MIDLEV;   // partial-max nodes registered at pr
     localparam int S2LEV    = RLEVELS - MIDLEV;  // remaining levels in stage 2
 
+    // ---- parameterisation guard: N_PE must be at least 2**MIDLEV ----
+    //
+    // The two-stage reduction needs at least one stage-1 partial node. If
+    // N_PE < 2**MIDLEV then MIDNODES becomes 0 (a zero-element array) and S2LEV
+    // goes negative, and the module is meaningless.
+    //
+    // WHY THIS GUARD EXISTS: at N_PE=8 with the default MIDLEV=4, Verilator
+    // ACCEPTED the degenerate module and tb_bsw_ext_flat reported 200/200 PASS,
+    // while Vivado rejected the very same source outright:
+    //     ERROR: [Synth 8-2908] range width must be a positive integer
+    //                           [rtl/bsw_max_tracker.sv:174]
+    // A silent pass on a structurally invalid configuration is worse than either
+    // a clean failure or a clean pass, so fail loudly in simulation too. Synthesis
+    // already fails on its own.
+    initial begin
+        if (MIDNODES < 1) begin
+            // One string literal, NOT a brace concatenation: `{"a","b"}` builds a
+            // bit-vector rather than a format string, which turns the message into
+            // a wall of digits.
+            $fatal(1, "bsw_max_tracker: N_PE=%0d too small for MIDLEV=%0d (MIDNODES=%0d, S2LEV=%0d). Need N_PE >= 2**MIDLEV = %0d, or lower MIDLEV via +define+MIDLEV_LVL=<n>.",
+                      N_PE, MIDLEV, MIDNODES, S2LEV, (1 << MIDLEV));
+        end
+    end
+
     // ---- stage 1 (comb): leaves + levels 0..MIDLEV-1 -> MIDNODES partials ----
     score_t s1_h [MIDLEV+1][RNPOW];
     len_t   s1_i [MIDLEV+1][RNPOW];

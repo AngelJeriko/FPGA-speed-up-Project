@@ -150,13 +150,56 @@ Scaling from the measured 160-PE synthesis (array 80,180 / FSM 27,587 / tracker
 
 | N_PE | approx cells | approx instances | fits BASIC? |
 |---|---|---|---|
-| 8 | 32,361 | ~43,700 | **yes** (87% of cap) |
-| 16 | 37,135 | ~50,100 | marginal / no |
+| 8 | — | — | **invalid configuration, see below** |
+| 16 | 37,135 | ~50,100 | **minimum legal N_PE**; estimate is at the cap, measure it |
 | 32 | 46,684 | ~63,000 | no |
 | 160 | 123,383 | 166,514 | no |
 
 The FSM dominates the floor: it latches `target[1024]` (3,072 flops) and does not
-shrink with `N_PE`. So `N_PE=8` is the only configuration with real headroom.
+shrink with `N_PE`.
+
+**CORRECTION — N_PE=8 does not work, and an earlier version of this file wrongly
+said it did.** `bsw_max_tracker` computes `MIDNODES = RNPOW >> MIDLEV`, so with the
+default `MIDLEV=4` and `N_PE=8` it gets `8 >> 4 = 0`: a zero-element array, and
+`S2LEV = 3 - 4 = -1`. Vivado rejects it outright:
+
+```
+ERROR: [Synth 8-2908] range width must be a positive integer
+                      [rtl/bsw_max_tracker.sv:174]
+```
+
+**The constraint is `N_PE >= 2**MIDLEV`, i.e. 16 at the default MIDLEV.** (Lowering
+`MIDLEV` with `+define+MIDLEV_LVL=<n>` relaxes it, at the cost of changing the
+pipeline split the timing work settled on -- not worth it here.)
+
+The instance estimate for N_PE=16 lands right at the 50,000 cap, so it has to be
+measured rather than predicted. If xsim still refuses, its error prints the exact
+count.
+
+### How that wrong claim survived: Verilator accepted the invalid design
+
+This is worth more than the correction itself. At `N_PE=8`, Verilator **compiled the
+degenerate module and `tb_bsw_ext_flat` reported 200/200 PASS** -- a clean green run
+on a configuration synthesis will not build at all. A zero-length array and a
+negative loop bound simply vanished.
+
+That is this directory's whole thesis demonstrated on our own RTL, and it argues the
+local test suite cannot be the last word before a build.
+
+`rtl/bsw_max_tracker.sv` now carries an elaboration guard so the same thing fails
+loudly in simulation too:
+
+```
+%Fatal: bsw_max_tracker: N_PE=8 too small for MIDLEV=4 (MIDNODES=0, S2LEV=-1).
+        Need N_PE >= 2**MIDLEV = 16, or lower MIDLEV via +define+MIDLEV_LVL=<n>.
+```
+
+Verified: fires at `N_PE=8`, silent at 16 and at the 160 default, and `tb_bsw_ext`
+and `tb_bsw_ext_flat` both still pass unchanged.
+
+(The guard message is one string literal, not a brace concatenation: `{"a","b"}` in
+SystemVerilog builds a bit-vector, not a format string, and the first attempt
+printed a 600-digit number instead of a message.)
 
 ### The reduced-array route, validated in RTL
 
@@ -180,12 +223,17 @@ Verified on this box:
 
 | Check | Result |
 |---|---|
-| `N_PE=8`, `qlen<=8` vectors | **200/200, 0 failures** |
-| `N_PE=8`, unfiltered vectors | rejected with `err=1`, outputs zeroed — never a wrong answer |
-| `N_PE=160` default unchanged | 200/200 |
+| `N_PE=16`, `qlen<=16` vectors | **200/200, 0 failures** |
+| `N_PE=16`, guard silent | yes (fires only below 16) |
+| `N_PE=8` | **FATAL by design** — invalid configuration |
+| `N_PE=160` default unchanged | 200/200, and `tb_bsw_ext` also 20/20 |
 
-So the filter is load-bearing, and the reduction is safe rather than papering over
+The unfiltered set through a narrow array comes back `err=1` with outputs zeroed —
+never a wrong answer — so the filter is load-bearing rather than papering over
 anything.
+
+`sim/xsim/vectors/vec_ecoli_qlen16.txt` holds 200 real extensions with `qlen` 1..16,
+and `sim/xsim/reference/verilator_ecoli_qlen16.txt` is its RTL baseline.
 
 ### Randomized register init — the available substitute for 4-state
 
@@ -232,6 +280,24 @@ says nothing about Vivado's include resolution, and vice versa.
 pragma: `Unknown verilator comment`. Detection is case-insensitive and ignores
 leading whitespace, so `//     verilator ...` trips it too. This bit twice. Reword so
 the word is not comment-initial.
+
+**A failed synthesis leaves the previous netlist on disk.** When the `N_PE=8`
+synthesis died, `write_verilog` never ran, and `run_postsynth_bsw.ps1` went on to
+simulate the **stale 160-PE netlist** -- reporting its 166,514 instances, looking
+exactly as though the reduction had failed to apply. Verifying a netlist that was
+not built from the current sources is worse than not verifying at all. Fixed on both
+sides: the Tcl deletes the netlist and its marker *before* synthesising and rewrites
+`out/netlist_info.txt` (top, N_PE, part, timestamp) only on success; the runner
+refuses to start without a matching marker, refuses if any `rtl/bsw_*.sv` is newer
+than the netlist, and refuses if the vectors need a larger `qlen` than the netlist's
+`N_PE` allows.
+
+**`xsim` exits 0 even when it refuses to run.** On the licence rejection it printed
+`ERROR`, shut down, and still returned 0, so `$LASTEXITCODE -ne 0` passed and the
+script printed its success guidance under a failed run. The runner now judges the
+captured output on content -- licence refusal, `Could not obtain`, `ERROR:`, a
+missing dump file, or a missing testbench summary line -- rather than trusting the
+exit code.
 
 **`xsim` plusargs on Windows.** `xsim.bat` is a batch wrapper and **cmd.exe treats
 `=` as a token delimiter**, so `-testplusarg VEC=C:/path` arrives as three tokens

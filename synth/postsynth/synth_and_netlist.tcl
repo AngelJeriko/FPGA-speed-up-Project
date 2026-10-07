@@ -144,6 +144,11 @@ if {$top eq "bsw_top_flat"} { lappend files ../synth/postsynth/bsw_top_flat.sv }
 puts "### top module: $top ###"
 
 if {[catch {
+    # Remove any previous netlist and marker FIRST. If this synthesis fails, there
+    # must be nothing left behind that a later step could mistake for current.
+    catch { file delete $out/${top}_funcsim.v }
+    catch { file delete $out/netlist_info.txt }
+
     create_project -in_memory -part $part -force
     # Give the fileset rtl/ as an include path. Not needed by the current file set
     # (a `include resolves relative to the including file, and rtl/*.sv sit beside
@@ -172,6 +177,20 @@ if {[catch {
 
     # ---- the artifact STEP 2 needs ----
     write_verilog -mode funcsim -force $out/${top}_funcsim.v
+
+    # Provenance marker. Without this, a FAILED synthesis leaves the PREVIOUS
+    # netlist on disk and the simulation runner happily verifies it -- which is
+    # exactly what happened: an N_PE=8 synthesis died on bsw_max_tracker, and the
+    # step-2 run then re-simulated the stale 160-PE netlist and reported its
+    # 166,514 instances, looking as though the reduction had not taken effect.
+    # run_postsynth_bsw.ps1 refuses to run without a marker that matches.
+    set mf [open $out/netlist_info.txt w]
+    puts $mf "top=$top"
+    puts $mf "npe=[expr {[info exists ::NPE] && $::NPE ne "" ? $::NPE : 160}]"
+    puts $mf "part=$part"
+    puts $mf "written=[clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S}]"
+    puts $mf "epoch=[clock seconds]"
+    close $mf
 } msg]} {
     puts ""
     puts "##### SYNTHESIS FAILED #####"
