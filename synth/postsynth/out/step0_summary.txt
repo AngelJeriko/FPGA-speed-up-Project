@@ -1,0 +1,47 @@
+bsw STEP 0 summary -- 2026-10-06 22:06:05
+vivado        : 2026.1
+part          : xcku5p-ffvb676-2-e   (exact F2 device: NO -- proxy)
+top module    : bsw_top_flat
+
+parts available:
+  xcku5p-ffvb676-2-e
+  xc7v2000tfhg1761-2
+  xc7k410tffg900-2
+  xc7k325tffg900-2
+  xc7a200tfbg484-2
+
+red flags:
+  inferred latches  : 0
+  multi-driven nets : 0
+  black boxes       : 0
+
+resources:
+  LUT  : 89752
+  FF   : 27265
+  DSP48E2 : 140
+  BRAM : 0    URAM : 0
+
+  multi-driven mentions in log : 7
+
+messages:
+  errors            : 0
+  critical warnings : 0
+  warning causes    : 4 distinct
+       100 x Synth 8-7129     WARNING: [Synth 8-7129] Port qlen_i[15] in module bsw_max_tracker is either unconnected or has no load
+        18 x Synth 8-11067    WARNING: [Synth 8-11067] parameter 'MAX_QLEN' declared inside package 'bsw_pkg' shall be treated as localparam [C:/work/FPGA-speed-up-Project/rtl/bs...
+         3 x Synth 8-6014     WARNING: [Synth 8-6014] Unused sequential element cfg_q_reg[end_bonus] was removed.  [C:/work/FPGA-speed-up-Project/rtl/bsw_ctrl_fsm.sv:121]
+         1 x Timing 38-242    WARNING: [Timing 38-242] The property HD.CLK_SRC of clock port "clk" is not set. In out-of-context mode, this prevents timing estimation for clock d...
+
+netlist: bsw_top_flat_funcsim.v  (43368958 bytes)
+  | module bsw_top_flat
+  | (clk,
+  | rst_n,
+  | restart_mode,
+  | req_valid_i,
+  | req_ready_o,
+  | query_flat_i,
+  | target_flat_i,
+  | cfg_flat_i,
+  | result_valid_o,
+  | result_ready_i,
+  | result_flat_o);
