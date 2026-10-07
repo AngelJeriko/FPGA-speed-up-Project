@@ -9,6 +9,12 @@ this file is the map, not the territory.
 
 ---
 
+> **Paused 2026-10-07 at `158df79`. For the short resume map, read
+> [`docs/RESUME.md`](RESUME.md) first.** Since the block below was written,
+> post-synthesis gate-level verification was completed: the funcsim netlist is
+> bit-identical to the RTL on 200 real E. coli extensions in XSIM (4-state, `glbl`
+> GSR), at `N_PE=16`. See `synth/postsynth/README.md`.
+
 ## Current status (2026-10-04)
 
 **Sections 0 onwards were written 2026-08-06 and predate the F2 pivot.** They
