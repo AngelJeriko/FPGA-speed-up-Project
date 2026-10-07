@@ -143,7 +143,58 @@ shrank so much more than projected.
 
 Netlist header unchanged and correct: eleven intact vector ports.
 
-## STEP 2 is licence-blocked on this install — and what replaces it
+## STEP 2 ACHIEVED at N_PE=16 — 2026-10-07
+
+**The synthesized netlist is bit-identical to the RTL on 200 real E. coli
+extensions, simulated in XSIM.**
+
+```
+tb_bsw_ext_flat: 200 extensions, 0 failures, 0 max_off diffs -> ALL PASS
+PASS: all 200 rows identical across every field.
+sim wall-clock: 73.1 s for 200 extensions
+```
+
+What was actually simulated: the Verilog netlist `write_verilog -mode funcsim`
+produced -- LUT1-6, CARRY8, FDRE, FDSE, MUXF7/F8 primitives from `unisims_ver` --
+elaborated with `glbl` so the Global Set/Reset is modelled, in a **4-state**
+simulator. Judged by the same testbench code that judges the RTL, against a
+committed Verilator baseline.
+
+### What this does and does not establish
+
+Establishes, on these 200 vectors:
+
+- **No synthesis-vs-simulation mismatch.** The gates Vivado built behave exactly as
+  the SystemVerilog did. This is the claim Verilator cannot make at any vector count.
+- **No X propagation and no reliance on zero-initialisation.** A 4-state simulator
+  with GSR modelled produced definite values in every field;
+  `scripts/compare_dumps.py` reports X separately and found none.
+- **Traceability to bwa-mem2.** The vectors are real captured extensions, and the
+  `score`/`qle`/`tle` in the baseline came from bwa-mem2 itself.
+
+Does **not** establish:
+
+- The **full 160-PE** configuration. This ran 16 PEs; the array is the same RTL
+  replicated, but integration at full width is untested at gate level.
+- **Timing.** No SDF, no post-implementation netlist. `synth/ooc/impl_bsw_top_f2.tcl`
+  owns that question.
+- The **real VU47P**, the AWS shell, or silicon. This was a KU5P proxy.
+
+### Climbing to a wider array
+
+`sim/xsim/vectors/vec_ecoli_qlen{16,32,64}.txt` and their
+`sim/xsim/reference/verilator_ecoli_qlen{16,32,64}.txt` baselines are committed, each
+200 real extensions, each verified passing in RTL at the matching `N_PE`. So:
+
+```
+.\postsynth.ps1 -Npe 32 -KillStray
+.\postsynth.ps1 -Npe 64 -KillStray
+```
+
+Projected ~28,500 cells at 32 and ~49,500 at 64 -- but my projections here have been
+unreliable (see below), so measure rather than trust them.
+
+## The licence ceiling that forced the reduction
 
 The gate-level run got all the way through `xvlog` and `xelab`: the 41 MB netlist
 compiled, elaborated against the real primitive models (`CARRY8`, `LUT1`-`LUT6`,
@@ -326,9 +377,11 @@ let go, and can come up in a state where `req_ready` never asserts. The flat
 testbench now holds reset for **30 cycles (300 ns)**. Holding reset past GSR is
 standard practice for post-synth simulation regardless.
 
-This hypothesis has **not** been confirmed against XSIM -- there is no Vivado on the
-box this was written on. What is certain is that the watchdog could not fire and the
-reset was shorter than GSR; both are now correct.
+This hypothesis has **not** been isolated. The run that later succeeded in 73 s
+changed three things at once -- `N_PE` 160 to 16, reset 5 cycles to 30, and `xelab`
+`-O0` to `-O2` -- so the GSR explanation is plausible but unproven; the smaller
+design alone may account for it. What is certain is that the watchdog could not fire
+and the reset was shorter than GSR, and both are now correct.
 
 **`xelab -O0` was also the wrong choice.** It elaborates fastest but simulates
 slowest, which is backwards when simulation dominates. Now `-O2`.
