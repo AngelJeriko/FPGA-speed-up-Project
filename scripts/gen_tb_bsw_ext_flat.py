@@ -36,6 +36,21 @@ HDR = '''// tb_bsw_ext_flat.sv -- GENERATED from tb_bsw_ext.sv. Do not hand-edit
 // agree, the agreement is about synthesis, not about two harnesses that happened
 // to be wired the same way.
 //
+// TWO FURTHER DELIBERATE DEVIATIONS, both about surviving a gate-level run. Neither
+// touches the pass/fail comparison, which stays byte-identical to tb_bsw_ext:
+//
+//  1. RESET IS HELD FOR 30 CYCLES (300 ns), not 5 (50 ns). In post-synthesis
+//     simulation `glbl` asserts the Global Set/Reset for the first 100 ns, holding
+//     every flop. Releasing rst_n at 50 ns means the design never sees a clean
+//     reset release after GSR lets go, and the FSM can come up in a state where
+//     req_ready never asserts. Costs 250 ns of simulated time under Verilator.
+//
+//  2. THE WATCHDOG COUNTS CYCLES, not simulated time. tb_bsw_ext waits
+//     `#2000000000`, which in a 1ns timescale is 2e8 clock cycles -- unreachable at
+//     gate-level speed, so a stalled gate-level run hangs indefinitely instead of
+//     failing. A real one did, for 10 hours. The cycle watchdog also reports WHICH
+//     extension stalled, which the time-based one never could.
+//
 '''
 
 OLD_INST = '''    bsw_top dut (
@@ -60,6 +75,41 @@ NEW_INST = '''    // The flat wrapper's ports are plain vectors. A packed struct
         .result_valid_o(result_valid), .result_ready_i(result_ready),
         .result_flat_o(result_bits)
     );'''
+
+
+OLD_RESET = """        repeat (5) @(posedge clk);
+        rst_n = 1; @(posedge clk);"""
+
+NEW_RESET = """        // 30 cycles = 300 ns, past glbl's 100 ns GSR pulse. See the header.
+        repeat (`BSW_RESET_CYCLES) @(posedge clk);
+        rst_n = 1; @(posedge clk);"""
+
+OLD_WDOG = """    initial begin
+        #2000000000;
+        $display("[FATAL] tb_bsw_ext_flat timeout");
+        $finish;
+    end"""
+
+NEW_WDOG = """    // Cycle-counted watchdog. A time-based one is unreachable at gate level: see
+    // the header. Override with +define+BSW_MAX_CYCLES=<n>.
+    int unsigned wdog_cyc = 0;
+    always @(posedge clk) begin
+        wdog_cyc <= wdog_cyc + 1;
+        if (wdog_cyc > `BSW_MAX_CYCLES) begin
+            $display("[FATAL] tb_bsw_ext_flat: watchdog fired after %0d cycles while on extension index %0d (of %0d). The DUT stopped responding -- req_ready or result_valid never asserted.",
+                     wdog_cyc, i, cnt);
+            $fatal(1);
+        end
+    end"""
+
+DEFINES = """`ifndef BSW_RESET_CYCLES
+  `define BSW_RESET_CYCLES 30
+`endif
+`ifndef BSW_MAX_CYCLES
+  `define BSW_MAX_CYCLES 400000
+`endif
+
+"""
 
 
 def fail(msg):
@@ -88,10 +138,26 @@ def main():
         fail("the bsw_top instantiation block does not match")
     body = body.replace(OLD_INST, NEW_INST, 1)
 
+    # Deviation 1: hold reset past glbl's 100 ns GSR pulse.
+    if OLD_RESET not in body:
+        fail("the reset sequence does not match")
+    body = body.replace(OLD_RESET, NEW_RESET, 1)
+
+    # Deviation 2: a cycle-counted watchdog that is actually reachable at gate level.
+    if OLD_WDOG not in body:
+        fail("the watchdog block does not match")
+    body = body.replace(OLD_WDOG, NEW_WDOG, 1)
+
     # `result` becomes continuously assigned, so it must never be written
     # procedurally as well -- that would be a compile error in both simulators.
     if 'result =' in body.replace('assign result = result_bits;', ''):
         fail("`result` is assigned procedurally; it cannot also be continuously assigned")
+
+    # The defines go after `timescale/`include so they precede first use.
+    marker = '`include "bsw_pkg.sv"\n'
+    if marker not in body:
+        fail("could not find the bsw_pkg include to anchor the defines")
+    body = body.replace(marker, marker + "\n" + DEFINES, 1)
 
     open(DST, 'w').write(HDR + body)
     print("wrote %s" % os.path.relpath(DST, ROOT))

@@ -141,7 +141,11 @@ try {
   # 3. glbl supplies GSR/GTS, which a funcsim netlist's primitives expect. The
   #    unisims_ver / secureip libraries supply the primitive models themselves.
   Write-Host "`n== 3/4 xelab (elaborate netlist + glbl) =="
-  & "$VivadoBin\xelab.bat" $Top glbl -s "${Top}_ps" --timescale 1ns/1ps -O0 -relax -L unisims_ver -L unisim -L secureip
+  # -O2, not -O0. -O0 elaborates fastest but SIMULATES slowest, which is backwards
+  # for a gate-level run where simulation dominates. glbl supplies GSR/GTS, which a
+  # funcsim netlist's primitives expect; unisims_ver / secureip supply the primitive
+  # models.
+  & "$VivadoBin\xelab.bat" $Top glbl -s "${Top}_ps" --timescale 1ns/1ps -O2 -relax -L unisims_ver -L unisim -L secureip
   if ($LASTEXITCODE -ne 0) { throw "xelab failed ($LASTEXITCODE)" }
 
   # Pass the plusargs through an OPTIONS FILE, not on the command line.
@@ -165,7 +169,17 @@ try {
   Write-Host "`nxsim options file:"
   Get-Content $optsFile | ForEach-Object { Write-Host "  $_" }
 
-  Write-Host "`n== 4/4 xsim (run) -- gate level, be patient =="
+  # Expected duration, so a stall is recognisable instead of being waited out. The
+  # qlen<=16 set is about 20,500 clock cycles of work in total; even at a pessimistic
+  # 100 cycles/sec that is a few minutes. A run past ~30 minutes is stalled, not slow.
+  #
+  # The testbench will now say so itself: tb_bsw_ext_flat carries a CYCLE-counted
+  # watchdog (400,000 cycles, ~20x the work) that names the extension it stalled on.
+  # tb_bsw_ext's time-based `#2000000000` watchdog is 2e8 clock cycles and is
+  # unreachable at gate-level speed -- an earlier run hung for 10 hours because of it.
+  Write-Host "`n== 4/4 xsim (run) -- gate level =="
+  Write-Host "   expect a few minutes; if it passes ~30 min it is STALLED -- Ctrl+C."
+  Write-Host "   (a stall should instead trip the testbench watchdog and name the extension)"
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   # xsim's exit code is NOT a reliable success signal: when it refused to start over
   # the BASIC licence instance cap it printed ERROR and still exited 0, so the

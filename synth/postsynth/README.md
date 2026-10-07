@@ -259,6 +259,52 @@ On the **FPGA Developer AMI** on EC2, which ships a full Vivado/XSIM licence. Th
 is not extra infrastructure: the F2 build has to happen there anyway, because the
 AWS HDK supports Vivado 2024.1-2025.2 and this box has 2026.1.
 
+## Expected runtimes — and the 10-hour hang
+
+| Stage | Expected |
+|---|---|
+| `synth_design` (N_PE=16) | 1-3 min |
+| `xvlog` (41 MB netlist) | ~1 min |
+| `xelab` + snapshot | 2-5 min |
+| `xsim`, 200 qlen<=16 extensions | **a few minutes** |
+
+The qlen<=16 set is about **20,500 clock cycles** of work in total. Even at a
+pessimistic 100 cycles/sec that is minutes. **A gate-level run past ~30 minutes is
+stalled, not slow.**
+
+One run hung for **10 hours**, and the testbench could not report it. Two causes,
+both now fixed in `tb_bsw_ext_flat` (via `scripts/gen_tb_bsw_ext_flat.py`):
+
+**The watchdog was unreachable.** `tb_bsw_ext` waits `#2000000000`, which in a 1ns
+timescale is 2x10^8 clock cycles -- years of wall-clock at gate-level speed. Meanwhile
+`submit_and_wait()` uses unbounded `wait (req_ready)` / `wait (result_valid)`, so a
+non-responding DUT hangs forever. The flat testbench now counts **cycles** (400,000,
+about 20x the work) and names the extension it stalled on:
+
+```
+[FATAL] tb_bsw_ext_flat: watchdog fired after 201 cycles while on extension
+index 4 (of 200). The DUT stopped responding -- req_ready or result_valid
+never asserted.
+```
+
+Verified by building with `+define+BSW_MAX_CYCLES=200`, well under the ~20,500
+needed. Under Verilator the real cycle count never approaches the default.
+
+**Reset was released while GSR still held the design.** This is the likely cause of
+the stall itself. In post-synthesis simulation `glbl` asserts the Global Set/Reset
+for the first **100 ns**, holding every flop; `do_reset()` released `rst_n` after 5
+cycles = **50 ns**. The design therefore never saw a clean reset release after GSR
+let go, and can come up in a state where `req_ready` never asserts. The flat
+testbench now holds reset for **30 cycles (300 ns)**. Holding reset past GSR is
+standard practice for post-synth simulation regardless.
+
+This hypothesis has **not** been confirmed against XSIM -- there is no Vivado on the
+box this was written on. What is certain is that the watchdog could not fire and the
+reset was shorter than GSR; both are now correct.
+
+**`xelab -O0` was also the wrong choice.** It elaborates fastest but simulates
+slowest, which is backwards when simulation dominates. Now `-O2`.
+
 ## Known trip-ups, already fixed
 
 These cost a Vivado run each; recorded so they are not rediscovered.
