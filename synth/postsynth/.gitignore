@@ -9,6 +9,7 @@ out/*
 # pattern stops git descending into the directory at all, and a negation inside it
 # would then never be reached.
 !out/step0_summary.txt
+!out/postsynth_result.txt
 
 *.jou
 *.log

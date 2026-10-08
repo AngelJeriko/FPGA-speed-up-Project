@@ -66,13 +66,55 @@ Write-Host "`n################ STEP 3: netlist vs RTL ################" -Foregro
 if (-not (Test-Path (Join-Path $repo $dump))) {
   throw "no dump at $dump -- the simulation did not reach the testbench"
 }
-& python scripts/compare_dumps.py $ref $dump
+$cmpOut = & python scripts/compare_dumps.py $ref $dump 2>&1
 $cmp = $LASTEXITCODE
+$cmpOut | ForEach-Object { Write-Host $_ }
+
+$verdict = if ($cmp -eq 0) {
+  "RESULT: the synthesized netlist matches the RTL on every field."
+} else {
+  "RESULT: differences found -- see the comparison above."
+}
+Write-Host ""
+if ($cmp -eq 0) { Write-Host $verdict -ForegroundColor Green }
+else            { Write-Host $verdict -ForegroundColor Yellow }
+
+# ---------------------------------------------------------------------------
+# Write the result to a FILE as well as the console.
+#
+# WHY: the console output of a full run is thousands of lines (xvlog names every
+# per-PE module, twice), and selecting the tail of it out of a terminal has
+# repeatedly failed -- a run's outcome has been lost that way more than once. This
+# file is a few dozen lines, is committable (see synth/postsynth/.gitignore), and
+# carries the three things that actually matter: which netlist was tested, what the
+# testbench said, and how the comparison came out.
+# ---------------------------------------------------------------------------
+$resultFile = Join-Path $repo "synth\postsynth\out\postsynth_result.txt"
+$info = @{}
+$infoPath = Join-Path $repo "synth\postsynth\out\netlist_info.txt"
+if (Test-Path $infoPath) {
+  Get-Content $infoPath | ForEach-Object {
+    if ($_ -match '^\s*([^=]+)=(.*)$') { $info[$matches[1].Trim()] = $matches[2].Trim() }
+  }
+}
+$lines = @(
+  "post-synthesis gate-level result -- $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
+  "",
+  "netlist top   : $($info['top'])",
+  "netlist N_PE  : $($info['npe'])",
+  "netlist part  : $($info['part'])",
+  "netlist built : $($info['written'])",
+  "vectors       : $vec",
+  "reference     : $ref",
+  "",
+  "--- comparison (netlist vs RTL baseline) ---"
+) + $cmpOut + @("", $verdict)
+$lines | Set-Content -Path $resultFile -Encoding ASCII
 
 Write-Host ""
-if ($cmp -eq 0) {
-  Write-Host "RESULT: the synthesized netlist matches the RTL on every field." -ForegroundColor Green
-} else {
-  Write-Host "RESULT: differences found -- see the comparison above." -ForegroundColor Yellow
-}
+Write-Host "Result also written to:  synth/postsynth/out/postsynth_result.txt"
+Write-Host "That file is committable -- it is the easiest thing to share:"
+Write-Host "  git add synth/postsynth/out/postsynth_result.txt"
+Write-Host "  git commit -m `"postsynth result at N_PE=$Npe`""
+Write-Host "  git push"
 exit $cmp
