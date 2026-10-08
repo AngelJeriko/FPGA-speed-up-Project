@@ -18,7 +18,7 @@ and `synth/postsynth/README.md` is the fullest account of the most recent work.
 | C reference models | human + E. coli captures | **18,156,029 extensions bit-exact** |
 | RTL, Verilator | `bsw_top` vs captured bwa-mem2 outputs | **169,468 extensions, 0 failures** |
 | HLS kernel | csim + csynth + cosim, Vitis HLS 2026.1 | **PASS**, 72 vectors / 4 configs |
-| **Synthesized netlist, XSIM** | funcsim netlist vs RTL, 4-state, `glbl` GSR | **200/200 identical, every field** |
+| **Synthesized netlist, XSIM** | funcsim netlist vs RTL, 4-state, `glbl` GSR, at **N_PE=16 and 32** | **200/200 identical, every field, both widths** |
 | Power-on state | randomized register init, 10 seeds | **PASS**, and proven able to fail |
 | Timing | real P&R on KU5P-2 (same fabric/speed grade as VU47P) | **219.2 MHz** -> path (B) |
 
@@ -34,9 +34,10 @@ mismatch**, **no X propagation**, and **no reliance on zero-initialisation** —
 of which a Verilator run can establish at any vector count, because Verilator
 compiles SystemVerilog to C++ and is 2-state.
 
-It does **not** establish the full **160-PE** width (this ran 16), **timing** (no
-SDF, no post-implementation netlist), or the real **VU47P** (a KU5P proxy was used).
-Nor anything about the AWS shell or silicon.
+It does **not** establish the full **160-PE** width (16 and 32 were run; 32 is the
+most a BASIC XSIM licence allows), **timing** (no SDF, no post-implementation
+netlist), or the real **VU47P** (a KU5P proxy was used). Nor anything about the AWS
+shell or silicon.
 
 ---
 
@@ -76,19 +77,15 @@ confusingly; `postsynth.ps1` exists so there is only one short line to type.
 
 ## The two things left
 
-**1. Optional, local: widen the gate-level array.**
+**1. ~~Widen the gate-level array~~ — DONE, and the ceiling is reached.**
 
-```powershell
-.\postsynth.ps1 -Npe 32 -KillStray
-.\postsynth.ps1 -Npe 64 -KillStray
-```
+`N_PE=32` passed on 2026-10-07: 30,524 leaf cells, 200/200 identical, and it newly
+covered the `DSP48E2` path (15 DSPs at 32 PEs, **0** at 16). Measured scaling
+(`cells ~= 5,724 + 775*N_PE`, instances ~= 1.35x cells) puts `N_PE=40` at 99% of
+XSIM's 50,000-instance cap and 48/64 over it. **32 is the practical local ceiling.**
+Nothing further is worth attempting on a BASIC licence.
 
-Vectors and RTL baselines are committed and verified for both. 64 PEs is 40% of full
-width. Projected ~49,500 cells, near XSIM's BASIC licence ceiling of 50,000
-instances — **measure it rather than trusting the projection**, which was 3x out at
-`N_PE=16`.
-
-**2. The AWS build.** Full 160-PE gate-level simulation and post-implementation
+**2. The AWS build — the only substantive item left.** Full 160-PE gate-level simulation and post-implementation
 timing simulation both need a full Vivado licence, which the **FPGA Developer AMI**
 ships. That is not extra infrastructure: the F2 build has to run there regardless,
 because the AWS HDK supports Vivado 2024.1–2025.2 and the local install is 2026.1.

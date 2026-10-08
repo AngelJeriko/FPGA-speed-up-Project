@@ -180,19 +180,55 @@ Does **not** establish:
   owns that question.
 - The **real VU47P**, the AWS shell, or silicon. This was a KU5P proxy.
 
-### Climbing to a wider array
-
-`sim/xsim/vectors/vec_ecoli_qlen{16,32,64}.txt` and their
-`sim/xsim/reference/verilator_ecoli_qlen{16,32,64}.txt` baselines are committed, each
-200 real extensions, each verified passing in RTL at the matching `N_PE`. So:
+## STEP 2 also PASSES at N_PE=32 — 2026-10-07
 
 ```
-.\postsynth.ps1 -Npe 32 -KillStray
-.\postsynth.ps1 -Npe 64 -KillStray
+tb_bsw_ext_flat: 200 extensions, 0 failures, 0 max_off diffs -> ALL PASS
+PASS: all 200 rows identical across every field.
+sim wall-clock: 136.2 s        netlist 9.1 MB        30,524 leaf cells
+synthesis: 0 errors, 0 critical warnings, 0 latches, 0 multi-driven, 0 black boxes
 ```
 
-Projected ~28,500 cells at 32 and ~49,500 at 64 -- but my projections here have been
-unreliable (see below), so measure rather than trust them.
+### This run covered something N_PE=16 could not: the DSP48E2 path
+
+| N_PE | DSP48E2 inferred |
+|---|---|
+| 16 | **0** |
+| 32 | **15** |
+| 160 | 140 |
+
+Synthesis infers roughly `N_PE - 17` DSPs, from the `sa_init_h_curr_o` computation in
+`bsw_ctrl_fsm`. So at `N_PE=16` there were **no DSPs at all** and the gate-level run
+could not have exercised `DSP48E2` primitive behaviour. At 32 there are 15, and
+`xelab` confirms it: `Compiling module unisims_ver.DSP48E2(ALUMODEREG=0,...)` appears
+in the 32-PE log and is absent from the 16-PE one.
+
+That makes this more than a bigger repeat. Hard-macro arithmetic blocks are exactly
+where a synthesis-vs-simulation difference would hide, and they are now verified at
+gate level against the RTL.
+
+### Where local gate-level verification tops out
+
+Measured leaf cells fit `cells ~= 5,724 + 775 * N_PE` (checked against the 160-PE
+figure to 5%). The one point where XSIM reported *instances* gives an
+instances-per-cell ratio of **1.35** (166,514 / 123,383).
+
+| N_PE | leaf cells | ~instances | vs the 50,000 cap |
+|---|---|---|---|
+| 16 | 18,124 (measured) | ~24,500 | fits |
+| **32** | **30,524 (measured)** | **~41,200** | **fits — verified** |
+| 40 | ~36,700 | ~49,600 | 99% of cap, not worth the cycle |
+| 48 | ~42,900 | ~57,900 | over |
+| 64 | ~55,300 | ~74,700 | over |
+| 160 | 123,383 (measured) | 166,514 | refused |
+
+**`N_PE=32` is therefore the practical ceiling here, and it has been reached.**
+`N_PE=64` is **not** attainable on a BASIC licence — an earlier version of this file
+suggested trying it on a projection that is now known to be ~12% low. The
+`qlen<=64` vector set and its RTL baseline stay committed; they become useful the
+moment a full licence is available, and they still exercise the RTL at that width.
+
+Anything wider needs a full Vivado/XSIM licence -> the **FPGA Developer AMI**.
 
 ## The licence ceiling that forced the reduction
 
