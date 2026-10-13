@@ -28,3 +28,21 @@ qdb/
 Thumbs.db
 host/loopback_test
 _remote_src/
+
+# Vivado simulation and temporary files
+*.log
+*.jou
+*.backup.jou
+*.autopilot
+*.vcd
+*.wdb
+*.pb
+
+# Generated Vivado simulation directories
+**/xsim.dir/
+**/xsim_postsynth_work/
+**/.Xil/
+
+# Generated HLS simulation output
+**/csim/report/
+**/sim/report/verilog/
